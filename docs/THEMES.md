@@ -5,10 +5,12 @@ uses. Iconbloom lists every such folder in its theme dropdown. You don't need to
 
 ```
 themes/
+  _library/
+    recipes.json        # recipes shared by every theme
+    decorations/*.svg   # bow, heart, star, flower, cloud, moon, leaf, sun...
   my_theme/
     theme.json
-    star.png
-    src/star.svg        # optional: editable source for the PNG
+    star.png            # rendered from _library/decorations/star.svg
 ```
 
 ## theme.json
@@ -17,12 +19,13 @@ themes/
 {
   "name": "Mint Cream",
   "palette": {"light": "#E6FFF5", "main": "#8FE3C3", "ink": "#2F7A63", "cream": "#FFFDF7"},
+  "decor": {"fill": "#8FE3C3", "outline": "#2F7A63", "shine": "#E6FFF5", "eye": "#2E3B33"},
   "assets": {"star": "star.png"},
   "recipes": [
-    {"id": "mint_tint", "label": "Mint tint",
-     "ops": [{"op": "tint", "stops": ["ink", "main", "light"]}]},
-    {"id": "star_tile", "label": "Tile + star", "keeps_color": true,
-     "ops": [{"op": "tile", "fill": "cream"},
+    "pastel_tint",
+    {"use": "bubble_cream", "label": "Cream bubble"},
+    {"id": "star_tile", "label": "Dotty tile + star", "family": "pattern",
+     "ops": [{"op": "tile", "fill": "cream", "pattern": "dots", "pattern_color": "main"},
              {"op": "badge", "asset": "star", "corner": "top-right"}]}
   ]
 }
@@ -32,14 +35,39 @@ themes/
 |---|---|
 | `name` | Shown in the theme dropdown. |
 | `palette` | Named colors as `#RRGGBB`. Recipes refer to colors by these names. |
+| `decor` | Colors for the decoration drawings (see [Decorations](#decorations)). |
 | `assets` | Name to PNG file, relative to the theme folder. |
 | `recipes` | The styles offered for each icon, in this order. |
 
-Each recipe has an `id` (unique, used in file names), a `label` (shown under the preview) and
-`ops`, a list of steps applied in order to the icon at 256 px. Set `keeps_color` to `true`
-when the recipe keeps the icon's color structure: its own colors, or a `recolor` that keeps
-regions apart. Busy, colorful icons get those recipes first, and simple glyphs get the
-others first.
+A recipe is one of:
+
+- a library id, such as `"pastel_tint"`: the recipe from `_library/recipes.json`, drawn in
+  this theme's palette
+- `{"use": "<library id>", "id": ..., "label": ...}`: a library recipe under another id or label
+- a full recipe object
+
+A full recipe has an `id` (unique, used in file names), a `label` (shown under the preview), a
+`family` and `ops`, a list of steps applied in order to the icon at 256 px. Library recipes
+name palette colors (`main`, `ink`, `light`...), so a theme using them needs those names.
+
+## Order and families
+
+Styles appear in the order the theme lists them. Put the most striking first, and don't put
+two of the same `family` next to each other:
+
+| Family | For recipes that |
+|---|---|
+| `recolor` | keep the icon's color regions but swap in theme colors |
+| `gradient` | paint the icon one color on a gradient tile |
+| `mono` | paint the icon one color |
+| `tile` | put the icon on a plain tile |
+| `pattern` | put the icon on a patterned tile |
+| `sticker` | add a die-cut sticker border |
+| `tint` | map the icon onto a few theme shades |
+| `glow` | tint the icon and add a halo |
+
+For busy, colorful icons, `tint` and `glow` recipes move to the end, since flattening many
+colors into a few shades loses the most there.
 
 ## Colors
 
@@ -59,7 +87,7 @@ Wherever a color is expected, you can write:
 | `soft_tint` | Pulls the icon toward one color but keeps a hint of its own hues | `color` (required), `amount` (0.45) |
 | `mono` | Fills the icon with one color; contrasting inner details become see-through | `color` (required), `knockout` (true) |
 | `gradient_fill` | Like `mono`, with a two-color gradient | `stops` (required, 2 colors), `angle` (90, top to bottom), `knockout` (true) |
-| `tile` | Shrinks the icon onto a filled shape | `fill` (required, 1 color or 2 for a gradient), `shape` (`squircle`, `circle` or `rounded`), `angle` (90), `scale` (0.7), `shadow` (true), `outline` (none) |
+| `tile` | Shrinks the icon onto a filled shape | `fill` (required, 1 color or 2 for a gradient), `shape` (`squircle`, `circle` or `rounded`), `angle` (90), `scale` (0.7), `shadow` (true), `outline` (none), `pattern` (none, or `dots`, `stripes`, `gingham`, `hearts`), `pattern_color` (`#FFFFFF`) |
 | `sticker_outline` | Die-cut sticker border behind the icon | `thickness` (10 px), `color` (`#FFFFFF`), `shadow` (true) |
 | `glow` | Soft halo around the icon | `color` (required), `radius` (10), `strength` (0.8) |
 | `overlay_face` | Tiny face on the lower middle of the icon | `face` (required asset), `scale` (0.42), `offset_x` (0), `offset_y` (0.16) |
@@ -83,12 +111,26 @@ gradient angle.
 
 ## Decorations
 
-Assets are transparent PNGs. Draw them yourself or use art you have the rights to share. Keep
-an editable SVG in `src/` and render it with:
+The drawings in `_library/decorations/` are SVG templates. Their colors are tokens, filled
+from the theme's `decor` colors, so one bow drawing becomes a pink bow or a mint one:
+
+| Token | Used for |
+|---|---|
+| `fill`, `fill_dark`, `fill_deep` | main body, darker parts (bow tails, knot, sun rays) |
+| `outline` | outlines and leaf veins |
+| `shine` | soft highlights, flower and sparkle centers |
+| `deep`, `accent` | the two sparkle outlines |
+| `blush`, `eye` | cheeks and eyes on the faces |
+
+List the decorations a theme uses under `assets`, then render them:
 
 ```bash
 uv run python -m scripts.render_assets my_theme
 ```
+
+Each PNG is rendered from the template of the same name. To draw your own, put an SVG in
+`my_theme/src/`: it is used instead of the template of the same name. Draw it yourself or use
+art you have the rights to share. A test fails if a committed PNG doesn't match its SVG.
 
 ## Checking your theme
 

@@ -18,6 +18,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 type RGB = tuple[int, int, int]
 type FloatArray = npt.NDArray[np.float64]
 type Shape = Literal["squircle", "circle", "rounded"]
+type Pattern = Literal["dots", "stripes", "gingham", "hearts"]
 type Corner = Literal["top-left", "top-right", "bottom-left", "bottom-right"]
 
 CANVAS = 256
@@ -149,10 +150,13 @@ def tile(
     scale: float = 0.7,
     shadow: bool = True,
     outline: RGB | None = None,
+    pattern: Pattern | None = None,
+    pattern_color: RGB = (255, 255, 255),
 ) -> Image.Image:
     """Shrink the icon and center it on a filled shape.
 
     ``fill`` is one color for a solid tile or two for a linear gradient.
+    ``pattern`` adds polka dots, stripes, gingham or little hearts over the fill.
     """
     if not 1 <= len(fill) <= 2:
         raise ValueError("tile fill needs one or two colors")
@@ -166,6 +170,8 @@ def tile(
         surface = Image.new("RGBA", img.size, (*fill[0], 255))
     else:
         surface = linear_gradient(img.size, fill[0], fill[1], angle).convert("RGBA")
+    if pattern is not None:
+        surface.alpha_composite(_solid(img.size, pattern_color, pattern_mask(img.size, pattern)))
     surface.putalpha(mask)
 
     out = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -307,6 +313,64 @@ def _cached_shape_mask(
     else:
         draw.polygon(_squircle_points(left, top, right, bottom), fill=255)
     return big.resize(size, Image.Resampling.LANCZOS)
+
+
+def pattern_mask(size: tuple[int, int], pattern: Pattern) -> Image.Image:
+    """L-mode mask of a repeating pattern covering the whole canvas."""
+    return _cached_pattern_mask(size, pattern).copy()
+
+
+# How strongly a pattern shows over its tile; gingham overlaps itself, so it starts lighter.
+_PATTERN_STRENGTH = {"dots": 0.75, "stripes": 0.45, "gingham": 0.32, "hearts": 0.75}
+
+
+@functools.lru_cache(maxsize=16)
+def _cached_pattern_mask(size: tuple[int, int], pattern: Pattern) -> Image.Image:
+    s = _SUPERSAMPLE
+    width, height = size[0] * s, size[1] * s
+    step = round(width * (0.17 if pattern == "hearts" else 0.125))
+    big = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(big)
+    if pattern == "stripes":
+        band = step // 2
+        for offset in range(-height, width, step):
+            draw.polygon(
+                [
+                    (offset, 0),
+                    (offset + band, 0),
+                    (offset + band + height, height),
+                    (offset + height, height),
+                ],
+                fill=255,
+            )
+    elif pattern == "gingham":
+        band = step // 2
+        layer = Image.new("L", (width, height), 0)
+        layer_draw = ImageDraw.Draw(layer)
+        for offset in range(0, width, step):
+            draw.rectangle((offset, 0, offset + band, height), fill=128)
+            layer_draw.rectangle((0, offset, width, offset + band), fill=128)
+        big = ImageChops.add(big, layer)
+    else:
+        radius = step * (0.2 if pattern == "dots" else 0.28)
+        for row, y in enumerate(range(step // 2, height + step, step)):
+            shift = step // 2 if row % 2 else 0
+            for x in range(step // 2 - shift, width + step, step):
+                if pattern == "dots":
+                    draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+                else:
+                    _draw_heart(draw, x, y, radius)
+    strength = _PATTERN_STRENGTH[pattern]
+    small = big.resize(size, Image.Resampling.LANCZOS)
+    return small.point(_scale_lut(strength))
+
+
+def _draw_heart(draw: ImageDraw.ImageDraw, x: float, y: float, r: float) -> None:
+    """A small heart centered on (x, y), about 2r wide."""
+    lobe = r * 0.55
+    draw.ellipse((x - r, y - r * 0.75, x - r + 2 * lobe, y - r * 0.75 + 2 * lobe), fill=255)
+    draw.ellipse((x + r - 2 * lobe, y - r * 0.75, x + r, y - r * 0.75 + 2 * lobe), fill=255)
+    draw.polygon([(x - r * 0.98, y - r * 0.1), (x + r * 0.98, y - r * 0.1), (x, y + r)], fill=255)
 
 
 def dilate(alpha: Image.Image, radius: float) -> Image.Image:

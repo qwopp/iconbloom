@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Literal
 from PIL import Image
 
 from engine import analyze, ops
+from engine.families import Family
 
 if TYPE_CHECKING:
     from engine.themes import Theme
@@ -58,6 +59,7 @@ class OpDef:
 
 
 _SHAPES = ("squircle", "circle", "rounded")
+_PATTERNS = ("dots", "stripes", "gingham", "hearts")
 _CORNERS = ("top-right", "top-left", "bottom-right", "bottom-left")
 
 OPS: Mapping[str, OpDef] = {
@@ -103,6 +105,8 @@ OPS: Mapping[str, OpDef] = {
             "scale": Param("number", 0.7, low=0.3, high=1.0),
             "shadow": Param("bool", True),
             "outline": Param("color"),
+            "pattern": Param("choice", choices=_PATTERNS),
+            "pattern_color": Param("color", "#FFFFFF"),
         },
     ),
     "sticker_outline": OpDef(
@@ -150,18 +154,19 @@ class Step:
     params: Mapping[str, Json] = field(default_factory=dict[str, Json])
 
 
+_RECIPE_FIELDS = frozenset({"id", "label", "family", "ops"})
+
+
 @dataclass(frozen=True)
 class Recipe:
     id: str
     label: str
+    family: Family
     steps: tuple[Step, ...]
-    # True when the recipe shows the icon's own colors. Busy, colorful icons
-    # get these recipes first, since tinting them tends to look muddy.
-    keeps_color: bool = False
 
 
 def parse_recipe(raw: Json, palette: Mapping[str, ops.RGB], assets: Sequence[str]) -> Recipe:
-    """Build a Recipe from its theme.json form, checking every step and parameter."""
+    """Build a Recipe from its theme.json form, checking every field, step and parameter."""
     if not isinstance(raw, dict):
         raise RecipeError("each recipe must be a JSON object")
     data = dict(raw)
@@ -169,20 +174,24 @@ def parse_recipe(raw: Json, palette: Mapping[str, ops.RGB], assets: Sequence[str
     if not isinstance(recipe_id, str) or not recipe_id:
         raise RecipeError("recipe is missing a string 'id'")
     where = f"recipe '{recipe_id}'"
+    unknown = sorted(set(data) - _RECIPE_FIELDS)
+    if unknown:
+        raise RecipeError(f"{where}: unknown field(s) {', '.join(unknown)}")
     label = data.get("label", recipe_id)
-    keeps_color = data.get("keeps_color", False)
+    family = data.get("family")
     raw_steps = data.get("ops")
     if not isinstance(label, str):
         raise RecipeError(f"{where}: 'label' must be a string")
-    if not isinstance(keeps_color, bool):
-        raise RecipeError(f"{where}: 'keeps_color' must be true or false")
+    if family not in set(Family):
+        known = ", ".join(Family)
+        raise RecipeError(f"{where}: 'family' must be one of {known}")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise RecipeError(f"{where}: 'ops' must be a non-empty list")
     steps = tuple(
         _parse_step(step, f"{where}, step {i + 1}", palette, assets)
         for i, step in enumerate(raw_steps)
     )
-    return Recipe(id=recipe_id, label=label, steps=steps, keeps_color=keeps_color)
+    return Recipe(id=recipe_id, label=label, family=Family(family), steps=steps)
 
 
 def render(

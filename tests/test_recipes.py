@@ -3,29 +3,31 @@ import pytest
 from PIL import Image
 
 from engine import ops
+from engine.families import Family
 from engine.recipes import Json, RecipeError, Step, parse_hex, parse_recipe, render
 from engine.themes import Theme
 from tests.conftest import load_sample
 
 PALETTE = {"main": (255, 158, 196), "ink": (168, 67, 111)}
 ASSETS = ["bow"]
+MONO: list[Json] = [{"op": "mono", "color": "ink"}]
 
 
-def _recipe(steps: list[Json]) -> Json:
-    return {"id": "r", "label": "R", "ops": steps}
+def _recipe(steps: list[Json], **fields: Json) -> Json:
+    return {"id": "r", "label": "R", "family": "mono", "ops": steps} | fields
 
 
 def _parse(raw: Json) -> None:
     parse_recipe(raw, PALETTE, ASSETS)
 
 
-def test_parse_recipe_keeps_steps_and_flags() -> None:
+def test_parse_recipe_keeps_steps_and_family() -> None:
     recipe = parse_recipe(
-        {"id": "x", "label": "X", "keeps_color": True, "ops": [{"op": "mono", "color": "ink"}]},
+        {"id": "x", "label": "X", "family": "sticker", "ops": [{"op": "mono", "color": "ink"}]},
         PALETTE,
         ASSETS,
     )
-    assert recipe.keeps_color
+    assert recipe.family is Family.STICKER
     assert recipe.steps == (Step(op="mono", params={"color": "ink"}),)
 
 
@@ -34,9 +36,11 @@ def test_parse_recipe_keeps_steps_and_flags() -> None:
     [
         ("not an object", "JSON object"),
         ({"label": "no id", "ops": []}, "missing a string 'id'"),
-        ({"id": "r", "label": 3, "ops": [{"op": "mono", "color": "ink"}]}, "'label'"),
-        ({"id": "r", "keeps_color": "yes", "ops": [{"op": "mono", "color": "ink"}]}, "keeps_color"),
-        ({"id": "r", "ops": []}, "non-empty list"),
+        (_recipe(MONO, label=3), "'label'"),
+        (_recipe(MONO, family="sparkly"), "'family' must be"),
+        ({"id": "r", "ops": [{"op": "mono", "color": "ink"}]}, "'family' must be"),
+        (_recipe(MONO, keeps_color=True), "unknown field"),
+        (_recipe([]), "non-empty list"),
         (_recipe(["mono"]), "step 1: must be a JSON object"),
         (_recipe([{"op": "explode"}]), "unknown op 'explode'"),
         (_recipe([{"op": "mono", "color": "ink", "size": 3}]), "unknown parameter"),
@@ -51,6 +55,7 @@ def test_parse_recipe_keeps_steps_and_flags() -> None:
         (_recipe([{"op": "glow", "color": "ink", "radius": 99}]), "outside"),
         (_recipe([{"op": "tile", "fill": "main", "shadow": "yes"}]), "true or false"),
         (_recipe([{"op": "tile", "fill": "main", "shape": "star"}]), "expected one of"),
+        (_recipe([{"op": "tile", "fill": "main", "pattern": "plaid"}]), "expected one of"),
     ],
 )
 def test_parse_recipe_reports_problems(raw: Json, message: str) -> None:

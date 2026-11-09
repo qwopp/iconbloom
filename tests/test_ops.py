@@ -39,6 +39,8 @@ def _rgb() -> st.SearchStrategy[tuple[int, int, int]]:
     return st.tuples(st.integers(0, 255), st.integers(0, 255), st.integers(0, 255))
 
 
+PATTERNS: tuple[ops.Pattern, ...] = ("dots", "stripes", "gingham", "hearts")
+
 OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
     "tint": lambda img, d: ops.tint(
         img,
@@ -64,6 +66,8 @@ OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
         scale=d.draw(st.floats(0.3, 1.0)),
         shadow=d.draw(st.booleans()),
         outline=d.draw(st.none() | _rgb()),
+        pattern=d.draw(st.none() | st.sampled_from(PATTERNS)),
+        pattern_color=d.draw(_rgb()),
     ),
     "sticker_outline": lambda img, d: ops.sticker_outline(
         img, thickness=d.draw(st.floats(1, 24)), shadow=d.draw(st.booleans())
@@ -231,6 +235,38 @@ def test_tile_puts_fill_behind_shrunken_icon() -> None:
     out = ops.tile(icon, fill=[CREAM], shadow=False)
     assert _px(out, (30, 128)) == (*CREAM, 255)
     assert _px(out, (128, 128)) == (0, 0, 0, 255)
+
+
+@pytest.mark.parametrize("pattern", PATTERNS)
+def test_tile_pattern_paints_only_the_tile(pattern: ops.Pattern) -> None:
+    icon, _ = ops.prepare(Image.new("RGBA", (64, 64), (0, 0, 0, 255)))
+    plain = ops.tile(icon, fill=[PINK], shadow=False)
+    patterned = ops.tile(icon, fill=[PINK], shadow=False, pattern=pattern, pattern_color=CREAM)
+    changed = np.any(np.asarray(plain) != np.asarray(patterned), axis=2)
+    assert changed.any()
+    # The pattern stays inside the tile: its shape and the icon on top are untouched.
+    assert np.array_equal(_alpha(plain), _alpha(patterned))
+    assert _px(patterned, (128, 128)) == (0, 0, 0, 255)
+    # On the flat fill, pattern pixels blend the fill and the pattern color, nothing else.
+    flat = (np.asarray(plain) == (*PINK, 255)).all(axis=2)
+    blended = np.asarray(patterned.convert("RGB"))[flat].astype(int)
+    assert np.all(blended >= np.minimum(PINK, CREAM) - 1)
+    assert np.all(blended <= np.maximum(PINK, CREAM) + 1)
+
+
+@pytest.mark.parametrize("pattern", PATTERNS)
+def test_pattern_masks_repeat_and_scale(pattern: ops.Pattern) -> None:
+    small = np.asarray(ops.pattern_mask((128, 128), pattern), dtype=float)
+    large = np.asarray(ops.pattern_mask((256, 256), pattern), dtype=float)
+    assert 0.03 < small.mean() / 255 < 0.6
+    # Same design at any size: coverage barely changes.
+    assert abs(small.mean() - large.mean()) < 12
+
+
+def test_pattern_mask_is_a_fresh_copy() -> None:
+    mask = ops.pattern_mask((64, 64), "dots")
+    mask.paste(0, (0, 0, 64, 64))
+    assert ops.pattern_mask((64, 64), "dots").getbbox() is not None
 
 
 def test_tile_rejects_three_fill_colors() -> None:

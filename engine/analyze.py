@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from PIL import Image
 
+from engine.families import FLATTENING, Family
 from engine.ops import RGB
 
 # Hasler-Suesstrunk scores at or above this count as colorful. On the sample
@@ -21,7 +22,7 @@ _MIN_SATURATION = 0.25
 
 class Orderable(Protocol):
     @property
-    def keeps_color(self) -> bool: ...
+    def family(self) -> Family: ...
 
 
 def colorfulness(img: Image.Image) -> float:
@@ -76,12 +77,15 @@ def nearest_shade(img: Image.Image, palette: Mapping[str, RGB]) -> RGB:
 
 
 def order_recipes[R: Orderable](recipes: Iterable[R], icon: Image.Image) -> list[R]:
-    """Best-first order: color-keeping recipes lead for busy icons, tints for simple ones.
+    """The theme's own order, except that busy icons see color-flattening recipes last.
 
-    The sort is stable, so the theme's own order holds within each group.
+    A tint turns a multicolor logo into one muddy ramp, so for those icons the
+    tints and glows move to the end; everything else keeps its place.
     """
-    colorful = is_colorful(icon)
-    return sorted(recipes, key=lambda r: r.keeps_color != colorful)
+    ordered = list(recipes)
+    if not is_colorful(icon):
+        return ordered
+    return sorted(ordered, key=lambda r: r.family in FLATTENING)
 
 
 def _hues(
