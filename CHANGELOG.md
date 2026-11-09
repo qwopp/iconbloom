@@ -6,6 +6,27 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Search box and Desktop / Taskbar / Start menu tabs above the shortcut list.
+- Shortcuts shared by every user (the all-users Start menu and public desktop) can now be
+  styled and reverted: Windows asks for administrator permission once per action, and you
+  can choose to change only your own shortcuts instead.
+- Select several shortcuts with Ctrl or Shift to preview a style on all of them and apply
+  it together.
+- A banner offering to refresh Windows' icons after a taskbar pin changes.
+- Hover text on every button.
+
+### Changed
+
+- Desktop shortcuts are listed first, then taskbar pins, then the Start menu, with
+  Windows' own tools last.
+- Explorer is told exactly which shortcuts changed, and taskbar changes also refresh the
+  icon cache, so icons update more reliably.
+- Less common actions (Reapply my icons, Refresh Windows icons, Delete unused icon files)
+  moved into a More menu.
+- Hovering a style compares it with the original at one desktop size instead of two.
+
 ## [0.1.0] - 2026-11-09
 
 First release.

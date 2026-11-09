@@ -17,7 +17,16 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QEnterEvent, QImage, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QEnterEvent,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygon,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -44,7 +53,8 @@ STATUS_COLORS = {
 
 KEY_ROLE = Qt.ItemDataRole.UserRole + 1
 STATUS_ROLE = Qt.ItemDataRole.UserRole + 2
-WRITABLE_ROLE = Qt.ItemDataRole.UserRole + 3
+# Every shortcut in the group is shared by all users, so changing it asks for permission.
+SHARED_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
 def to_qimage(image: Image.Image) -> QImage:
@@ -126,15 +136,11 @@ class TileDelegate(QStyledItemDelegate):
         painter.setBrush(background)
         painter.drawRoundedRect(rect, 14, 14)
 
-        writable = bool(index.data(WRITABLE_ROLE))
-        if not writable:
-            painter.setOpacity(0.45)
         pixmap = index.data(Qt.ItemDataRole.DecorationRole)
         if isinstance(pixmap, QPixmap):
             icon_rect = QRect(0, 0, self.ICON, self.ICON)
             icon_rect.moveCenter(QPoint(rect.center().x(), rect.top() + 10 + self.ICON // 2))
             painter.drawPixmap(icon_rect, pixmap)
-        painter.setOpacity(1.0)
 
         painter.setPen(QColor("#7A3E5D"))
         text_rect = QRect(rect.left() + 6, rect.top() + self.ICON + 16, rect.width() - 12, 34)
@@ -152,25 +158,33 @@ class TileDelegate(QStyledItemDelegate):
             painter.setPen(QColor("#FFFFFF"))
             painter.setBrush(STATUS_COLORS[Status(status)])
             painter.drawEllipse(QPoint(rect.right() - 12, rect.top() + 12), 6, 6)
-        if not writable:
-            _draw_padlock(painter, QPoint(rect.left() + 14, rect.top() + 14))
+        if index.data(SHARED_ROLE):
+            _draw_shield(painter, QPoint(rect.left() + 14, rect.top() + 14))
         painter.restore()
 
 
-def _draw_padlock(painter: QPainter, center: QPoint) -> None:
-    """Tiny lock marking shortcuts that need admin rights to change."""
-    color = QColor("#B58AA2")
-    painter.setPen(QPen(color, 1.6))
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawArc(QRect(center.x() - 4, center.y() - 8, 8, 9), 0, 180 * 16)
-    painter.setBrush(color)
-    painter.drawRoundedRect(QRect(center.x() - 6, center.y() - 3, 12, 9), 2, 2)
+def _draw_shield(painter: QPainter, center: QPoint) -> None:
+    """Small shield, the Windows sign for "this asks for administrator permission"."""
+    x, y = center.x(), center.y()
+    shield = QPolygon(
+        [
+            QPoint(x - 6, y - 7),
+            QPoint(x + 6, y - 7),
+            QPoint(x + 6, y),
+            QPoint(x, y + 7),
+            QPoint(x - 6, y),
+        ]
+    )
+    painter.setPen(QPen(QColor("#B58AA2"), 1.4))
+    painter.setBrush(QColor("#F3E6FF"))
+    painter.drawPolygon(shield)
 
 
 class SizePopup(QFrame):
     """Floating strip comparing the original and a style at real desktop sizes."""
 
-    SIZES = (32, 48)
+    # The largest size Windows shows on a standard desktop; smaller ones look the same.
+    SIZES = (48,)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.ToolTip)

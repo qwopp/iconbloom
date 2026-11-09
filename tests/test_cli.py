@@ -19,7 +19,7 @@ def test_scan_lists_and_dumps(
     assert _run(env, "scan", "--dump-dir", str(tmp_path / "dump")) == 0
     out = capsys.readouterr().out
     assert "Paint  (original)" in out
-    assert "Admin  (original)  [read-only]" in out
+    assert "Admin  (original)  [shared: needs administrator permission]" in out
     assert r"icon:   C:\Apps\paint.ico,1" in out
     assert "2 shortcut groups" in out
     assert len(list((tmp_path / "dump").glob("*.png"))) == 2
@@ -77,7 +77,7 @@ def test_corrupt_backup_refuses(env: FakeDesktop, capsys: pytest.CaptureFixture[
 def test_reported_skips(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) -> None:
     env.make("Admin", folder=env.common)
     assert _run(env, "apply", "Admin", "--recipe", "sticker") == 0
-    assert "read-only location" in capsys.readouterr().out
+    assert "needs administrator permission" in capsys.readouterr().out
 
 
 def test_service_type_is_used(env: FakeDesktop) -> None:

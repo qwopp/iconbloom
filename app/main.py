@@ -8,17 +8,21 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.elevation import ELEVATED_FLAG, handle_request
 from app.logs import log_uncaught, setup_logging
-from app.service import windows_service
+from app.service import IconService, windows_service
 from app.ui import UI_DIR
 from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
+from platform_win.elevate import shared_folders
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import hard_refresh
+from platform_win.shortcuts import ShellLinkIO
 
 log = logging.getLogger("iconbloom")
 
@@ -60,15 +64,28 @@ def revert_everything(paths: AppPaths) -> int:
     return 0
 
 
+def run_elevated_request(paths: AppPaths, request: Path) -> int:
+    """The elevated copy: carry out one request from the normal app, then exit."""
+    try:
+        service = IconService(paths, ShellLinkIO(), roots=[])
+        return handle_request(request, service, shared_folders())
+    except BackupCorruptError as exc:
+        log.error("elevated request refused: %s", exc)
+        return 2
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="Iconbloom")
     parser.add_argument(
         "--revert-all", action="store_true", help="restore every original icon and exit"
     )
+    parser.add_argument(ELEVATED_FLAG, type=Path, metavar="REQUEST", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     paths = default_app_paths().ensure()
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
+    if args.elevated is not None:
+        return run_elevated_request(paths, args.elevated)
     return revert_everything(paths) if args.revert_all else run_window(paths)
 
 

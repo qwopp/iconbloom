@@ -22,6 +22,8 @@ from platform_win.shortcuts import ShortcutGroup
 
 type Command = Callable[[argparse.Namespace, IconService], int]
 
+SHARED_HELP = "also change shortcuts every user shares (Windows asks for permission)"
+
 
 def _cmd_scan(args: argparse.Namespace, service: IconService) -> int:
     groups = service.scan()
@@ -40,7 +42,9 @@ def _cmd_apply(args: argparse.Namespace, service: IconService) -> int:
     target = _find(service, args.name)
     service.theme(args.theme).recipe(args.recipe)  # fail early on a typo
     choice = Choice(args.theme, args.recipe, seed=args.seed)
-    return _report(service.apply(target, choice, dry_run=args.dry_run))
+    return _report(
+        service.apply(target, choice, include_shared=args.include_shared, dry_run=args.dry_run)
+    )
 
 
 def _cmd_revert(args: argparse.Namespace, service: IconService) -> int:
@@ -56,7 +60,10 @@ def _cmd_cleanup(args: argparse.Namespace, service: IconService) -> int:
 
 
 def _cmd_reapply(args: argparse.Namespace, service: IconService) -> int:
-    return _report(service.reapply(service.scan(), dry_run=args.dry_run))
+    groups = service.scan()
+    return _report(
+        service.reapply(groups, include_shared=args.include_shared, dry_run=args.dry_run)
+    )
 
 
 def _find(service: IconService, name: str) -> ShortcutGroup:
@@ -83,7 +90,7 @@ def _report(report: ChangeReport) -> int:
 
 def _print_group(service: IconService, group: ShortcutGroup) -> None:
     primary = group.primary
-    lock = "" if group.writable else "  [read-only]"
+    lock = "" if group.own_shortcuts else "  [shared: needs administrator permission]"
     print(f"{group.name}  ({service.status(group)}){lock}")
     print(f"    target: {primary.info.target or '(none: Store or advertised app)'}")
     icon = primary.info.icon
@@ -129,12 +136,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--recipe", required=True, help="recipe id from the theme")
     apply_cmd.add_argument("--theme", default=DEFAULT_THEME)
     apply_cmd.add_argument("--seed", type=int, default=0, help="0 = default look, others shuffle")
+    apply_cmd.add_argument("--include-shared", action="store_true", help=SHARED_HELP)
 
     revert_cmd = add("revert", _cmd_revert, "restore one shortcut's original icon", changes=True)
     revert_cmd.add_argument("name")
     add("revert-all", _cmd_revert_all, "restore every changed shortcut", changes=True)
     add("cleanup", _cmd_cleanup, "delete generated icons nothing uses", changes=True)
-    add("reapply", _cmd_reapply, "re-theme shortcuts that lost their icon", changes=True)
+    reapply_cmd = add(
+        "reapply", _cmd_reapply, "re-theme shortcuts that lost their icon", changes=True
+    )
+    reapply_cmd.add_argument("--include-shared", action="store_true", help=SHARED_HELP)
     return parser
 
 

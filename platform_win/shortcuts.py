@@ -22,13 +22,30 @@ if TYPE_CHECKING:
 class Source(StrEnum):
     DESKTOP = "Desktop"
     PUBLIC_DESKTOP = "Public desktop"
+    TASKBAR = "Taskbar"
     START_MENU = "Start menu"
     ALL_USERS_START_MENU = "Start menu (all users)"
+
+
+class Place(StrEnum):
+    """Where a person sees the shortcut, for filtering the grid."""
+
+    DESKTOP = "Desktop"
     TASKBAR = "Taskbar"
+    START_MENU = "Start menu"
 
 
-# Folders shared by all users need admin rights to write, which v1 never asks for.
-READ_ONLY_SOURCES = frozenset({Source.PUBLIC_DESKTOP, Source.ALL_USERS_START_MENU})
+_PLACES = {
+    Source.DESKTOP: Place.DESKTOP,
+    Source.PUBLIC_DESKTOP: Place.DESKTOP,
+    Source.TASKBAR: Place.TASKBAR,
+    Source.START_MENU: Place.START_MENU,
+    Source.ALL_USERS_START_MENU: Place.START_MENU,
+}
+
+
+# Folders shared by every user on the PC; changing them needs administrator permission.
+SHARED_SOURCES = frozenset({Source.PUBLIC_DESKTOP, Source.ALL_USERS_START_MENU})
 
 # Most useful first: when two shortcuts launch the same app, the tile shows
 # the name and icon of the one found in the earliest source.
@@ -61,8 +78,13 @@ class Shortcut:
         return self.path.stem
 
     @property
-    def writable(self) -> bool:
-        return self.source not in READ_ONLY_SOURCES
+    def place(self) -> Place:
+        return _PLACES[self.source]
+
+    @property
+    def shared(self) -> bool:
+        """In a folder every user sees; changing it needs administrator permission."""
+        return self.source in SHARED_SOURCES
 
 
 @dataclass(frozen=True)
@@ -81,12 +103,24 @@ class ShortcutGroup:
         return self.primary.name
 
     @property
-    def writable_shortcuts(self) -> tuple[Shortcut, ...]:
-        return tuple(s for s in self.shortcuts if s.writable)
+    def own_shortcuts(self) -> tuple[Shortcut, ...]:
+        """The ones in this user's own folders, which need no extra permission."""
+        return tuple(s for s in self.shortcuts if not s.shared)
 
     @property
-    def writable(self) -> bool:
-        return bool(self.writable_shortcuts)
+    def shared_shortcuts(self) -> tuple[Shortcut, ...]:
+        return tuple(s for s in self.shortcuts if s.shared)
+
+    @property
+    def places(self) -> frozenset[Place]:
+        return frozenset(s.place for s in self.shortcuts)
+
+    @property
+    def is_windows_tool(self) -> bool:
+        """Built into Windows (Command Prompt, Character Map...): listed after real apps."""
+        target = self.primary.info.target
+        windir = normalize_path(os.environ.get("SYSTEMROOT", r"C:\Windows")) + "\\"
+        return bool(target) and normalize_path(os.path.expandvars(target)).startswith(windir)
 
     @property
     def slug(self) -> str:
@@ -230,7 +264,16 @@ def group(shortcuts: Iterable[Shortcut]) -> list[ShortcutGroup]:
         ShortcutGroup(key, tuple(sorted(members, key=_preference)))
         for key, members in groups.items()
     ]
-    return sorted(result, key=lambda g: g.name.casefold())
+    return sorted(result, key=_display_order)
+
+
+def _display_order(target: ShortcutGroup) -> tuple[int, bool, str]:
+    """Desktop first, then taskbar, then Start menu; Windows' own tools after real apps."""
+    return (
+        _SOURCE_ORDER.index(target.primary.source),
+        target.is_windows_tool,
+        target.name.casefold(),
+    )
 
 
 def group_key(shortcut: Shortcut) -> str:
@@ -252,7 +295,7 @@ def normalize_path(path: str) -> str:
 
 
 def _preference(shortcut: Shortcut) -> tuple[int, int, str]:
-    return (not shortcut.writable, _SOURCE_ORDER.index(shortcut.source), str(shortcut.path))
+    return (shortcut.shared, _SOURCE_ORDER.index(shortcut.source), str(shortcut.path))
 
 
 def _lnk_files(root: ScanRoot) -> list[Path]:

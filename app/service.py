@@ -11,7 +11,7 @@ same order, so a crash at any step leaves a recoverable state:
 
 import hashlib
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -20,16 +20,19 @@ from typing import Protocol
 from PIL import Image
 
 from app.choices import Choice, ChoiceStore
+from app.elevation import Action, ElevatedItem, ElevatedResult, Elevator, WindowsElevator
 from engine import ops
 from engine.ico import build_ico
 from engine.recipes import render
 from engine.themes import THEMES_DIR, Theme, list_themes, load_theme, theme_name
 from platform_win.backup import BackupManifest, file_sha256
+from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, extract_icon, read_icon_file
 from platform_win.fileio import atomic_write
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import notify_icons_changed
 from platform_win.shortcuts import (
+    SHARED_SOURCES,
     IconLocation,
     LinkIO,
     ScanRoot,
@@ -56,6 +59,10 @@ class Status(StrEnum):
     SKIPPED = "skipped"
     # A style was chosen, but the shortcut lost it (usually an app update).
     NEEDS_REAPPLY = "needs reapply"
+
+
+SHARED_REASON = "shared by every user on this PC; needs administrator permission"
+DECLINED_REASON = "you declined Windows' permission prompt"
 
 
 class ShortcutStateError(Exception):
@@ -91,8 +98,9 @@ class IconService:
         roots: Sequence[ScanRoot],
         *,
         extractor: Extractor = extract_icon,
-        notify: Callable[[], None] = lambda: None,
+        notify: Callable[[Sequence[Path]], None] = lambda _paths: None,
         themes_dir: Path = THEMES_DIR,
+        elevator: Elevator | None = None,
     ) -> None:
         self.paths = paths.ensure()
         self._link_io = link_io
@@ -100,6 +108,8 @@ class IconService:
         self._extract = extractor
         self._notify = notify
         self._themes_dir = themes_dir
+        self._elevator = elevator
+        self._shared_folders = [r.path for r in roots if r.source in SHARED_SOURCES]
         self._themes: dict[str, Theme] = {}
         self._icons_prefix = normalize_path(str(self.paths.icons)).rstrip("\\") + "\\"
         # Raises BackupCorruptError on a damaged manifest, before anything can change.
@@ -141,8 +151,8 @@ class IconService:
         return Status.ORIGINAL
 
     def is_untouched(self, target: ShortcutGroup) -> bool:
-        """Can be themed and hasn't been themed or skipped yet."""
-        return target.writable and self.status(target) is Status.ORIGINAL
+        """Hasn't been themed or skipped yet."""
+        return self.status(target) is Status.ORIGINAL
 
     def original_icon(self, target: ShortcutGroup) -> ExtractedIcon:
         """The app's own icon, even when the shortcut currently shows a themed one."""
@@ -172,104 +182,195 @@ class IconService:
         target: ShortcutGroup,
         choice: Choice,
         *,
+        include_shared: bool = False,
         prepared: Image.Image | None = None,
         dry_run: bool = False,
-        notify: bool = True,
     ) -> ChangeReport:
-        """Theme every writable shortcut in a group with ``choice``.
+        """Theme a group's shortcuts with ``choice``.
 
-        ``prepared`` is the original icon after ``ops.prepare``, when the caller
-        already has it; otherwise it is extracted here.
+        Shortcuts in folders every user shares are only changed when
+        ``include_shared`` is set, through one Windows permission prompt.
+        ``prepared`` is the original icon after ``ops.prepare``, when the
+        caller already has it; otherwise it is extracted here.
         """
-        report = ChangeReport(dry_run)
-        writable = target.writable_shortcuts
-        if not writable:
-            report.skipped.extend((s.path, "read-only location") for s in target.shortcuts)
-            return report
-        if prepared is None and not choice.is_custom:
-            prepared, _ = ops.prepare(self.original_icon(target).image)
-        full, simple = self.render_choice(choice, prepared)
-        icon_file = self.paths.icons / f"{target.slug}_{choice.file_tag}.ico"
-        report.written.append(icon_file)
-        if not dry_run:
-            atomic_write(icon_file, build_ico(full, simple))
-        for shortcut in writable:
-            try:
-                self._apply_one(shortcut.path, icon_file, dry_run=dry_run)
-            except ShortcutStateError as exc:
-                report.skipped.append((shortcut.path, str(exc)))
-                continue
-            report.changed.append(shortcut.path)
-        if not dry_run and report.changed:
-            self.choices.set(target.key, choice)
-            if notify:
-                self._notify()
-            log.info("applied %s to %s", choice.file_tag, target.name)
-        return report
+        return self.apply_many(
+            [target],
+            lambda _g: choice,
+            include_shared=include_shared,
+            prepared={target.key: prepared} if prepared is not None else None,
+            dry_run=dry_run,
+            catch=False,
+        )
 
     def apply_many(
         self,
         targets: Sequence[ShortcutGroup],
         choice_for: Callable[[ShortcutGroup], Choice | None],
         *,
+        include_shared: bool = False,
         dry_run: bool = False,
         progress: Progress | None = None,
+        prepared: Mapping[str, Image.Image] | None = None,
+        catch: bool = True,
     ) -> ChangeReport:
-        """Apply to many groups, refreshing Explorer once at the end.
+        """Theme many groups, with at most one permission prompt and one Explorer refresh.
 
-        A failure on one group is recorded in ``skipped`` and the batch goes on.
+        With ``catch``, a failure on one group is recorded in ``skipped`` and
+        the batch goes on.
         """
         report = ChangeReport(dry_run)
+        shared: list[ElevatedItem] = []
+        chosen: dict[Path, tuple[ShortcutGroup, Choice]] = {}
         for i, target in enumerate(targets):
             if progress is not None and not progress(i, target):
                 break
             choice = choice_for(target)
             if choice is None:
                 continue
+            if not target.own_shortcuts and not include_shared:
+                report.skipped += [(s.path, SHARED_REASON) for s in target.shortcuts]
+                continue
             try:
-                report.extend(self.apply(target, choice, dry_run=dry_run, notify=False))
-            except Exception as exc:  # one bad icon must not stop the batch
+                icon_file = self._themed_icon(
+                    target, choice, (prepared or {}).get(target.key), dry_run=dry_run
+                )
+            except Exception as exc:
+                if not catch:
+                    raise
                 log.exception("could not theme %s", target.name)
                 report.skipped.append((target.primary.path, str(exc)))
-        if not dry_run and report.changed:
-            self._notify()
+                continue
+            report.written.append(icon_file)
+            for shortcut in target.own_shortcuts:
+                try:
+                    self._apply_one(shortcut.path, icon_file, dry_run=dry_run)
+                except ShortcutStateError as exc:
+                    report.skipped.append((shortcut.path, str(exc)))
+                    continue
+                report.changed.append(shortcut.path)
+                chosen[shortcut.path] = (target, choice)
+            for shortcut in target.shared_shortcuts:
+                if include_shared:
+                    shared.append(ElevatedItem(shortcut.path, icon_file))
+                    chosen[shortcut.path] = (target, choice)
+                else:
+                    report.skipped.append((shortcut.path, SHARED_REASON))
+        if shared:
+            report.extend(self._elevated("apply", shared, dry_run=dry_run))
+        if not dry_run:
+            for path in report.changed:
+                target, choice = chosen[path]
+                self.choices.set(target.key, choice)
+            if report.changed:
+                self._notify(report.changed)
+                log.info("applied styles to %d shortcuts", len(report.changed))
         return report
 
     def reapply(
         self,
         groups: Sequence[ShortcutGroup],
         *,
+        include_shared: bool = False,
         dry_run: bool = False,
         progress: Progress | None = None,
     ) -> ChangeReport:
         """Re-theme every shortcut that lost its chosen icon, e.g. after an app update."""
         lost = [g for g in groups if self.status(g) is Status.NEEDS_REAPPLY]
         return self.apply_many(
-            lost, lambda g: self.choices.get(g.key), dry_run=dry_run, progress=progress
+            lost,
+            lambda g: self.choices.get(g.key),
+            include_shared=include_shared,
+            dry_run=dry_run,
+            progress=progress,
         )
 
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
-        report = ChangeReport(dry_run)
-        for shortcut in target.shortcuts:
-            if self._revert_one(shortcut.path, dry_run=dry_run):
-                report.changed.append(shortcut.path)
+        report = self._revert_paths([s.path for s in target.shortcuts], dry_run=dry_run)
         if not dry_run:
             self.choices.clear(target.key)
-            if report.changed:
-                self._notify()
-                log.info("reverted %s", target.name)
         return report
 
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
-        report = ChangeReport(dry_run)
-        for entry in self.manifest:
-            if self._revert_one(Path(entry.shortcut), dry_run=dry_run):
-                report.changed.append(Path(entry.shortcut))
+        report = self._revert_paths([Path(e.shortcut) for e in self.manifest], dry_run=dry_run)
         if not dry_run:
             self.choices.clear_all()
-            self._notify()
-            log.info("reverted all (%d shortcuts)", len(report.changed))
         return report
+
+    def _revert_paths(self, paths: Sequence[Path], *, dry_run: bool) -> ChangeReport:
+        report = ChangeReport(dry_run)
+        shared: list[ElevatedItem] = []
+        for path in paths:
+            if self.manifest.get(path) is None:
+                continue
+            if self.is_shared(path) and path.exists():
+                shared.append(ElevatedItem(path))
+            elif self._revert_one(path, dry_run=dry_run):
+                report.changed.append(path)
+        if shared:
+            report.extend(self._elevated("revert", shared, dry_run=dry_run))
+        if not dry_run and report.changed:
+            self._notify(report.changed)
+            log.info("reverted %d shortcuts", len(report.changed))
+        return report
+
+    def is_shared(self, path: Path) -> bool:
+        """In a folder every user shares, so changing it needs administrator permission."""
+        return is_inside(path, self._shared_folders)
+
+    def _elevated(
+        self, action: Action, items: Sequence[ElevatedItem], *, dry_run: bool
+    ) -> ChangeReport:
+        report = ChangeReport(dry_run)
+        if dry_run:
+            report.changed += [i.shortcut for i in items]
+            return report
+        if self._elevator is None:
+            report.skipped += [(i.shortcut, SHARED_REASON) for i in items]
+            return report
+        try:
+            result = self._elevator(action, items)
+        except ElevationDeclinedError:
+            report.skipped += [
+                (i.shortcut, "you declined Windows' permission prompt") for i in items
+            ]
+            return report
+        finally:
+            # The elevated copy wrote to backup.json; pick up its entries.
+            self.manifest.reload()
+        report.changed += result.changed
+        report.skipped += result.skipped
+        return report
+
+    def apply_files(self, items: Sequence[tuple[Path, Path]]) -> ElevatedResult:
+        """Inside the elevated copy: point already-checked shortcuts at icon files."""
+        result = ElevatedResult()
+        for shortcut, icon_file in items:
+            try:
+                self._apply_one(shortcut, icon_file, dry_run=False)
+            except (ShortcutStateError, OSError) as exc:
+                result.skipped.append((shortcut, str(exc)))
+            else:
+                result.changed.append(shortcut)
+        return result
+
+    def restore_icon_fields(self, shortcuts: Sequence[Path]) -> ElevatedResult:
+        """Inside the elevated copy: put back the recorded icon, never whole files."""
+        result = ElevatedResult()
+        for shortcut in shortcuts:
+            entry = self.manifest.get(shortcut)
+            if entry is None:
+                continue
+            if entry.original_icon_path.startswith("\\\\"):
+                # Network icon paths would make every user's PC reach out to that server.
+                result.skipped.append((shortcut, "original icon is on a network path"))
+                continue
+            try:
+                self._revert_one(shortcut, dry_run=False, whole_file=False)
+            except OSError as exc:
+                result.skipped.append((shortcut, str(exc)))
+            else:
+                result.changed.append(shortcut)
+        return result
 
     def skip(self, target: ShortcutGroup) -> None:
         self.choices.skip(target.key)
@@ -337,7 +438,19 @@ class IconService:
         self._link_io.set_icon(path, IconLocation(str(icon_file), 0))
         self.manifest.mark_applied(path, icon_file)
 
-    def _revert_one(self, path: Path, *, dry_run: bool) -> bool:
+    def _themed_icon(
+        self, target: ShortcutGroup, choice: Choice, prepared: Image.Image | None, *, dry_run: bool
+    ) -> Path:
+        """Render ``choice`` for a group and write its .ico; returns the file."""
+        if prepared is None and not choice.is_custom:
+            prepared, _ = ops.prepare(self.original_icon(target).image)
+        full, simple = self.render_choice(choice, prepared)
+        icon_file = self.paths.icons / f"{target.slug}_{choice.file_tag}.ico"
+        if not dry_run:
+            atomic_write(icon_file, build_ico(full, simple))
+        return icon_file
+
+    def _revert_one(self, path: Path, *, dry_run: bool, whole_file: bool = True) -> bool:
         entry = self.manifest.get(path)
         if entry is None:
             return False
@@ -346,7 +459,7 @@ class IconService:
         if path.exists():
             current_sha = file_sha256(path)
             original = self.manifest.original_bytes(entry)
-            if current_sha == entry.applied_sha256 and original is not None:
+            if whole_file and current_sha == entry.applied_sha256 and original is not None:
                 # Nothing else touched the shortcut since we did: restore it byte for byte.
                 atomic_write(path, original)
             elif current_sha != entry.original_sha256 and self.is_ours(
@@ -360,9 +473,11 @@ class IconService:
 
 def windows_service(paths: AppPaths | None = None) -> IconService:
     """The real thing: the user's shortcut folders, IShellLink and Explorer refresh."""
+    paths = paths or default_app_paths()
     return IconService(
-        paths or default_app_paths(),
+        paths,
         ShellLinkIO(),
         default_roots(),
         notify=notify_icons_changed,
+        elevator=WindowsElevator(paths),
     )

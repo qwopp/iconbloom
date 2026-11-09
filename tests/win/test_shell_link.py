@@ -37,3 +37,11 @@ def test_scan_reads_real_links(tmp_path: Path, shell_io: ShellLinkIO) -> None:
 
 def test_known_desktop_folder_resolves() -> None:
     assert known_folder("Desktop").is_absolute()
+
+
+def test_explorer_accepts_per_file_refresh(tmp_path: Path, shell_io: ShellLinkIO) -> None:
+    from platform_win.refresh import notify_icons_changed
+
+    link = tmp_path / "Notepad.lnk"
+    shell_io.create(link, str(NOTEPAD))
+    notify_icons_changed([link])  # must not raise for real paths

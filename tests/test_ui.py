@@ -4,14 +4,15 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QItemSelectionModel, QPoint
 from PySide6.QtWidgets import QApplication, QMessageBox
 from pytestqt.qtbot import QtBot
 
 from app.main import load_style
-from app.service import IconService, Status
+from app.service import ChangeReport, IconService, Status
 from app.ui.main_window import MainWindow
 from app.updates import Release
+from platform_win.shortcuts import Place
 from tests.conftest import load_sample
 from tests.fakes import FakeDesktop
 
@@ -38,6 +39,23 @@ class Harness:
     def service(self) -> IconService:
         return self.window.service
 
+    def settle(self) -> None:
+        """Wait until every background action has finished and reported back."""
+        self.qtbot.waitUntil(lambda: not self.window._jobs, timeout=15_000)
+        self.qtbot.wait(20)
+
+    def select(self, *names: str) -> None:
+        """Click the first name, then ctrl-click the rest."""
+        grid = self.window.grid
+        rows = {self.window.model.item(r).text(): r for r in range(self.window.model.rowCount())}
+        grid.setCurrentIndex(self.window.model.index(rows[names[0]], 0))
+        selection = grid.selectionModel()
+        for name in names[1:]:
+            selection.select(
+                self.window.model.index(rows[name], 0), QItemSelectionModel.SelectionFlag.Select
+            )
+        self.wait_for_previews()
+
     def wait_for_previews(self, count: int = RECIPES) -> None:
         self.qtbot.waitUntil(lambda: len(self.window._cards) == count, timeout=15_000)
 
@@ -46,6 +64,10 @@ class Harness:
 
     def lnk(self, name: str) -> Path:
         return self.desktop.desktop / f"{name}.lnk"
+
+    def path(self, name: str) -> Path:
+        mine = self.lnk(name)
+        return mine if mine.exists() else self.desktop.common / f"{name}.lnk"
 
 
 @pytest.fixture
@@ -58,6 +80,8 @@ def harness(
     desktop.make("Admin Tool", folder=desktop.common)
     load_style(qapp)
     h = Harness(desktop, qtbot)
+    # Shared shortcuts go through the fake permission prompt without asking each time.
+    h.window.settings.shared_shortcuts = "include"
     # Modal boxes would block a headless run forever; record them instead.
     for kind in ("information", "warning"):
         monkeypatch.setattr(QMessageBox, kind, lambda parent, title, text: h.messages.append(text))
@@ -80,7 +104,7 @@ def say_yes(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_launch_selects_first_untouched_and_shows_previews(harness: Harness) -> None:
     group = harness.window.current_group()
     assert group is not None
-    assert group.name == "Arcade"  # the read-only Admin Tool is skipped
+    assert group.name == "Arcade"  # desktop shortcuts first, the shared Admin Tool last
     assert harness.window.apply_button.isEnabled()
     assert not harness.window.revert_button.isEnabled()
 
@@ -88,6 +112,7 @@ def test_launch_selects_first_untouched_and_shows_previews(harness: Harness) -> 
 def test_apply_themes_shortcut_and_advances(harness: Harness) -> None:
     before = harness.lnk("Arcade").read_bytes()
     harness.window.apply_chosen()
+    harness.settle()
     assert harness.status("Arcade") is Status.THEMED
     assert harness.lnk("Arcade").read_bytes() != before
     current = harness.window.current_group()
@@ -99,13 +124,13 @@ def test_double_click_applies_and_revert_restores(harness: Harness) -> None:
     before = harness.lnk("Arcade").read_bytes()
     card = harness.window._cards[2]
     card.activated.emit(card)
+    harness.settle()
     assert harness.status("Arcade") is Status.THEMED
 
-    arcade = harness.window.model.index(1, 0)
-    harness.window.grid.setCurrentIndex(arcade)
-    harness.wait_for_previews()
+    harness.select("Arcade")
     assert harness.window.revert_button.isEnabled()
     harness.window.revert_current()
+    harness.settle()
     assert harness.lnk("Arcade").read_bytes() == before
     assert harness.status("Arcade") is Status.ORIGINAL
 
@@ -127,13 +152,16 @@ def test_shuffle_rerolls_previews(harness: Harness) -> None:
 
 
 def test_revert_all_after_applying_everything(harness: Harness, say_yes: None) -> None:
-    originals = {name: harness.lnk(name).read_bytes() for name in APPS}
+    names = [*APPS, "Admin Tool"]
+    originals = {name: harness.path(name).read_bytes() for name in names}
     harness.window.apply_style_to_all()
-    harness.qtbot.waitUntil(
-        lambda: all(harness.status(name) is Status.THEMED for name in APPS), timeout=15_000
-    )
+    harness.settle()
+    assert all(harness.status(name) is Status.THEMED for name in names)
     harness.window.revert_all()
-    assert {name: harness.lnk(name).read_bytes() for name in APPS} == originals
+    harness.settle()
+    assert harness.status("Admin Tool") is Status.ORIGINAL
+    for name in APPS:
+        assert harness.path(name).read_bytes() == originals[name]
 
 
 def test_use_own_image(harness: Harness, tmp_path: Path) -> None:
@@ -145,14 +173,86 @@ def test_use_own_image(harness: Harness, tmp_path: Path) -> None:
     harness.window._choose(harness.window._cards[0])
     assert not harness.window.all_button.isEnabled()
     harness.window.apply_chosen()
+    harness.settle()
     assert harness.status("Arcade") is Status.THEMED
 
 
-def test_read_only_shortcut_cannot_be_applied(harness: Harness) -> None:
-    harness.window.grid.setCurrentIndex(harness.window.model.index(0, 0))
-    harness.wait_for_previews()
-    assert not harness.window.apply_button.isEnabled()
-    assert not harness.window.own_image_button.isEnabled()
+def test_shared_shortcut_is_changed_after_permission(harness: Harness) -> None:
+    harness.select("Admin Tool")
+    assert harness.window.apply_button.isEnabled()
+    harness.window.apply_chosen()
+    harness.settle()
+    assert harness.status("Admin Tool") is Status.THEMED
+    assert len(harness.desktop.elevations) == 1
+
+
+def test_shared_shortcut_left_alone_when_declined(harness: Harness) -> None:
+    harness.desktop.decline_permission = True
+    harness.select("Admin Tool")
+    harness.window.apply_chosen()
+    harness.settle()
+    assert harness.status("Admin Tool") is Status.ORIGINAL
+    assert "Left 1 shared shortcut" in harness.window.statusBar().currentMessage()
+
+
+def test_remembered_skip_never_asks_for_permission(harness: Harness) -> None:
+    harness.window.settings.shared_shortcuts = "skip"
+    harness.select("Admin Tool")
+    harness.window.apply_chosen()
+    harness.settle()
+    assert harness.desktop.elevations == []
+    assert harness.status("Admin Tool") is Status.ORIGINAL
+
+
+def test_search_and_place_tabs_filter_the_grid(harness: Harness) -> None:
+    window = harness.window
+
+    def visible() -> list[str]:
+        model = window.model
+        return [
+            model.item(r).text() for r in range(model.rowCount()) if not window.grid.isRowHidden(r)
+        ]
+
+    assert visible() == ["Arcade", "Browser", "Music", "Admin Tool"]
+    window.search.setText("mu")
+    assert visible() == ["Music"]
+    assert window.current_group() is not None
+    window.search.setText("nothing like this")
+    assert visible() == []
+    assert window.empty_label.isVisibleTo(window)
+    window.search.clear()
+    window._place_buttons[Place.START_MENU].click()
+    assert visible() == ["Admin Tool"]
+    assert window._place_buttons[Place.DESKTOP].text() == "Desktop (3)"
+
+
+def test_multi_select_previews_and_applies_to_all(harness: Harness) -> None:
+    harness.select("Arcade", "Browser", "Music")
+    window = harness.window
+    assert window.apply_button.text() == "Apply to 3"
+    assert window.selection_strip.isVisibleTo(window)
+    harness.qtbot.waitUntil(
+        lambda: all(
+            window.selection_icons.itemAt(i).widget().pixmap().width() > 0  # type: ignore[union-attr]
+            for i in range(3)
+        ),
+        timeout=15_000,
+    )
+    window.apply_chosen()
+    harness.settle()
+    assert all(harness.status(name) is Status.THEMED for name in APPS)
+    harness.select("Arcade", "Music")
+    window.revert_current()
+    harness.settle()
+    assert harness.status("Arcade") is Status.ORIGINAL
+    assert harness.status("Music") is Status.ORIGINAL
+    assert harness.status("Browser") is Status.THEMED
+
+
+def test_taskbar_change_offers_a_refresh(harness: Harness) -> None:
+    report = ChangeReport(dry_run=False, changed=[Path("C:/Users/x/User Pinned/TaskBar/A.lnk")])
+    harness.window._show_taskbar_notice(report)
+    assert harness.window.notice.isVisibleTo(harness.window)
 
 
 def test_hover_shows_real_size_popup(harness: Harness) -> None:
@@ -165,6 +265,7 @@ def test_hover_shows_real_size_popup(harness: Harness) -> None:
 
 def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
     harness.window.apply_chosen()
+    harness.settle()
     harness.window.reapply_all()
     assert "Nothing needed reapplying" in harness.window.statusBar().currentMessage()
     harness.window.clean_up()
@@ -179,8 +280,9 @@ def test_errors_become_a_dialog(harness: Harness, monkeypatch: pytest.MonkeyPatc
     def broken(*args: object, **kwargs: object) -> None:
         raise OSError("disk is full")
 
-    monkeypatch.setattr(harness.service, "apply", broken)
+    monkeypatch.setattr(harness.service, "apply_many", broken)
     harness.window.apply_chosen()
+    harness.settle()
     assert len(harness.messages) == 1
     assert "disk is full" in harness.messages.pop()
     assert harness.status("Arcade") is Status.ORIGINAL

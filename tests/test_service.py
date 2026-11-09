@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from app.choices import Choice
-from app.service import IconService, Status
+from app.service import DECLINED_REASON, SHARED_REASON, IconService, Status
 from platform_win.backup import BackupCorruptError
 from platform_win.shortcuts import IconLocation, ShortcutGroup
 from tests.conftest import load_sample
@@ -120,17 +120,58 @@ def test_corrupt_manifest_blocks_the_service(env: FakeDesktop) -> None:
     assert env.paths.manifest.read_text(encoding="utf-8") == "{ broken"
 
 
-def test_read_only_shortcuts_are_never_written(env: FakeDesktop) -> None:
+def test_shared_shortcuts_are_left_alone_unless_asked(env: FakeDesktop) -> None:
     lnk = env.make("Admin Tool", folder=env.common)
     before = lnk.read_bytes()
     service = env.service()
     report = service.apply(_group(service, "Admin Tool"), CHOICE)
     assert report.changed == []
-    assert report.skipped == [(lnk, "read-only location")]
+    assert report.written == []  # nothing to theme, so no icon file either
+    assert report.skipped == [(lnk, SHARED_REASON)]
     assert lnk.read_bytes() == before
+    assert env.elevations == []
 
 
-def test_group_applies_to_every_writable_copy(env: FakeDesktop) -> None:
+def test_shared_shortcuts_change_with_permission_and_revert(env: FakeDesktop) -> None:
+    mine = env.make("Paint")
+    shared = env.make("Paint", folder=env.common, icon=r"C:\Apps\paint.ico")
+    service = env.service()
+    report = service.apply(_group(service, "Paint"), CHOICE, include_shared=True)
+    assert sorted(report.changed) == sorted([mine, shared])
+    assert len(env.elevations) == 1
+    assert service.is_ours(env.link_io.read(shared).icon)
+    assert service.manifest.get(shared) is not None  # the elevated copy's backup is picked up
+
+    service.revert(_group(service, "Paint"))
+    assert env.link_io.read(shared).icon == IconLocation(r"C:\Apps\paint.ico", 1)
+    assert len(env.elevations) == 2
+    assert len(service.manifest) == 0
+
+
+def test_one_permission_prompt_for_a_whole_batch(env: FakeDesktop) -> None:
+    for name in ("Alpha", "Beta", "Gamma"):
+        env.make(name, folder=env.common)
+    service = env.service()
+    report = service.apply_many(service.scan(), lambda g: CHOICE, include_shared=True)
+    assert len(report.changed) == 3
+    assert len(env.elevations) == 1
+    assert len(service.revert_all().changed) == 3
+    assert len(env.elevations) == 2
+
+
+def test_declined_permission_changes_nothing_shared(env: FakeDesktop) -> None:
+    mine = env.make("Paint")
+    shared = env.make("Paint", folder=env.common)
+    before = shared.read_bytes()
+    env.decline_permission = True
+    service = env.service()
+    report = service.apply(_group(service, "Paint"), CHOICE, include_shared=True)
+    assert report.changed == [mine]
+    assert report.skipped == [(shared, DECLINED_REASON)]
+    assert shared.read_bytes() == before
+
+
+def test_group_applies_to_every_own_copy(env: FakeDesktop) -> None:
     desktop = env.make("Paint")
     start = env.make("Paint", folder=env.common)
     (copy := env.desktop / "Paint 2.lnk").write_bytes(desktop.read_bytes())

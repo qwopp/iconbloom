@@ -22,10 +22,11 @@ The first theme is **Kawaii Pink**. Themes are plain data files, so new ones nee
 ## Using it
 
 1. Install from the [latest release](https://github.com/qwopp/iconbloom/releases/latest) and open Iconbloom. It finds the shortcuts on your desktop, in your Start menu and on your taskbar.
-2. Click a shortcut. You'll see its styled versions, with the ones that suit that icon first. Hover one to see it at real desktop sizes next to the original.
+2. Click a shortcut. Desktop shortcuts come first, and the search box and Desktop / Taskbar / Start menu tabs find the rest. You'll see its styled versions, with the ones that suit that icon first. Hover one to compare it with the original at desktop size.
 3. Click **Apply** (or double-click a style). Iconbloom moves on to the next shortcut. Click **Skip** to leave one as it is.
 4. **Shuffle** re-rolls the decorations and shades. **Use my own image…** lets you use any PNG, for example from an icon pack you bought.
-5. **Revert** puts one icon back. **Revert all** puts every icon back.
+5. Ctrl-click or Shift-click to select several shortcuts: the chosen style is shown on all of them, and **Apply** styles them together.
+6. **Revert** puts the selected icons back. **Revert all** puts every icon back.
 
 ## What it can and can't change
 
@@ -35,7 +36,7 @@ Iconbloom only changes one thing: the icon a shortcut (`.lnk` file) points to. I
 |---|---|---|
 | Desktop shortcuts | Yes | |
 | Start menu, your apps | Yes | Also changes Start pins that point to those shortcuts |
-| Start menu, apps installed for all users | No | Needs admin rights; shown with a padlock |
+| Start menu, apps installed for all users | Yes | Shared by everyone on the PC, so Windows asks for permission first; marked with a shield |
 | Taskbar pins | Yes | Windows may only show the change after **Refresh icons** |
 | Running apps that aren't pinned | No | The taskbar uses the program's own icon |
 | Microsoft Store apps in Start | No | They aren't shortcut files; a desktop shortcut to one can still be themed |
@@ -44,7 +45,8 @@ Iconbloom only changes one thing: the icon a shortcut (`.lnk` file) points to. I
 ## Safety
 
 - Before Iconbloom changes a shortcut for the first time, it saves an exact copy of it. The copy goes in `%LOCALAPPDATA%\Iconbloom\backup.json` and `originals\`.
-- **Revert** and **Revert all** restore the saved copies, byte for byte when nothing else has touched the shortcut since.
+- **Revert** and **Revert all** restore the saved copies, byte for byte when nothing else has touched the shortcut since. Shortcuts shared by every user get their original icon setting back.
+- The helper that changes shared shortcuts with administrator permission only ever changes the icon of shortcut files in the shared Start menu and desktop folders, and checks that itself.
 - If the backup file is ever damaged, Iconbloom refuses to change anything until it's fixed, and it never overwrites the file.
 - The uninstaller offers to put all your original icons back first.
 
@@ -61,16 +63,16 @@ Releases aren't code-signed yet, so Windows SmartScreen doesn't recognize the pu
 Apps packaged with PyInstaller sometimes trigger false positives. Iconbloom ships as a folder rather than a single self-extracting file, which helps. The full source is here, and you can build it yourself (see below).
 
 **I applied an icon but it still looks the same.**
-Windows caches icons aggressively. Click **Refresh icons**, which rebuilds the icon cache and restarts Explorer (you'll be asked first). Taskbar pins sometimes need you to unpin and re-pin the app.
+Windows caches icons aggressively, taskbar pins most of all. Iconbloom tells Windows which shortcuts changed and refreshes its icon cache, and shows a **Refresh icons** button when a taskbar pin was involved. That rebuilds the icon cache and restarts Explorer (you'll be asked first). As a last resort, unpin and re-pin the app.
 
 **An app update reset my icon.**
-Some installers rewrite their shortcuts. Click **Reapply my icons** and Iconbloom puts back the style you picked.
+Some installers rewrite their shortcuts. Choose **More → Reapply my icons** and Iconbloom puts back the style you picked.
 
 **How do I undo everything?**
 Click **Revert all**, or uninstall and answer **Yes** when asked about restoring icons. From a terminal, you can also run `Iconbloom.exe --revert-all`.
 
 **Where are my files?**
-Everything Iconbloom creates lives in `%LOCALAPPDATA%\Iconbloom`: generated icons, backups, your choices, settings and logs. **Clean up** deletes generated icons that no shortcut uses any more.
+Everything Iconbloom creates lives in `%LOCALAPPDATA%\Iconbloom`: generated icons, backups, your choices, settings and logs. **More → Delete unused icon files** removes generated icons that no shortcut uses any more.
 
 ## Build from source
 
