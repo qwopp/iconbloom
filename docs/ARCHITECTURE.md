@@ -40,17 +40,22 @@ load and are tested on any OS.
 - `backup.py`: the manifest of originals. Writes are atomic, the previous generation is kept,
   and a damaged file is refused rather than overwritten.
 - `refresh.py`: tells Explorer icons changed; the hard refresh restarts Explorer.
+- `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
+  restored shortcuts, choices and settings.
 
 ## app/
 
-- `service.py`: `IconService`, used by both the UI and the CLI. Every change follows the same
-  order: write the `.ico`, save the backup entry, point the shortcut at the `.ico`, then note
-  the shortcut's new hash. Revert restores the original bytes if nothing else has touched the
-  shortcut since, and otherwise only its icon field.
+- `service.py`: `IconService`, used by both the UI and the CLI. `apply(group, choice)` renders
+  the choice itself, and `apply_many` runs batches (Apply style to all, Reapply) with
+  per-shortcut failures reported and one Explorer refresh at the end. Every change follows the
+  same order: write the `.ico`, save the backup entry, point the shortcut at the `.ico`, then
+  note the shortcut's new hash. Revert restores the original bytes if nothing else has touched
+  the shortcut since, and otherwise only its icon field.
 - `choices.py`: which style each app got, keyed by target so it survives app updates. This
   is what powers **Reapply my icons**.
-- `ui/`: the picker window. Rendering and icon extraction run on a thread pool, and each
-  job carries a token so results for an old selection are dropped.
+- `ui/`: the picker window. Scanning, icon extraction, rendering and batches run on a thread
+  pool, so the window never freezes. Results for a selection the user has moved away from
+  are dropped.
 - `cli.py`, `main.py`: entry points.
 
 ## Runtime data
@@ -63,8 +68,8 @@ Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` file
 
 - The `tests/goldens/` images pin every recipe's output on every sample icon.
 - Hypothesis property tests check the op invariants.
-- `tests/fakes.py` stands in for `IShellLink` with JSON files, so apply/revert, crash and
-  corruption scenarios run on every OS.
+- `tests/fakes.py` stands in for the user's shortcut folders (`FakeDesktop`) and for
+  `IShellLink` (JSON files), so apply/revert, crash and corruption scenarios run on every OS.
 - `tests/win/` repeats the key checks on real `.lnk` files in temp folders, on the Windows CI
   runner only.
 - pytest-qt drives the real window offscreen.

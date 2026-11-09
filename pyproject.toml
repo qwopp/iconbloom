@@ -51,7 +51,6 @@ ignore = [
 "tests/win/*" = ["PLC0415"]
 # Fakes and monkeypatched stand-ins must match real signatures they ignore.
 "tests/*" = ["ARG"]
-"scripts/make_screenshots.py" = ["ARG"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

@@ -9,7 +9,8 @@ shortcuts are stand-ins in a temp folder, so this never touches a real desktop.
 import io
 import sys
 import tempfile
-from pathlib import Path, PureWindowsPath
+import time
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from PySide6.QtCore import QBuffer, QIODevice
@@ -17,18 +18,14 @@ from PySide6.QtWidgets import QApplication
 
 from app.choices import Choice
 from app.main import load_style
-from app.service import IconService
 from app.ui.main_window import MainWindow
+from app.ui.widgets import PreviewCard
 from engine import ops
 from engine.recipes import render
-from engine.themes import load_theme
-from platform_win.extract import ExtractedIcon
-from platform_win.paths import AppPaths
-from platform_win.shortcuts import IconLocation, ScanRoot, Source
-from tests.fakes import FakeLinkIO
+from engine.themes import DEFAULT_THEME, load_theme
+from tests.fakes import SAMPLES_DIR, FakeDesktop
 
 ROOT = Path(__file__).resolve().parent.parent
-SAMPLES = ROOT / "tests" / "samples"
 OUT = ROOT / "docs" / "screenshots"
 APPS = {
     "Arcade": "non_square",
@@ -54,31 +51,17 @@ PICKS = {
 
 
 def _sample(app: str) -> Image.Image:
-    with Image.open(SAMPLES / f"{APPS[app]}.png") as img:
+    with Image.open(SAMPLES_DIR / f"{APPS[app]}.png") as img:
         return img.convert("RGBA")
 
 
-def _extractor(
-    icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
-) -> ExtractedIcon:
-    image = _sample(PureWindowsPath(target).stem)
-    return ExtractedIcon(image, max(image.size) < 128, target)
-
-
-def _service(tmp: Path) -> IconService:
-    desktop = tmp / "Desktop"
-    desktop.mkdir()
-    link_io = FakeLinkIO()
-    for app in APPS:
-        link_io.create(desktop / f"{app}.lnk", rf"C:\Program Files\{app}\{app}.exe")
-    roots = [ScanRoot(desktop, Source.DESKTOP, recursive=False)]
-    return IconService(AppPaths(tmp / "Iconbloom"), link_io, roots, extractor=_extractor)
-
-
 def _grab(app: QApplication, window: MainWindow) -> Image.Image:
-    for _ in range(3):
-        window.wait_for_jobs()
+    # Let the selection delay fire and every background render land.
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
         app.processEvents()
+        window.wait_for_jobs()
+        time.sleep(0.02)
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
     window.grab().save(buffer, "PNG")
@@ -87,22 +70,28 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
 
 def picker_media(app: QApplication) -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        service = _service(Path(tmp))
+        desktop = FakeDesktop(Path(tmp), icons=APPS)
+        for name in APPS:
+            desktop.make(name)
+        service = desktop.service()
         for target in service.scan():
             if target.name in ("Camera", "Music"):
-                choice = Choice("kawaii_pink", PICKS[target.name])
-                service.apply(target, *service.render_choice(choice, _sample(target.name)), choice)
-        window = MainWindow(service, hard_refresh=lambda: None)
+                service.apply(target, Choice(DEFAULT_THEME, PICKS[target.name]))
+        window = MainWindow(service, hard_refresh=lambda: None, update_check=lambda: None)
         window.resize(1180, 760)
         window.show()
         frames = [_grab(app, window)]
-        for card in (2, 3):
-            window._choose(window._cards[card])
+
+        def click(card: int) -> None:
+            chosen = window.findChildren(PreviewCard)[card]
+            chosen.clicked.emit(chosen)
             frames.append(_grab(app, window))
+
+        click(2)
+        click(3)
         window.apply_chosen()
         frames.append(_grab(app, window))
-        window._choose(window._cards[1])
-        frames.append(_grab(app, window))
+        click(1)
         window.apply_chosen()
         frames.append(_grab(app, window))
         frames[1].save(OUT / "picker.png", optimize=True)
@@ -123,7 +112,7 @@ def picker_media(app: QApplication) -> None:
 
 
 def before_after() -> None:
-    theme = load_theme("kawaii_pink")
+    theme = load_theme(DEFAULT_THEME)
     size, gap, label_w = 64, 26, 90
     width = label_w + len(APPS) * (size + gap) + gap
     sheet = Image.new("RGB", (width, 2 * (size + 40) + 20), (0, 0, 0))
