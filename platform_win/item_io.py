@@ -13,8 +13,9 @@ Every kind implements ``shortcuts.ItemIO``:
 
 import base64
 import json
+import logging
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -22,6 +23,8 @@ from typing import TYPE_CHECKING, Protocol, cast
 from platform_win.fileio import atomic_write
 from platform_win.ini import IniFile
 from platform_win.shortcuts import IconLocation, ItemIO, ItemKind, LinkInfo, kind_of
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from _win32typing import PyIPersistFile, PyIShellLink
@@ -120,6 +123,49 @@ SYSTEM = 0x4
 NORMAL = 0x80
 
 
+def shell_set_folder_icon(path: Path, icon: IconLocation) -> None:
+    """Set a folder's icon through SHGetSetFolderCustomSettings, the call behind
+    Properties > Customize > Change Icon. It writes the same desktop.ini entry
+    FolderIO already wrote, and makes Explorer drop its stale thumbnail."""
+    import ctypes
+    from ctypes import wintypes
+
+    class FolderCustomSettings(ctypes.Structure):
+        _fields_ = (
+            ("dwSize", wintypes.DWORD),
+            ("dwMask", wintypes.DWORD),
+            ("pvid", ctypes.c_void_p),
+            ("pszWebViewTemplate", wintypes.LPWSTR),
+            ("cchWebViewTemplate", wintypes.DWORD),
+            ("pszWebViewTemplateVersion", wintypes.LPWSTR),
+            ("pszInfoTip", wintypes.LPWSTR),
+            ("cchInfoTip", wintypes.DWORD),
+            ("pclsid", ctypes.c_void_p),
+            ("dwFlags", wintypes.DWORD),
+            ("pszIconFile", wintypes.LPWSTR),
+            ("cchIconFile", wintypes.DWORD),
+            ("iIconIndex", ctypes.c_int),
+            ("pszLogo", wintypes.LPWSTR),
+            ("cchLogo", wintypes.DWORD),
+        )
+
+    settings = FolderCustomSettings()
+    settings.dwSize = ctypes.sizeof(FolderCustomSettings)
+    settings.dwMask = _FCSM_ICONFILE
+    settings.pszIconFile = icon.path
+    settings.iIconIndex = icon.index
+    result = ctypes.windll.shell32.SHGetSetFolderCustomSettings(
+        ctypes.byref(settings), str(path), _FCS_FORCEWRITE
+    )
+    if result != 0:
+        # The icon is already in desktop.ini; only the redraw may lag behind.
+        log.warning("Windows didn't take the icon for %s (HRESULT %#x)", path, result & 0xFFFFFFFF)
+
+
+_FCSM_ICONFILE = 0x10
+_FCS_FORCEWRITE = 0x2
+
+
 class WindowsAttributes:
     def get(self, path: Path) -> int | None:
         import ctypes
@@ -141,13 +187,22 @@ class FolderIO:
     which is hidden and marked as a system file, and the folder gets the
     read-only attribute, which is how Windows knows to read that file. The
     saved state covers all three, so revert puts the folder back exactly.
+
+    ``shell_set_icon`` then hands the same icon to Windows itself. Explorer keeps
+    a thumbnail of each folder that outlives restarts; only Windows' own call
+    replaces it, so without it the folder can stay plain.
     """
 
     INI = "desktop.ini"
     SECTION = ".ShellClassInfo"
 
-    def __init__(self, attributes: Attributes) -> None:
+    def __init__(
+        self,
+        attributes: Attributes,
+        shell_set_icon: Callable[[Path, IconLocation], None] | None = None,
+    ) -> None:
         self._attributes = attributes
+        self._shell_set_icon = shell_set_icon
 
     def exists(self, path: Path) -> bool:
         return path.is_dir()
@@ -173,6 +228,8 @@ class FolderIO:
         if icon.path:
             folder = self._attributes.get(path) or 0
             self._attributes.set(path, folder | READ_ONLY)
+            if self._shell_set_icon is not None:
+                self._shell_set_icon(path, icon)
 
     def snapshot(self, path: Path) -> bytes | None:
         ini_path = path / self.INI
@@ -259,7 +316,7 @@ def windows_item_io() -> ItemRouter:
     return ItemRouter(
         shortcut=ShellLinkIO(),
         web_shortcut=UrlFileIO(),
-        folder=FolderIO(WindowsAttributes()),
+        folder=FolderIO(WindowsAttributes(), shell_set_folder_icon),
         windows_icon=WindowsIconIO(WindowsRegistry()),
     )
 

@@ -11,6 +11,9 @@ All notable changes to Iconbloom are documented here. The format follows
 - Updating Iconbloom put its shortcut back on the desktop every time, even after you moved
   or deleted it, and reset a restyled Start menu shortcut. Updates now leave Iconbloom's own
   shortcuts as you left them. (The update to this version is the first that does.)
+- A styled folder could keep showing the plain yellow folder, even after **Refresh Windows
+  icons**: Explorer kept an old thumbnail of it. Iconbloom now sets folder icons through
+  Windows' own Change Icon call too, which replaces that thumbnail.
 
 ## [0.4.0] - 2026-11-09
 
