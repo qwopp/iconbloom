@@ -7,11 +7,13 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; Never change it: Windows knows the installed app by it, and updates find it through it.
+#define AppGuid "6F1C6B0E-2F7A-4C59-9B8E-6A3E2B1F9C41"
 
 [Setup]
 ; Close a running Iconbloom before replacing its files (the updater has usually closed it).
 CloseApplications=yes
-AppId={{6F1C6B0E-2F7A-4C59-9B8E-6A3E2B1F9C41}
+AppId={{{#AppGuid}}
 AppName=Iconbloom
 AppVersion={#AppVersion}
 AppPublisher=Iconbloom contributors
@@ -33,15 +35,17 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\LICENSE
 
+; Shortcuts are made on the first install only. Updates leave them alone, so one you
+; moved, deleted or restyled stays the way you left it.
 [Tasks]
-Name: "desktopicon"; Description: "Put an Iconbloom shortcut on my desktop"; Flags: unchecked
+Name: "desktopicon"; Description: "Put an Iconbloom shortcut on my desktop"; Flags: unchecked; Check: IsFirstInstall
 
 [Files]
 Source: "..\dist\Iconbloom\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{userprograms}\Iconbloom"; Filename: "{app}\Iconbloom.exe"
-Name: "{userdesktop}\Iconbloom"; Filename: "{app}\Iconbloom.exe"; Tasks: desktopicon
+Name: "{userprograms}\Iconbloom"; Filename: "{app}\Iconbloom.exe"; Check: IsFirstInstall
+Name: "{userdesktop}\Iconbloom"; Filename: "{app}\Iconbloom.exe"; Tasks: desktopicon; Check: IsFirstInstall
 
 [Run]
 Filename: "{app}\Iconbloom.exe"; Description: "Open Iconbloom"; Flags: nowait postinstall skipifsilent
@@ -49,6 +53,23 @@ Filename: "{app}\Iconbloom.exe"; Description: "Open Iconbloom"; Flags: nowait po
 Filename: "{app}\Iconbloom.exe"; Flags: nowait; Check: WizardSilent
 
 [Code]
+var
+  AlreadyInstalled: Boolean;
+
+// Looked up before anything is installed: by the time [Icons] runs, this install's own
+// uninstall entry may already exist.
+function InitializeSetup(): Boolean;
+begin
+  AlreadyInstalled := RegKeyExists(HKA,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#AppGuid}}_is1');
+  Result := True;
+end;
+
+function IsFirstInstall(): Boolean;
+begin
+  Result := not AlreadyInstalled;
+end;
+
 // Shortcuts themed by Iconbloom point at icon files in its data folder. Offer
 // to put every original icon back first, so nothing is left pointing at
 // files that are about to go away.

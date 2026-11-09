@@ -6,6 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Updating Iconbloom put its shortcut back on the desktop every time, even after you moved
+  or deleted it, and reset a restyled Start menu shortcut. Updates now leave Iconbloom's own
+  shortcuts as you left them. (The update to this version is the first that does.)
+
 ## [0.4.0] - 2026-11-09
 
 ### Added

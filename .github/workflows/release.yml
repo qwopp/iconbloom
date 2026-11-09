@@ -75,6 +75,52 @@ jobs:
           $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
           iscc /DAppVersion=${{ steps.version.outputs.version }} installer\iconbloom.iss
 
+      - name: Test install, update and uninstall
+        shell: pwsh
+        run: |
+          $setup = "dist\Iconbloom-Setup-${{ steps.version.outputs.version }}.exe"
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          $deskLink = Join-Path $desktop "Iconbloom.lnk"
+          $startLink = Join-Path ([Environment]::GetFolderPath("Programs")) "Iconbloom.lnk"
+          function Run-Setup([string[]] $arguments) {
+            $p = Start-Process $setup -ArgumentList $arguments -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "setup $arguments exited with $($p.ExitCode)" }
+            # A silent install reopens Iconbloom; close it before the next step.
+            Start-Sleep -Seconds 3
+            Get-Process Iconbloom -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
+
+          # First install, with the desktop shortcut ticked.
+          Run-Setup @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=desktopicon")
+          if (-not (Test-Path $deskLink)) { throw "first install made no desktop shortcut" }
+          if (-not (Test-Path $startLink)) { throw "first install made no Start menu shortcut" }
+
+          # The person moves the desktop shortcut into a folder and restyles the Start menu one.
+          $folder = New-Item -ItemType Directory -Force (Join-Path $desktop "Apps")
+          Move-Item $deskLink $folder
+          $link = (New-Object -ComObject WScript.Shell).CreateShortcut($startLink)
+          $link.IconLocation = "$env:SystemRoot\System32\shell32.dll,12"
+          $link.Save()
+          $styled = (Get-FileHash $startLink).Hash
+
+          # Update exactly the way the app's updater runs the installer.
+          $updateArgs = uv run python -c "from app.updates import INSTALLER_ARGS; print(' '.join(INSTALLER_ARGS))"
+          Run-Setup ($updateArgs -split " ")
+          if (Test-Path $deskLink) { throw "the update put a shortcut back on the desktop" }
+          if ((Get-FileHash $startLink).Hash -ne $styled) { throw "the update replaced the Start menu shortcut" }
+          if (-not (Test-Path (Join-Path $folder "Iconbloom.lnk"))) { throw "the moved shortcut is gone" }
+
+          # Uninstall removes the shortcuts it made. The uninstaller hands off to a temp copy
+          # and returns at once, so wait for the result.
+          Start-Process "$env:LOCALAPPDATA\Programs\Iconbloom\unins000.exe" -Wait `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (Test-Path $startLink) {
+            if ((Get-Date) -gt $deadline) { throw "uninstall left the Start menu shortcut" }
+            Start-Sleep -Seconds 2
+          }
+          Remove-Item -Recurse -Force $folder
+
       - name: Portable zip and checksums
         shell: pwsh
         run: |
