@@ -13,6 +13,11 @@ All notable changes to Iconbloom are documented here. The format follows
 - Four more cut-out styles: colors swapped (a white logo with pink lines turns pink with white
   lines), two-tone, tint and sticker.
 
+### Fixed
+
+- **Use my own image** is remembered for each app, so its styles keep coming from your
+  image after clicking another icon or restarting, until you choose **Use the app's icon**.
+
 ## [0.5.2] - 2026-11-09
 
 ### Fixed

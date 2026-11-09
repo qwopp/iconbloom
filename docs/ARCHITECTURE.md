@@ -79,8 +79,8 @@ load and are tested on any OS.
   runs an elevated copy of itself, which validates every item on its own (only shortcut
   files inside the shared folders, only the icon, only Iconbloom's icons or the recorded
   original) before touching anything.
-- `choices.py`, `settings.py`: which style each app got (powers **Reapply my icons**), and
-  the user's preferences.
+- `choices.py`, `settings.py`: which style each app got (powers **Reapply my icons**) and
+  which own image it uses, and the user's preferences.
 - `updates.py`: the update check and the checksum-verified download.
 - `cli.py`, `main.py`: entry points.
 
