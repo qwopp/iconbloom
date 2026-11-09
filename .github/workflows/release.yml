@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Pull requests that touch packaging, and manual runs, build everything and upload it
+  # as a workflow artifact without publishing anything.
+  pull_request:
+    paths:
+      - "installer/**"
+      - ".github/workflows/release.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --group release
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          $project = uv run python -c "import app; print(app.__version__)"
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $tag = $env:GITHUB_REF_NAME.TrimStart("v")
+            if ($tag -ne $project) { throw "Tag v$tag does not match app version $project" }
+          }
+          "version=$project" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Build app folder
+        run: uv run pyinstaller installer/iconbloom.spec --noconfirm
+
+      - name: Smoke-test the build
+        shell: pwsh
+        run: |
+          $exe = "dist\Iconbloom\Iconbloom.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $size = (Get-ChildItem dist\Iconbloom -Recurse | Measure-Object Length -Sum).Sum / 1MB
+          "Build size: {0:N1} MB" -f $size
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) { choco install innosetup -y --no-progress }
+          $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+          iscc /DAppVersion=${{ steps.version.outputs.version }} installer\iconbloom.iss
+
+      - name: Portable zip and checksums
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path dist\Iconbloom -DestinationPath "dist\Iconbloom-$v-portable.zip"
+          Push-Location dist
+          Get-FileHash "Iconbloom-Setup-$v.exe", "Iconbloom-$v-portable.zip" -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+          Pop-Location
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iconbloom-${{ steps.version.outputs.version }}
+          path: |
+            dist/Iconbloom-Setup-*.exe
+            dist/Iconbloom-*-portable.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          uv run python -m scripts.release_notes $v | Set-Content -Encoding utf8 notes.md
+          gh release create "v$v" --title "Iconbloom $v" --notes-file notes.md `
+            "dist\Iconbloom-Setup-$v.exe" "dist\Iconbloom-$v-portable.zip" dist\SHA256SUMS.txt
