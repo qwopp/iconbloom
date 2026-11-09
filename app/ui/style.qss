@@ -1,19 +1,19 @@
-/* Iconbloom: pastel, rounded, soft. Colors follow the Kawaii Pink palette. */
+/* Iconbloom: pastel, rounded, soft. Colors are named tokens filled in from app/ui/palette.py. */
 
 * {
     font-family: "Nunito";
     font-size: 10.5pt;
-    color: #7A3E5D;
+    color: @text;
 }
 
 QMainWindow, #root {
-    background: #FFF4F8;
+    background: @window;
 }
 
 #title {
     font-size: 17pt;
     font-weight: 800;
-    color: #E8689A;
+    color: @title;
 }
 
 #heading {
@@ -22,12 +22,12 @@ QMainWindow, #root {
 }
 
 #detail, #legend, #popupCaption {
-    color: #A87A93;
+    color: @muted;
 }
 
 #card {
-    background: #FFFFFF;
-    border: 1px solid #F8DCE8;
+    background: @card;
+    border: 1px solid @card_border;
     border-radius: 18px;
 }
 
@@ -37,18 +37,18 @@ QMainWindow, #root {
 }
 
 #previewCard {
-    background: #FFF9FB;
-    border: 2px solid #FBE3EE;
+    background: @preview;
+    border: 2px solid @preview_border;
     border-radius: 16px;
 }
 
 #previewCard:hover {
-    border-color: #FFC2DA;
+    border-color: @preview_hover_border;
 }
 
 #previewCard[selected="true"] {
-    background: #FFEAF2;
-    border-color: #FF9EC4;
+    background: @preview_selected;
+    border-color: @accent;
 }
 
 #cardCaption {
@@ -56,8 +56,8 @@ QMainWindow, #root {
 }
 
 #sizePopup {
-    background: #FFFFFF;
-    border: 2px solid #FFC2DA;
+    background: @card;
+    border: 2px solid @preview_hover_border;
     border-radius: 12px;
 }
 
@@ -69,44 +69,44 @@ QPushButton {
 }
 
 QPushButton[role="primary"] {
-    background: #F27AAA;
-    color: #FFFFFF;
+    background: @primary;
+    color: @on_primary;
     padding: 8px 26px;
 }
 
 QPushButton[role="primary"]:hover {
-    background: #E8689A;
+    background: @primary_hover;
 }
 
 QPushButton[role="secondary"] {
-    background: #FFFFFF;
-    border-color: #FBD3E3;
+    background: @card;
+    border-color: @border;
 }
 
 QPushButton[role="secondary"]:hover {
-    background: #FFF0F6;
-    border-color: #FFB3D0;
+    background: @hover;
+    border-color: @hover_border;
 }
 
 QPushButton[role="danger"] {
-    background: #FFFFFF;
-    border-color: #F5C2CE;
-    color: #C9506F;
+    background: @card;
+    border-color: @danger_border;
+    color: @danger_text;
 }
 
 QPushButton[role="danger"]:hover {
-    background: #FFEEF2;
+    background: @danger_hover;
 }
 
 QPushButton:disabled {
-    background: #FBF3F7;
-    border-color: #F6E8EE;
-    color: #D5BCC9;
+    background: @disabled;
+    border-color: @disabled_border;
+    color: @disabled_text;
 }
 
 QComboBox {
-    background: #FFFFFF;
-    border: 2px solid #FBD3E3;
+    background: @card;
+    border: 2px solid @border;
     border-radius: 12px;
     padding: 5px 12px;
     min-width: 140px;
@@ -118,9 +118,9 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background: #FFFFFF;
-    selection-background-color: #FFE4EE;
-    border: 1px solid #FBD3E3;
+    background: @card;
+    selection-background-color: @selected;
+    border: 1px solid @border;
 }
 
 QSplitter::handle {
@@ -135,7 +135,7 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: #FBD3E3;
+    background: @border;
     border-radius: 4px;
     min-height: 30px;
 }
@@ -146,25 +146,25 @@ QScrollBar::add-line, QScrollBar::sub-line {
 
 QStatusBar {
     background: transparent;
-    color: #A87A93;
+    color: @muted;
 }
 
 QToolTip {
-    background: #FFFFFF;
-    color: #7A3E5D;
-    border: 1px solid #FBD3E3;
+    background: @card;
+    color: @text;
+    border: 1px solid @border;
     padding: 6px;
 }
 
 #search {
-    background: #FFFFFF;
-    border: 2px solid #FBD3E3;
+    background: @card;
+    border: 2px solid @border;
     border-radius: 12px;
     padding: 6px 12px;
 }
 
 #search:focus {
-    border-color: #FF9EC4;
+    border-color: @accent;
 }
 
 QPushButton#tab {
@@ -173,22 +173,22 @@ QPushButton#tab {
     border-radius: 12px;
     padding: 4px 10px;
     font-weight: 600;
-    color: #A87A93;
+    color: @muted;
 }
 
 QPushButton#tab:hover {
-    background: #FFF0F6;
+    background: @hover;
 }
 
 QPushButton#tab:checked {
-    background: #FFE4EE;
-    border-color: #FFC2DA;
-    color: #7A3E5D;
+    background: @selected;
+    border-color: @preview_hover_border;
+    color: @text;
 }
 
 QToolButton#more {
-    background: #FFFFFF;
-    border: 2px solid #FBD3E3;
+    background: @card;
+    border: 2px solid @border;
     border-radius: 14px;
     padding: 7px 16px;
     font-weight: 700;
@@ -199,12 +199,12 @@ QToolButton#more::menu-indicator {
 }
 
 QToolButton#more:hover {
-    background: #FFF0F6;
+    background: @hover;
 }
 
 QMenu {
-    background: #FFFFFF;
-    border: 1px solid #FBD3E3;
+    background: @card;
+    border: 1px solid @border;
     border-radius: 10px;
     padding: 6px;
 }
@@ -215,24 +215,24 @@ QMenu::item {
 }
 
 QMenu::item:selected {
-    background: #FFE4EE;
+    background: @selected;
 }
 
 #notice {
-    background: #FFF3E8;
-    border: 1px solid #FFD9B8;
+    background: @notice;
+    border: 1px solid @notice_border;
     border-radius: 12px;
 }
 
 QToolButton#closeNotice {
     border: none;
     background: transparent;
-    color: #B58AA2;
+    color: @icon_muted;
     padding: 4px;
 }
 
 #selectionStrip {
-    background: #FFF9FB;
-    border: 1px solid #FBE3EE;
+    background: @preview;
+    border: 1px solid @preview_border;
     border-radius: 12px;
 }

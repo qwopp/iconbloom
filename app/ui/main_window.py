@@ -4,9 +4,10 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import override
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -25,7 +26,7 @@ from app import __version__
 from app.changes import ChangeReport, Status
 from app.service import IconService
 from app.settings import Settings
-from app.ui import UI_DIR
+from app.ui import UI_DIR, palette
 from app.ui.change_runner import ChangeRunner
 from app.ui.controls import count, guarded, make_button, without_arguments
 from app.ui.jobs import JobRunner
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
         )
         self._build(theme.id)
         self._connect()
+        self.set_dark_mode(self._wants_dark_mode(), save=False)
 
         self._select_timer = QTimer(self)
         self._select_timer.setSingleShot(True)
@@ -162,6 +164,11 @@ class MainWindow(QMainWindow):
             action = self.more_menu.addAction(text)
             action.setToolTip(tip)
             action.triggered.connect(without_arguments(slot))
+        self.more_menu.addSeparator()
+        self.dark_mode_action = self.more_menu.addAction("Dark mode")
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setToolTip("Switch Iconbloom's window between light and dark")
+        self.dark_mode_action.toggled.connect(self.set_dark_mode)
         more = QToolButton()
         more.setObjectName("more")
         more.setText("More")
@@ -388,6 +395,22 @@ class MainWindow(QMainWindow):
         guarded(self, lambda: self.settings.save(self.service.paths.settings))
         if enabled:
             self.updates.check()
+
+    def _wants_dark_mode(self) -> bool:
+        chosen = self.settings.dark_mode
+        return palette.windows_prefers_dark() if chosen is None else chosen
+
+    def set_dark_mode(self, dark: bool, save: bool = True) -> None:
+        """Restyle the whole window; ``save`` remembers it as the user's choice."""
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            palette.apply(app, palette.DARK if dark else palette.LIGHT)
+        self.shortcuts.grid.viewport().update()
+        with QSignalBlocker(self.dark_mode_action):
+            self.dark_mode_action.setChecked(dark)
+        if save:
+            self.settings.dark_mode = dark
+            guarded(self, lambda: self.settings.save(self.service.paths.settings))
 
     def _say(self, message: str) -> None:
         self.statusBar().showMessage(message, STATUS_MESSAGE_MS)
