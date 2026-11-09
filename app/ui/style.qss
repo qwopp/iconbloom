@@ -1,0 +1,157 @@
+/* Iconbloom: pastel, rounded, soft. Colors follow the Kawaii Pink palette. */
+
+* {
+    font-family: "Nunito";
+    font-size: 10.5pt;
+    color: #7A3E5D;
+}
+
+QMainWindow, #root {
+    background: #FFF4F8;
+}
+
+#title {
+    font-size: 17pt;
+    font-weight: 800;
+    color: #E8689A;
+}
+
+#heading {
+    font-size: 13pt;
+    font-weight: 700;
+}
+
+#detail, #legend, #popupCaption {
+    color: #A87A93;
+}
+
+#card {
+    background: #FFFFFF;
+    border: 1px solid #F8DCE8;
+    border-radius: 18px;
+}
+
+#grid, #previewScroll, #previewScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+
+#previewCard {
+    background: #FFF9FB;
+    border: 2px solid #FBE3EE;
+    border-radius: 16px;
+}
+
+#previewCard:hover {
+    border-color: #FFC2DA;
+}
+
+#previewCard[selected="true"] {
+    background: #FFEAF2;
+    border-color: #FF9EC4;
+}
+
+#cardCaption {
+    font-size: 9.5pt;
+}
+
+#sizePopup {
+    background: #FFFFFF;
+    border: 2px solid #FFC2DA;
+    border-radius: 12px;
+}
+
+QPushButton {
+    border-radius: 14px;
+    padding: 7px 16px;
+    font-weight: 700;
+    border: 2px solid transparent;
+}
+
+QPushButton[role="primary"] {
+    background: #F27AAA;
+    color: #FFFFFF;
+    padding: 8px 26px;
+}
+
+QPushButton[role="primary"]:hover {
+    background: #E8689A;
+}
+
+QPushButton[role="secondary"] {
+    background: #FFFFFF;
+    border-color: #FBD3E3;
+}
+
+QPushButton[role="secondary"]:hover {
+    background: #FFF0F6;
+    border-color: #FFB3D0;
+}
+
+QPushButton[role="danger"] {
+    background: #FFFFFF;
+    border-color: #F5C2CE;
+    color: #C9506F;
+}
+
+QPushButton[role="danger"]:hover {
+    background: #FFEEF2;
+}
+
+QPushButton:disabled {
+    background: #FBF3F7;
+    border-color: #F6E8EE;
+    color: #D5BCC9;
+}
+
+QComboBox {
+    background: #FFFFFF;
+    border: 2px solid #FBD3E3;
+    border-radius: 12px;
+    padding: 5px 12px;
+    min-width: 140px;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QComboBox QAbstractItemView {
+    background: #FFFFFF;
+    selection-background-color: #FFE4EE;
+    border: 1px solid #FBD3E3;
+}
+
+QSplitter::handle {
+    background: transparent;
+    width: 12px;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background: #FBD3E3;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0;
+}
+
+QStatusBar {
+    background: transparent;
+    color: #A87A93;
+}
+
+QToolTip {
+    background: #FFFFFF;
+    color: #7A3E5D;
+    border: 1px solid #FBD3E3;
+    padding: 6px;
+}

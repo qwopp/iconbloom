@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -7,6 +8,9 @@ from PIL import Image
 from engine.themes import Theme, load_theme
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
+
+# UI tests never open real windows.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # Real-shell tests need IShellLink and friends; elsewhere the fakes cover the logic.
 collect_ignore_glob = [] if sys.platform == "win32" else ["win/*"]

@@ -25,7 +25,7 @@ from engine.ico import write_ico
 from engine.recipes import render
 from engine.themes import THEMES_DIR, load_theme
 from platform_win.backup import BackupManifest, file_sha256
-from platform_win.extract import ExtractedIcon, extract_icon
+from platform_win.extract import ExtractedIcon, extract_icon, largest_frame
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import notify_icons_changed
 from platform_win.shortcuts import (
@@ -129,6 +129,16 @@ class IconService:
             entry = self.manifest.get(primary.path)
             icon = entry.original_icon if entry is not None else IconLocation()
         return self._extract(icon, primary.info.target, primary.path, use_shell=not themed)
+
+    def current_icon(self, target: ShortcutGroup) -> Image.Image:
+        """What the shortcut shows right now: our .ico when themed, else the original."""
+        icon = target.primary.info.icon
+        if self.is_ours(icon):
+            try:
+                return largest_frame(Path(icon.path).read_bytes())
+            except (OSError, ValueError):
+                log.warning("themed icon %s is unreadable; showing the original", icon.path)
+        return self.original_icon(target).image
 
     def apply(
         self,
