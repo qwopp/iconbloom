@@ -19,8 +19,6 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -39,6 +37,9 @@ jobs:
 
       - name: Test
         run: uv run pytest -q
+        env:
+          # Only the tests run offscreen; the built app is checked with a real window below.
+          QT_QPA_PLATFORM: offscreen
 
       - name: Build app folder
         run: uv run pyinstaller installer/iconbloom.spec --noconfirm
