@@ -18,7 +18,10 @@ def test_launch_selects_first_untouched_and_shows_previews(harness: Harness) -> 
     assert not harness.window.picker.revert_button.isEnabled()
 
 
-def test_apply_themes_shortcut_and_advances(harness: Harness) -> None:
+def test_apply_themes_shortcut_and_stays_on_it(harness: Harness) -> None:
+    picker = harness.window.picker
+    picked = picker.cards[3]
+    picker.choose(picked)
     before = harness.lnk("Arcade").read_bytes()
     harness.window.apply_chosen()
     harness.settle()
@@ -26,7 +29,11 @@ def test_apply_themes_shortcut_and_advances(harness: Harness) -> None:
     assert harness.lnk("Arcade").read_bytes() != before
     current = harness.window.shortcuts.current_group()
     assert current is not None
-    assert current.name == "Browser"
+    assert current.name == "Arcade"
+    # Same previews, the applied style still picked, and the details say so.
+    assert picker.chosen is picked
+    assert "themed" in picker.detail_label.text()
+    assert picker.revert_button.isEnabled()
 
 
 def test_double_click_applies_and_revert_restores(harness: Harness) -> None:

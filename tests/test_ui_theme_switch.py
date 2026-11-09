@@ -15,6 +15,7 @@ def test_next_icon_after_apply_uses_the_new_theme(harness: Harness) -> None:
     window.picker.choose(window.picker.cards[1])
     window.apply_chosen()
     harness.settle()
+    harness.select("Browser")
     harness.qtbot.waitUntil(
         lambda: (
             len(window.picker.cards) == RECIPES

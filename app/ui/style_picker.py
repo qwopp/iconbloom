@@ -212,6 +212,16 @@ class StylePicker(QWidget):
         self._clear_cards()
         self._render_previews(target)
 
+    def update_group(self, target: ShortcutGroup) -> None:
+        """The shown icon changed status (applied, say): refresh the details, keep the
+        previews and the picked style."""
+        if self._target is None or self._target.key != target.key:
+            self.show_group(target)
+            return
+        self._target = target
+        upscaled = self._previews.upscaled if self._previews is not None else False
+        self._set_detail(target, upscaled=upscaled)
+
     def shuffle(self) -> None:
         if self._target is not None:
             self._seed += 1
