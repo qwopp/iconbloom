@@ -92,6 +92,9 @@ class LinkInfo:
     target: str
     arguments: str
     icon: IconLocation
+    # The shortcut's AppUserModelID. Windows 11 keeps taskbar pins by this id and,
+    # after Explorer restarts, takes their icon from the Start menu shortcut with it.
+    app_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -290,7 +293,8 @@ def group(shortcuts: Iterable[Shortcut]) -> list[ShortcutGroup]:
     """Shortcuts that launch the same thing become one group, styled together.
 
     Two shortcuts belong together when they run the same program and either
-    pass it the same arguments or have the same name. A Start-menu "Discord"
+    pass it the same arguments or have the same name, or when they carry the
+    same app id. A Start-menu "Discord"
     that runs Discord.exe plainly joins the desktop "Discord" that adds a
     launcher flag, while Chrome profiles, web apps and Steam games stay apart.
     """
@@ -326,6 +330,10 @@ def _match_keys(shortcut: Shortcut) -> list[str]:
     target = shortcut.info.target.strip()
     if target:
         keys.append(f"name:{_normal_target(target)}|{shortcut.name.casefold()}")
+    if app_id := shortcut.info.app_id.strip():
+        # The taskbar draws a pin with the Start menu shortcut of the same id, so
+        # those must always be styled together, whatever they point at.
+        keys.append(f"app:{app_id.casefold()}")
     return keys
 
 

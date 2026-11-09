@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -131,3 +132,22 @@ def test_groups_know_where_they_appear(tmp_path: Path, link_io: FakeLinkIO) -> N
     link_io.create(roots[2].path / "Paint.lnk", r"C:\Paint\paint.exe")
     (paint,) = scan(roots, link_io)
     assert paint.places == {Place.DESKTOP, Place.START_MENU}
+
+
+def test_same_app_id_groups_a_pin_with_its_start_menu_shortcut(
+    tmp_path: Path, link_io: FakeLinkIO
+) -> None:
+    # Windows draws a pin from the Start menu shortcut with its app id, even when
+    # the two point at different files (Chrome's pin often runs chrome_proxy.exe).
+    roots = _roots(tmp_path)
+    link_io.create(roots[2].path / "Chrome.lnk", r"C:\Chrome\chrome.exe", app_id="Chrome")
+    link_io.create(roots[0].path / "Web.lnk", r"C:\Chrome\chrome_proxy.exe", app_id="chrome")
+    work = roots[0].path / "Work.lnk"
+    link_io.create(work, r"C:\Chrome\chrome.exe", app_id="Chrome.Work")
+    data = json.loads(work.read_text(encoding="utf-8"))
+    work.write_text(json.dumps(data | {"args": "--profile-directory=Work"}), encoding="utf-8")
+    groups = scan(roots, link_io)
+    sizes = sorted(len(g.shortcuts) for g in groups)
+    assert sizes == [1, 2]
+    (pair,) = (g for g in groups if len(g.shortcuts) == 2)
+    assert {s.path.name for s in pair.shortcuts} == {"Chrome.lnk", "Web.lnk"}

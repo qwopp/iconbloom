@@ -255,7 +255,12 @@ class StylePicker(QWidget):
         kind = target.primary.kind
         prefix = "" if kind is ItemKind.SHORTCUT else f"{kind} · "
         notes = [f"{prefix}{where} · {self._service.status(target)}"]
-        if target.shared_shortcuts:
+        if self._service.taskbar_left_out(target):
+            notes.append(
+                "The taskbar shows the old icon until the shared Start menu shortcut "
+                "is changed too."
+            )
+        elif target.shared_shortcuts:
             notes.append("Shared by every user on this PC: Windows will ask for permission.")
         if upscaled:
             notes.append("This app only ships a small icon, so styles may look a little soft.")

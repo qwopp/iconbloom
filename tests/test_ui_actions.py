@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QFileDialog, QGridLayout
+from PySide6.QtWidgets import QFileDialog, QGridLayout, QPushButton
 
 from app.service import Status
 from tests.conftest import load_sample
@@ -249,3 +249,25 @@ def test_instant_background_jobs_still_report(harness: Harness) -> None:
         harness.window.jobs.start(lambda _report, i=i: i, on_done=collect)
     harness.settle()
     assert sorted(results) == list(range(50))
+
+
+def test_left_out_start_menu_shortcut_offers_to_change_it_too(harness: Harness) -> None:
+    # Arcade also has a Start menu shortcut every user shares, which the taskbar draws from.
+    harness.desktop.make("Arcade", folder=harness.desktop.common)
+    harness.window.settings.shared_shortcuts = "skip"
+    harness.window.shortcuts.reload()
+    harness.settle()
+    harness.select("Arcade")
+    harness.wait_for_previews()
+    harness.window.apply_chosen()
+    harness.settle()
+    notice = harness.window.notice
+    assert notice.isVisibleTo(harness.window)
+    assert "Start menu shortcut every user shares" in notice.label.text()
+    assert "taskbar shows the old icon" in harness.window.picker.detail_label.text()
+    (button,) = (b for b in notice.findChildren(QPushButton) if b.text() == "Change it too")
+    button.click()
+    harness.settle()
+    assert len(harness.desktop.elevations) == 1
+    shared = harness.desktop.link_io.read(harness.desktop.common / "Arcade.lnk")
+    assert harness.service.is_ours(shared.icon)

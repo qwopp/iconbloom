@@ -43,6 +43,7 @@ from platform_win.shortcuts import (
     ScanRoot,
     Shortcut,
     ShortcutGroup,
+    Source,
     WindowsIcon,
     default_roots,
     normalize_path,
@@ -125,6 +126,20 @@ class IconService:
         if chosen:
             return Status.NEEDS_REAPPLY
         return Status.ORIGINAL
+
+    def taskbar_left_out(self, target: ShortcutGroup) -> tuple[Shortcut, ...]:
+        """Shared Start menu shortcuts still on the old icon while the group is styled.
+
+        Windows draws the app's taskbar pin (after Explorer restarts) and its open
+        windows from the Start menu shortcut, so the taskbar keeps the old icon.
+        """
+        if not any(self.is_ours(s.info.icon) for s in target.own_shortcuts):
+            return ()
+        return tuple(
+            s
+            for s in target.shared_shortcuts
+            if s.source is Source.ALL_USERS_START_MENU and not self.is_ours(s.info.icon)
+        )
 
     def is_untouched(self, target: ShortcutGroup) -> bool:
         """Hasn't been themed or skipped yet."""

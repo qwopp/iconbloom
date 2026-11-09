@@ -1,6 +1,6 @@
 """The Iconbloom window: assembles the panels and turns button presses into changes."""
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -36,6 +36,7 @@ from app.ui.style_picker import StylePicker
 from app.ui.update_flow import UpdateFlow
 from app.updates import Updater
 from engine.themes import DEFAULT_THEME
+from platform_win.shortcuts import ShortcutGroup
 
 APP_ICON = UI_DIR / "iconbloom.png"
 # Wait this long after the selection moves before rendering, so holding an
@@ -76,6 +77,7 @@ class MainWindow(QMainWindow):
             service.paths,
             refresh_icons=self.refresh_icons,
             reload=self.shortcuts.reload,
+            include_shared=self.change_shared_too,
         )
         self.updates = UpdateFlow(
             self,
@@ -385,6 +387,22 @@ class MainWindow(QMainWindow):
                 lost, include_shared=include_shared, progress=progress
             ),
             lambda report: self._say(f"Reapplied {count(report.changed, 'icon')}"),
+            reload=True,
+        )
+
+    def change_shared_too(self, targets: Sequence[ShortcutGroup]) -> None:
+        """Style the shared shortcuts of already styled groups, with their saved choice."""
+        fresh = [self.service.reload(t) for t in targets]
+        self.changes.run(
+            "Changing shared shortcuts…",
+            fresh,
+            lambda progress: self.service.apply_many(
+                fresh,
+                lambda g: self.service.choices.get(g.key),
+                include_shared=True,
+                progress=progress,
+            ),
+            lambda report: self._say(f"Changed {count(report.changed, 'shortcut')}"),
             reload=True,
         )
 

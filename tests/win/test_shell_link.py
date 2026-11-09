@@ -16,6 +16,17 @@ def test_create_and_read_link(tmp_path: Path, shell_io: ShellLinkIO) -> None:
     assert info.icon.path == ""
 
 
+def test_reads_the_app_id(tmp_path: Path, shell_io: ShellLinkIO) -> None:
+    plain = tmp_path / "Notepad.lnk"
+    shell_io.create(plain, str(NOTEPAD))
+    pinned = tmp_path / "Pinned.lnk"
+    shell_io.create(pinned, str(NOTEPAD), app_id="Iconbloom.Test")
+    assert shell_io.read(plain).app_id == ""
+    assert shell_io.read(pinned).app_id == "Iconbloom.Test"
+    shell_io.set_icon(pinned, IconLocation(str(tmp_path / "pink.ico"), 0))
+    assert shell_io.read(pinned).app_id == "Iconbloom.Test"
+
+
 def test_set_icon_changes_only_the_icon(tmp_path: Path, shell_io: ShellLinkIO) -> None:
     link = tmp_path / "Notepad.lnk"
     shell_io.create(link, str(NOTEPAD))

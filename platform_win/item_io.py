@@ -27,7 +27,7 @@ from platform_win.shortcuts import IconLocation, ItemIO, ItemKind, LinkInfo, kin
 log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from _win32typing import PyIPersistFile, PyIShellLink
+    from _win32typing import PyIPersistFile, PyIPropertyStore, PyIShellLink, PyIUnknown
 
 
 class FileStateIO:
@@ -66,6 +66,7 @@ class ShellLinkIO(FileStateIO):
             target=str(target),
             arguments=str(arguments),
             icon=IconLocation(str(icon_path), int(icon_index)),
+            app_id=_app_id(link, path),
         )
 
     def set_icon(self, path: Path, icon: IconLocation) -> None:
@@ -75,12 +76,22 @@ class ShellLinkIO(FileStateIO):
             link.SetIconLocation(icon.path, icon.index)
             persist.Save(str(path), True)
 
-    def create(self, path: Path, target: str, icon: IconLocation | None = None) -> None:
+    def create(
+        self, path: Path, target: str, icon: IconLocation | None = None, app_id: str = ""
+    ) -> None:
         """Make a new shortcut. Used by tests to build real .lnk fixtures."""
         link, persist = _new_link()
         link.SetPath(target)
         if icon is not None:
             link.SetIconLocation(icon.path, icon.index)
+        if app_id:
+            import pythoncom
+            from win32com.propsys import propsys, pscon
+
+            store = _property_store(link)
+            value = propsys.PROPVARIANTType(app_id, pythoncom.VT_LPWSTR)
+            store.SetValue(pscon.PKEY_AppUserModel_ID, value)
+            store.Commit()
         persist.Save(str(path), True)
 
 
@@ -372,6 +383,26 @@ def _shell_errors_as_os_errors(path: Path) -> Iterator[None]:
         yield
     except pythoncom.com_error as exc:
         raise OSError(f"Windows couldn't use the shortcut {path} ({exc})") from exc
+
+
+def _app_id(link: "PyIShellLink", path: Path) -> str:
+    """The link's AppUserModelID, or "" when it has none or Windows won't say."""
+    import pywintypes
+    from win32com.propsys import pscon
+
+    try:
+        value = _property_store(link).GetValue(pscon.PKEY_AppUserModel_ID).GetValue()
+    except pywintypes.com_error as exc:
+        log.debug("no app id for %s: %s", path, exc)
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+def _property_store(link: "PyIShellLink") -> "PyIPropertyStore":
+    from win32com.propsys import propsys
+
+    unknown = cast("PyIUnknown", link).QueryInterface(propsys.IID_IPropertyStore)
+    return cast("PyIPropertyStore", unknown)
 
 
 def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":

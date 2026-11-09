@@ -58,8 +58,10 @@ load and are tested on any OS.
 - `backup.py`: the manifest of originals (each item's saved state, where "nothing there"
   is a valid original). Writes are atomic, the previous generation is kept,
   and a damaged file is refused rather than overwritten.
-- `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache for taskbar
-  pins, and (only when asked) restarts Explorer.
+- `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache when a taskbar
+  pin or Start menu shortcut changes, and (only when asked) restarts Explorer. Windows 11
+  keeps a pin by its app id and, after a restart, draws it and open windows from the Start
+  menu shortcut with that id, so shortcuts sharing an app id are grouped together.
 - `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
   restored shortcuts, choices and settings.

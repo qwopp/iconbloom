@@ -32,9 +32,13 @@ class FakeLinkIO(FileStateIO):
     backup and restore behave as they would on Windows.
     """
 
-    def create(self, path: Path, target: str, icon: IconLocation | None = None) -> None:
+    def create(
+        self, path: Path, target: str, icon: IconLocation | None = None, app_id: str = ""
+    ) -> None:
         icon = icon or IconLocation()
         data = {"target": target, "args": "", "icon": icon.path, "index": icon.index}
+        if app_id:
+            data["app_id"] = app_id
         path.write_text(json.dumps(data), encoding="utf-8")
 
     def read(self, path: Path) -> LinkInfo:
@@ -42,7 +46,8 @@ class FakeLinkIO(FileStateIO):
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise OSError(f"not a shortcut: {path}") from exc
-        return LinkInfo(data["target"], data["args"], IconLocation(data["icon"], data["index"]))
+        icon = IconLocation(data["icon"], data["index"])
+        return LinkInfo(data["target"], data["args"], icon, data.get("app_id", ""))
 
     def set_icon(self, path: Path, icon: IconLocation) -> None:
         data = json.loads(path.read_text(encoding="utf-8"))

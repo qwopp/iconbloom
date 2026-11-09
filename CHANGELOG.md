@@ -6,6 +6,13 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Taskbar icons no longer go back to the old look after **Refresh icons**. Windows draws
+  taskbar pins and open apps from the app's Start menu shortcut, so Iconbloom now styles
+  shortcuts with the same app id together, and when a Start menu shortcut every user shares
+  is left out, it says so and offers **Change it too**.
+
 ### Changed
 
 - Switching back to Iconbloom picks up shortcuts added, removed or changed since it opened,

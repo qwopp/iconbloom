@@ -3,6 +3,7 @@
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QMessageBox, QProgressDialog, QStatusBar, QWidget
@@ -13,8 +14,8 @@ from app.ui.controls import count, guarded
 from app.ui.jobs import JobRunner
 from app.ui.notice import NoticeBar
 from platform_win.paths import AppPaths
-from platform_win.refresh import touches_taskbar
-from platform_win.shortcuts import ShortcutGroup
+from platform_win.refresh import is_pinned
+from platform_win.shortcuts import ShortcutGroup, Source
 
 # A change to run: given a progress callback (False from it means "stop"), returns its report.
 type Change = Callable[[Callable[[int, ShortcutGroup], bool]], ChangeReport]
@@ -42,6 +43,7 @@ class ChangeRunner:
         *,
         refresh_icons: Callable[[], None],
         reload: Callable[[], None],
+        include_shared: Callable[[Sequence[ShortcutGroup]], None],
     ) -> None:
         self._parent = parent
         self._jobs = jobs
@@ -51,6 +53,7 @@ class ChangeRunner:
         self._paths = paths
         self._refresh_icons = refresh_icons
         self._reload = reload
+        self._include_shared = include_shared
         self._running = 0
 
     @property
@@ -94,7 +97,7 @@ class ChangeRunner:
             dialog.reset()
             if isinstance(result, ChangeReport):
                 self._show_skipped(result)
-                self.show_taskbar_notice(result)
+                self.show_taskbar_notice(result, targets)
                 on_done(result)
             if reload:
                 self._reload()
@@ -119,10 +122,16 @@ class ChangeRunner:
         box = QMessageBox(self._parent)
         box.setWindowTitle("Shared shortcuts")
         box.setIcon(QMessageBox.Icon.Question)
-        box.setText(
+        text = (
             f"{which} also {'has' if len(shared) == 1 else 'have'} a shortcut that every user "
             "on this PC shares. Windows will ask for administrator permission to change it."
         )
+        if any(shared_start_menu(t) for t in shared):
+            text += (
+                "\n\nThe taskbar takes its icons from the Start menu, so with “Only mine” "
+                "it keeps showing the old icon."
+            )
+        box.setText(text)
         include = box.addButton("Change those too", QMessageBox.ButtonRole.AcceptRole)
         mine = None
         if any(t.own_shortcuts for t in targets):
@@ -140,8 +149,24 @@ class ChangeRunner:
             guarded(self._parent, lambda: self._settings.save(self._paths.settings))
         return answer
 
-    def show_taskbar_notice(self, report: ChangeReport) -> None:
-        if any(touches_taskbar(p) for p in report.changed):
+    def show_taskbar_notice(
+        self, report: ChangeReport, targets: Sequence[ShortcutGroup] = ()
+    ) -> None:
+        left_out = taskbar_left_out(targets, report)
+        if left_out:
+            which = f"{left_out[0].name}'s" if len(left_out) == 1 else f"{len(left_out)} apps'"
+            self._notice.show_message(
+                f"Windows draws {which} taskbar icon from a Start menu shortcut every user "
+                "shares, which was left as it was, so the taskbar keeps the old icon.",
+                [
+                    (
+                        "Change it too",
+                        lambda: self._include_shared(left_out),
+                        "Windows will ask for administrator permission",
+                    )
+                ],
+            )
+        elif any(is_pinned(p) for p in report.changed):
             self._notice.show_message(
                 "Windows keeps its own copy of taskbar icons, so they can take a moment to "
                 "update. If one still looks old, refresh Windows' icons.",
@@ -166,3 +191,20 @@ class ChangeRunner:
         if problems:
             reasons = "\n".join(f"{p.stem}: {why}" for p, why in problems[:SKIPPED_SHOWN])
             QMessageBox.information(self._parent, "Some items were left alone", reasons)
+
+
+def shared_start_menu(target: ShortcutGroup) -> tuple[Path, ...]:
+    """The group's Start menu shortcuts every user shares, which the taskbar draws it from."""
+    return tuple(s.path for s in target.shared_shortcuts if s.source is Source.ALL_USERS_START_MENU)
+
+
+def taskbar_left_out(targets: Sequence[ShortcutGroup], report: ChangeReport) -> list[ShortcutGroup]:
+    """Groups that got styled while their shared Start menu shortcut was left alone."""
+    left = {p for p, why in report.skipped if why in (SHARED_REASON, DECLINED_REASON)}
+    changed = set(report.changed)
+    return [
+        t
+        for t in targets
+        if any(s.path in changed for s in t.own_shortcuts)
+        and any(p in left for p in shared_start_menu(t))
+    ]
