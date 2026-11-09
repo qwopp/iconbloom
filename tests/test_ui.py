@@ -16,7 +16,7 @@ from tests.conftest import load_sample
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
-RECIPES = 10
+RECIPES = 12
 
 
 class Harness:
