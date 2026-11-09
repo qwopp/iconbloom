@@ -75,6 +75,13 @@ OPS: Mapping[str, OpDef] = {
             "amount": Param("number", 0.45, jitter=0.08),
         },
     ),
+    "recolor": OpDef(
+        ops.recolor,
+        {
+            "stops": Param("colors", required=True),
+            "strength": Param("number", 1.0),
+        },
+    ),
     "mono": OpDef(
         ops.mono,
         {"color": Param("color", required=True), "knockout": Param("bool", True)},
