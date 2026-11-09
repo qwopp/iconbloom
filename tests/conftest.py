@@ -42,8 +42,8 @@ def env(tmp_path: Path) -> FakeDesktop:
 
 
 # Golden-tested for every theme besides the default: colorful, a plain glyph,
-# a gradient and a tiny icon.
-REPRESENTATIVE_SAMPLES = ("multicolor", "simple_glyph", "gradient_app", "tiny")
+# a gradient, a tiny icon and a logo on a plain plate (for the cut-out styles).
+REPRESENTATIVE_SAMPLES = ("multicolor", "simple_glyph", "gradient_app", "tiny", "plate_glyph")
 
 
 def sample_names() -> list[str]:

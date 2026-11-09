@@ -24,6 +24,7 @@ from app.ui.controls import count, make_button
 from app.ui.jobs import JobRunner
 from app.ui.widgets import PreviewCard, SizePopup, pixmap_at, to_qimage
 from engine import analyze, ops
+from engine.families import OWN_ROW
 from engine.recipes import render
 from engine.themes import Theme
 from platform_win.shortcuts import ItemKind, Place, ShortcutGroup
@@ -33,6 +34,9 @@ log = logging.getLogger(__name__)
 PREVIEW_COLUMNS = 4
 ORIGINAL_PX = 64
 SELECTION_ICON = 48
+# The image button's (text, tooltip), depending on whether the user's own image is in use.
+OWN_IMAGE = ("Use my own image…", "Style a picture of your own (PNG, ICO or BMP) instead")
+APP_IMAGE = ("Use the app's icon", "Go back to styling the app's own icon")
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,8 @@ class Preview:
     label: str
     choice: Choice
     image: QImage
+    # Shown last in a row of its own (the cut-out styles).
+    own_row: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,8 @@ class StylePicker(QWidget):
         self._token = 0
         self._strip_token = 0
         self._previews: PreviewSet | None = None
-        self._custom: Preview | None = None
+        # The user's own image, when the styles draw from it instead of the app's icon.
+        self._image: str | None = None
         self._cards: list[PreviewCard] = []
         self._chosen: PreviewCard | None = None
         self.popup = SizePopup(self)
@@ -107,11 +114,8 @@ class StylePicker(QWidget):
         self.shuffle_button = make_button(
             "Shuffle", "secondary", "Try different shades, positions and decorations", self.shuffle
         )
-        self.own_image_button = make_button(
-            "Use my own image…",
-            "secondary",
-            "Use a picture of your own (PNG, ICO or BMP) as this icon",
-        )
+        text, tip = OWN_IMAGE
+        self.own_image_button = make_button(text, "secondary", tip)
         header.addWidget(self.shuffle_button)
         header.addWidget(self.own_image_button)
         return header
@@ -184,6 +188,11 @@ class StylePicker(QWidget):
     def chosen(self) -> PreviewCard | None:
         return self._chosen
 
+    @property
+    def custom_image(self) -> str | None:
+        """The user's own image the styles are drawn from, if one is in use."""
+        return self._image
+
     def prepared_icon(self, target: ShortcutGroup) -> Image.Image | None:
         """The prepared original of ``target``, if its previews are showing."""
         previews = self._previews
@@ -197,9 +206,10 @@ class StylePicker(QWidget):
             self.show_group(self._target)
 
     def reset(self) -> None:
-        """A different icon was picked: back to the default look, no custom image."""
+        """A different icon was picked: back to the default look and the app's own icon."""
         self._seed = 0
-        self._custom = None
+        self._image = None
+        self._show_image_button()
         self._clear_cards()
 
     def show_message(self, text: str) -> None:
@@ -227,11 +237,17 @@ class StylePicker(QWidget):
             self._seed += 1
             self.show_group(self._target)
 
-    def add_custom(self, choice: Choice) -> None:
-        """Offer the user's own image first among the styles."""
-        full, _ = self._service.styles.render(choice)
-        self._custom = Preview("Your image", choice, to_qimage(full))
-        self._show_cards()
+    def use_custom_image(self, image: str | None) -> None:
+        """Draw every style from the user's own image (None: the app's icon again)."""
+        self._image = image
+        self._show_image_button()
+        if self._target is not None:
+            self.show_group(self._target)
+
+    def _show_image_button(self) -> None:
+        text, tip = APP_IMAGE if self._image is not None else OWN_IMAGE
+        self.own_image_button.setText(text)
+        self.own_image_button.setToolTip(tip)
 
     def _set_detail(self, target: ShortcutGroup, *, upscaled: bool) -> None:
         # Say where the style lands, so a missing taskbar pin is no surprise.
@@ -246,7 +262,7 @@ class StylePicker(QWidget):
         self.detail_label.setText("  ".join(notes))
 
     def _render_previews(self, target: ShortcutGroup) -> None:
-        theme, seed, service = self._theme, self._seed, self._service
+        theme, seed, service, image = self._theme, self._seed, self._service, self._image
         # Shuffle and theme switches keep the same original; skip re-extracting it.
         cached = (
             self._previews if self._previews and self._previews.group_key == target.key else None
@@ -259,13 +275,20 @@ class StylePicker(QWidget):
                 extracted = service.original_icon(target)
                 icon, upscaled = ops.prepare(extracted.image)
                 upscaled = upscaled or extracted.upscaled
-            previews = [
+            source = icon if image is None else service.styles.custom_source(image)
+            previews = (
+                []
+                if image is None
+                else [Preview("Your image", Choice.custom(image), to_qimage(source))]
+            )
+            previews += [
                 Preview(
                     recipe.label,
-                    Choice(theme.id, recipe.id, seed),
-                    to_qimage(render(recipe, icon, theme, seed=seed)),
+                    Choice(theme.id, recipe.id, seed, custom_image=image),
+                    to_qimage(render(recipe, source, theme, seed=seed)),
+                    own_row=recipe.family in OWN_ROW,
                 )
-                for recipe in analyze.order_recipes(theme.recipes, icon)
+                for recipe in analyze.order_recipes(theme.recipes, source)
             ]
             return PreviewSet(target.key, icon, to_qimage(icon), upscaled, previews)
 
@@ -299,14 +322,19 @@ class StylePicker(QWidget):
         self._clear_cards()
         if self._previews is None:
             return
-        previews = ([self._custom] if self._custom else []) + self._previews.previews
-        for i, preview in enumerate(previews):
+        slot = 0
+        own_row = False
+        for preview in self._previews.previews:
+            if preview.own_row and not own_row and slot % PREVIEW_COLUMNS:
+                slot += PREVIEW_COLUMNS - slot % PREVIEW_COLUMNS  # start a fresh row
+            own_row = preview.own_row
             card = PreviewCard(preview.choice, preview.label, preview.image)
             card.clicked.connect(self.choose)
             card.activated.connect(self._choose_and_activate)
             card.hovered.connect(self._on_card_hover)
-            self._cards_layout.addWidget(card, i // PREVIEW_COLUMNS, i % PREVIEW_COLUMNS)
+            self._cards_layout.addWidget(card, *divmod(slot, PREVIEW_COLUMNS))
             self._cards.append(card)
+            slot += 1
         self.choose(self._cards[0])
 
     def _clear_cards(self) -> None:
@@ -347,7 +375,7 @@ class StylePicker(QWidget):
         has_target = self._target is not None
         self.apply_button.setEnabled(bool(selected) and chosen is not None)
         self.apply_button.setText(f"Apply to {len(selected)}" if len(selected) > 1 else "Apply")
-        self.all_button.setEnabled(chosen is not None and not chosen.choice.is_custom)
+        self.all_button.setEnabled(chosen is not None and not chosen.choice.uses_own_image)
         self.skip_button.setEnabled(bool(selected))
         styled = any(self._service.status(g) is Status.THEMED for g in selected)
         self.revert_button.setEnabled(styled)
@@ -385,7 +413,7 @@ class StylePicker(QWidget):
                 if token != self._strip_token:
                     return  # the selection or style changed; stop drawing this one
                 try:
-                    if choice.is_custom:
+                    if choice.uses_own_image:
                         image, _ = service.styles.render(choice)
                     else:
                         icon, _ = ops.prepare(service.original_icon(target).image)

@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 from PIL import Image, ImageDraw
 
 from engine import ops
+from tests.conftest import load_sample
 
 PINK = (255, 158, 196)
 CREAM = (255, 247, 240)
@@ -89,6 +90,7 @@ OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
         scale=d.draw(st.floats(0.1, 0.6)),
         rotation=d.draw(st.floats(-180, 180)),
     ),
+    "remove_background": lambda img, _d: ops.remove_background(img),
 }
 
 
@@ -308,3 +310,41 @@ def test_shape_mask_is_filled_in_the_middle_and_empty_at_corners(shape: ops.Shap
     mask = ops.shape_mask((64, 64), (4, 4, 60, 60), shape)
     assert mask.getpixel((32, 32)) == 255
     assert mask.getpixel((5, 5)) == 0
+
+
+def _plated() -> Image.Image:
+    icon, _ = ops.prepare(load_sample("plate_glyph"))
+    return icon
+
+
+def test_plate_is_cut_away_and_logo_kept() -> None:
+    icon = _plated()
+    assert ops.has_plate(icon)
+    out = ops.remove_background(icon)
+    rgba = np.asarray(out, dtype=np.int16)
+    visible = rgba[..., 3] > 200
+    plate = np.array((255, 170, 200))
+    # Nothing plate-colored is left, not even a fringe at the logo's edge.
+    assert not (np.abs(rgba[..., :3] - plate).sum(axis=-1)[visible] < 40).any()
+    # The logo (white disc, yellow bolt) survives, enlarged to fill the canvas.
+    assert (rgba[visible][:, :3] > 240).all(axis=-1).any()
+    assert ((rgba[..., 0] > 220) & (rgba[..., 2] < 90) & visible).any()
+    bbox = ops.prepare(out)[0].getbbox()
+    assert bbox == out.getbbox()
+
+
+@pytest.mark.parametrize("name", ["multicolor", "simple_glyph", "thin_line", "gradient_app"])
+def test_icons_without_a_plate_are_left_alone(name: str) -> None:
+    icon, _ = ops.prepare(load_sample(name))
+    assert not ops.has_plate(icon)
+    assert ops.remove_background(icon).tobytes() == icon.tobytes()
+
+
+def test_solid_glyph_is_not_mistaken_for_a_plate() -> None:
+    """A one-color shape's edge is uniform too; cutting it would leave nothing."""
+    icon, _ = ops.prepare(Image.new("RGBA", (64, 64), (*INK, 255)))
+    assert not ops.has_plate(icon)
+
+
+def test_transparent_image_has_no_plate() -> None:
+    assert not ops.has_plate(Image.new("RGBA", (256, 256)))

@@ -316,7 +316,12 @@ class MainWindow(QMainWindow):
         )
 
     def use_own_image(self, path: Path | None = None) -> None:
+        """Style a picture of the user's own; while one is in use, the same button goes
+        back to the app's icon."""
         if self.shortcuts.current_group() is None:
+            return
+        if path is None and self.picker.custom_image is not None:
+            self.picker.use_custom_image(None)
             return
         if path is None:
             chosen, _ = QFileDialog.getOpenFileName(
@@ -327,12 +332,12 @@ class MainWindow(QMainWindow):
             path = Path(chosen)
         source = path
         choice = guarded(self, lambda: self.service.styles.store_custom_image(source))
-        if choice is not None:
-            self.picker.add_custom(choice)
+        if choice is not None and choice.custom_image is not None:
+            self.picker.use_custom_image(choice.custom_image)
 
     def apply_style_to_all(self) -> None:
         card = self.picker.chosen
-        if card is None or card.choice.is_custom:
+        if card is None or card.choice.uses_own_image:
             return
         choice = card.choice
         targets = [g for g in self.shortcuts.groups if self.service.is_untouched(g)]

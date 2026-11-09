@@ -7,6 +7,7 @@ from PIL import Image
 
 from app.choices import Choice
 from app.service import DECLINED_REASON, SHARED_REASON, IconService, Status
+from engine.themes import DEFAULT_THEME
 from platform_win.backup import BackupCorruptError
 from platform_win.shortcuts import IconLocation, ShortcutGroup
 from tests.conftest import load_sample
@@ -192,10 +193,14 @@ def test_icon_without_backup_is_refused(env: FakeDesktop) -> None:
     assert "no backup entry" in report.skipped[0][1]
 
 
-def test_reapply_after_app_update_rewrites_shortcut(env: FakeDesktop) -> None:
+@pytest.mark.parametrize("own_image", [False, True], ids=["theme", "own-image"])
+def test_reapply_after_app_update_rewrites_shortcut(
+    env: FakeDesktop, tmp_path: Path, own_image: bool
+) -> None:
     lnk = env.make("Paint")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    choice = _cutout_of_own_image(service, tmp_path) if own_image else CHOICE
+    service.apply(_group(service, "Paint"), choice)
 
     # The app's updater recreates its shortcut with a new icon.
     env.link_io.create(lnk, r"C:\Apps\Paint.exe", IconLocation(r"C:\Apps\paint-v2.ico", 0))
@@ -296,7 +301,7 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
     load_sample("gradient_app").save(picture)
     service = env.service()
     choice = service.styles.store_custom_image(picture)
-    assert choice.is_custom
+    assert choice.uses_own_image
     assert choice.custom_image is not None
     assert choice.custom_image.endswith(".png")
     assert service.styles.store_custom_image(picture) == choice
@@ -307,6 +312,27 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
     lnk = env.make("Paint")
     service.apply(_group(service, "Paint"), choice)
     assert service.is_ours(env.link_io.read(lnk).icon)
+
+
+def _cutout_of_own_image(service: IconService, tmp_path: Path) -> Choice:
+    picture = tmp_path / "kitty.png"
+    load_sample("plate_glyph").save(picture)
+    image = service.styles.store_custom_image(picture).custom_image
+    assert image is not None
+    return Choice(DEFAULT_THEME, "cutout", custom_image=image)
+
+
+def test_styles_draw_from_the_users_image(env: FakeDesktop, tmp_path: Path) -> None:
+    service = env.service()
+    choice = _cutout_of_own_image(service, tmp_path)
+    assert choice.custom_image is not None
+    as_is, _ = service.styles.render(Choice.custom(choice.custom_image))
+    cut, _ = service.styles.render(choice)  # no app icon needed: the image is the source
+    assert cut.tobytes() != as_is.tobytes()
+    lnk = env.make("Paint")
+    service.apply(_group(service, "Paint"), choice)
+    assert service.is_ours(env.link_io.read(lnk).icon)
+    assert service.choices.get(_group(service, "Paint").key) == choice
 
 
 def test_theme_choice_needs_the_original(env: FakeDesktop) -> None:

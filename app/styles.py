@@ -26,6 +26,8 @@ class Styles:
         self._paths = paths
         self._themes_dir = themes_dir
         self._themes: dict[str, Theme] = {}
+        # Prepared own images by file name; names are content hashes, so never stale.
+        self._sources: dict[str, Image.Image] = {}
 
     def theme_names(self) -> list[tuple[str, str]]:
         """(id, display name) of every installed theme, without loading them."""
@@ -43,12 +45,13 @@ class Styles:
         """Full and simplified renders for a choice.
 
         Theme choices need ``prepared``, the original icon after ``ops.prepare``;
-        a custom image is its own source.
+        a choice with the user's own image draws from that image instead.
         """
         if choice.custom_image is not None:
-            with Image.open(self._paths.custom_images / choice.custom_image) as img:
-                image, _ = ops.prepare(img)
-            return image, image
+            prepared = self.custom_source(choice.custom_image)
+            if choice.as_is:
+                own = prepared.copy()  # the cached image stays untouched
+                return own, own
         if prepared is None:
             raise ValueError(f"rendering {choice.file_tag} needs the original icon")
         theme = self.theme(choice.theme)
@@ -57,6 +60,13 @@ class Styles:
             render(recipe, prepared, theme, seed=choice.seed),
             render(recipe, prepared, theme, seed=choice.seed, simplified=True),
         )
+
+    def custom_source(self, image_name: str) -> Image.Image:
+        """The user's stored image, prepared like an app's icon so any style applies."""
+        if image_name not in self._sources:
+            with Image.open(self._paths.custom_images / image_name) as img:
+                self._sources[image_name], _ = ops.prepare(img)
+        return self._sources[image_name]
 
     def store_custom_image(self, source: Path) -> Choice:
         """Copy a user-picked image into app data and return the choice that uses it."""

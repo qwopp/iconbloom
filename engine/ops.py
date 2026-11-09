@@ -39,6 +39,25 @@ _NEUTRAL_CHROMA = 0.05
 _FULL_CHROMA = 0.25
 _RECOLOR_SATURATION = 1.35
 _RECOLOR_LIFT = 0.4
+# remove_background: a plain plate behind a logo (a colored square or circle) is found
+# from a ring just inside the icon's outline, which must be mostly one color.
+_PLATE_RING = 4
+# Too few solid pixels to tell a plate from noise, and the faintest alpha still counted.
+_PLATE_MIN_PIXELS = 64
+_PLATE_VISIBLE = 0.02
+_PLATE_SHARE = 0.85
+# Color distance (RGB, 0..1 per channel) still counted as the plate.
+_PLATE_TOLERANCE = 0.12
+# Width of the logo's anti-aliased edge that gets the plate color taken back out.
+_PLATE_EDGE = 3
+# The plate's own anti-aliased rim drifts further in color (resampling rings), so the
+# few pixels next to the outside match more loosely.
+_PLATE_RIM = 3
+_PLATE_RIM_TOLERANCE = 0.3
+# A real logo leaves this share of the icon behind; anything else means the "plate"
+# was the logo itself (a solid glyph's edge is one color too), so nothing is cut.
+_LOGO_MIN_SHARE = 0.03
+_LOGO_MAX_SHARE = 0.7
 
 
 def prepare(icon: Image.Image, size: int = CANVAS) -> tuple[Image.Image, bool]:
@@ -272,6 +291,42 @@ def badge(
     return _finish(out)
 
 
+def remove_background(img: Image.Image) -> Image.Image:
+    """Cut away a plain plate behind a logo, keeping the logo, re-centered and enlarged.
+
+    Icons without such a plate come back unchanged; ``has_plate`` says which is which.
+    """
+    found = _find_plate(img)
+    if found is None:
+        return img.copy()
+    plate_color, plate = found
+    arr = _to_array(img)
+    alpha = arr[..., 3]
+    alpha[plate] = 0
+    # The logo's anti-aliased edge mixes logo and plate colors. Compare each edge pixel
+    # with the plate color and the nearest pure logo color to tell how much of it is
+    # logo, then keep only that part (no colored fringe).
+    near_plate = _grow(plate, _PLATE_EDGE)
+    edge = near_plate & ~plate & (alpha > 0)
+    logo = _nearest_color(arr[..., :3], (alpha > 0) & ~near_plate, _PLATE_EDGE)
+    rgb = arr[..., :3][edge]
+    toward_logo = logo[edge] - plate_color
+    reach = np.maximum((toward_logo**2).sum(axis=-1), 1e-6)
+    share = np.clip(((rgb - plate_color) * toward_logo).sum(axis=-1) / reach, 0.0, 1.0)
+    alpha[edge] *= share
+    keep = np.maximum(share, 1e-3)[:, None]
+    arr[..., :3][edge] = np.clip((rgb - (1 - keep) * plate_color) / keep, 0.0, 1.0)
+    cut = _from_array(arr)
+    if _visible_bbox(cut) is None:
+        return img.copy()
+    return _finish(prepare(cut, img.width)[0])
+
+
+def has_plate(img: Image.Image) -> bool:
+    """True when the icon is a logo on a plain plate that ``remove_background`` can cut."""
+    return _find_plate(img) is not None
+
+
 def mix(a: RGB, b: RGB, amount: float) -> RGB:
     """Blend color ``a`` toward ``b``; amount 0 keeps ``a``, 1 gives ``b``."""
     r, g, bl = (round(x + (y - x) * amount) for x, y in zip(a, b, strict=True))
@@ -382,6 +437,77 @@ def dilate(alpha: Image.Image, radius: float) -> Image.Image:
     spread = np.asarray(solid.filter(ImageFilter.GaussianBlur(radius / 2)), dtype=np.float64)
     grown = np.clip((spread - 3.0) / 6.0, 0.0, 1.0)
     return Image.fromarray((grown * 255 + 0.5).astype(np.uint8), "L")
+
+
+def _find_plate(img: Image.Image) -> tuple[FloatArray, npt.NDArray[np.bool_]] | None:
+    """The plate's color and which pixels are plate; None when there's no plain plate."""
+    arr = _to_array(img)
+    alpha = arr[..., 3]
+    opaque = alpha > 0.5
+    if opaque.sum() < _PLATE_MIN_PIXELS:
+        return None
+    ring = opaque & ~_shrink(opaque, _PLATE_RING)
+    plate_color = np.median(arr[..., :3][ring], axis=0)
+    distance = np.linalg.norm(arr[..., :3] - plate_color, axis=-1)
+    if (distance[ring] < _PLATE_TOLERANCE).mean() < _PLATE_SHARE:
+        return None
+    visible = alpha > _PLATE_VISIBLE
+    rim = visible & ~_shrink(visible, _PLATE_RIM)
+    similar = visible & ((distance < _PLATE_TOLERANCE) | (rim & (distance < _PLATE_RIM_TOLERANCE)))
+    plate = ring & similar
+    while True:  # flood from the ring through connected plate-colored pixels
+        grown = _grow(plate, 1) & similar
+        if np.array_equal(grown, plate):
+            break
+        plate = grown
+    logo_share = (opaque & ~plate).sum() / opaque.sum()
+    if not _LOGO_MIN_SHARE <= logo_share <= _LOGO_MAX_SHARE:
+        return None
+    return plate_color, plate
+
+
+def _nearest_color(rgb: FloatArray, known: npt.NDArray[np.bool_], steps: int) -> FloatArray:
+    """Each pixel's color, filled in from the nearest ``known`` pixel up to ``steps`` away."""
+    filled = np.where(known[..., None], rgb, np.nan)
+    for _ in range(steps):
+        missing = np.isnan(filled[..., 0])
+        if not missing.any():
+            break
+        step = filled.copy()
+        for neighbor, target in _neighbor_pairs(filled, step):
+            take = np.isnan(target[..., 0]) & ~np.isnan(neighbor[..., 0])
+            target[take] = neighbor[take]
+        filled = step
+    return np.where(np.isnan(filled), rgb, filled)
+
+
+def _grow(mask: npt.NDArray[np.bool_], steps: int) -> npt.NDArray[np.bool_]:
+    """The mask plus every pixel within ``steps`` 4-connected steps of it."""
+    grown = mask.copy()
+    for _ in range(steps):
+        step = grown.copy()
+        for neighbor, target in _neighbor_pairs(grown, step):
+            target |= neighbor
+        grown = step
+    return grown
+
+
+def _neighbor_pairs[T: np.generic](
+    source: npt.NDArray[T], target: npt.NDArray[T]
+) -> tuple[tuple[npt.NDArray[T], npt.NDArray[T]], ...]:
+    """(neighbor, pixel) views of two same-shaped arrays, for each of the 4 directions:
+    writing to the pixel view updates each pixel from its neighbor in ``source``."""
+    return (
+        (source[:-1], target[1:]),
+        (source[1:], target[:-1]),
+        (source[:, :-1], target[:, 1:]),
+        (source[:, 1:], target[:, :-1]),
+    )
+
+
+def _shrink(mask: npt.NDArray[np.bool_], steps: int) -> npt.NDArray[np.bool_]:
+    """The mask minus every pixel within ``steps`` of its outside."""
+    return ~_grow(~mask, steps)
 
 
 def _squircle_points(

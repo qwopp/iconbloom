@@ -3,11 +3,11 @@
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QGridLayout
 
 from app.service import Status
 from tests.conftest import load_sample
-from tests.ui_harness import APPS, RECIPES, Harness
+from tests.ui_harness import APPS, Harness
 
 
 def test_launch_selects_first_untouched_and_shows_previews(harness: Harness) -> None:
@@ -72,20 +72,78 @@ def test_revert_all_after_applying_everything(harness: Harness, say_yes: None) -
         assert harness.path(name).read_bytes() == originals[name]
 
 
-def test_use_own_image(harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    picture = tmp_path / "bunny.png"
-    load_sample("gradient_app").save(picture)
+def _pick_own_image(harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    picture = tmp_path / "kitty.png"
+    load_sample("plate_glyph").save(picture)
     monkeypatch.setattr(
         QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(picture), "Images")
     )
     harness.window.picker.own_image_button.click()  # the real button, as a person would
-    harness.wait_for_previews(RECIPES + 1)
-    assert harness.window.picker.cards[0].choice.is_custom
-    harness.window.picker.choose(harness.window.picker.cards[0])
-    assert not harness.window.picker.all_button.isEnabled()
+    harness.wait_for_previews()
+
+
+def test_use_own_image_as_it_is(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pick_own_image(harness, tmp_path, monkeypatch)
+    picker = harness.window.picker
+    assert picker.cards[0].label == "Your image"
+    picker.choose(picker.cards[0])
+    assert not picker.all_button.isEnabled()
     harness.window.apply_chosen()
     harness.settle()
     assert harness.status("Arcade") is Status.THEMED
+
+
+def test_own_image_gets_every_style_and_reverts_exactly(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = harness.lnk("Arcade").read_bytes()
+    _pick_own_image(harness, tmp_path, monkeypatch)
+    picker = harness.window.picker
+    labels = [c.label for c in picker.cards]
+    assert labels[0] == "Your image"
+    assert labels[-4:] == ["Cut out", "Cut out + recolor", "Cut out + mono", "Cut out on a tile"]
+    assert all(c.choice.custom_image == picker.custom_image for c in picker.cards)
+    cut_out = picker.cards[-4]
+    picker.choose(cut_out)
+    harness.window.apply_chosen()
+    harness.settle()
+    assert harness.status("Arcade") is Status.THEMED
+    arcade = harness.window.shortcuts.current_group()
+    assert arcade is not None
+    assert arcade.name == "Arcade"
+    assert harness.service.choices.get(arcade.key) == cut_out.choice
+    harness.window.revert_selected()
+    harness.settle()
+    assert harness.lnk("Arcade").read_bytes() == before
+
+
+def test_cut_out_styles_get_a_row_of_their_own(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pick_own_image(harness, tmp_path, monkeypatch)  # "Your image" first shifts the rest
+    first_cut_out = next(c for c in harness.window.picker.cards if c.label == "Cut out")
+    host = first_cut_out.parentWidget()
+    assert host is not None
+    grid = host.layout()
+    assert isinstance(grid, QGridLayout)
+    position = grid.getItemPosition(grid.indexOf(first_cut_out))
+    assert isinstance(position, tuple)
+    assert position[1] == 0  # first column
+
+
+def test_switching_back_to_the_apps_icon(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _pick_own_image(harness, tmp_path, monkeypatch)
+    picker = harness.window.picker
+    assert picker.own_image_button.text() == "Use the app's icon"
+    picker.own_image_button.click()
+    harness.wait_for_previews()
+    assert picker.custom_image is None
+    assert not any(c.choice.uses_own_image for c in picker.cards)
+    assert picker.own_image_button.text() == "Use my own image…"
 
 
 def test_shared_shortcut_is_changed_after_permission(harness: Harness) -> None:

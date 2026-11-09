@@ -51,6 +51,10 @@
     "striped_star",
     "sticker",
     "tile_bow",
-    "pastel_tint"
+    "pastel_tint",
+    "cutout",
+    "cutout_recolor",
+    "cutout_mono",
+    "cutout_tile"
   ]
 }

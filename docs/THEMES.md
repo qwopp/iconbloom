@@ -86,9 +86,11 @@ two of the same `family` next to each other:
 | `sticker` | add a die-cut sticker border |
 | `tint` | map the icon onto a few theme shades |
 | `glow` | tint the icon and add a halo |
+| `cutout` | cut a logo out of its plain background (start with `remove_background`) |
 
-For busy, colorful icons, `tint` and `glow` recipes move to the end, since flattening many
-colors into a few shades loses the most there.
+For busy, colorful icons, `tint` and `glow` recipes move toward the end, since flattening
+many colors into a few shades loses the most there. `cutout` recipes always come last, and
+are left out for icons that have no plain background to cut.
 
 ## Colors
 
@@ -112,6 +114,7 @@ Wherever a color is expected, you can write:
 | `sticker_outline` | Die-cut sticker border behind the icon | `thickness` (10 px), `color` (`#FFFFFF`), `shadow` (true) |
 | `glow` | Soft halo around the icon | `color` (required), `radius` (10), `strength` (0.8) |
 | `overlay_face` | Tiny face on the lower middle of the icon | `face` (required asset), `scale` (0.42), `offset_x` (0), `offset_y` (0.16) |
+| `remove_background` | Cuts away a plain plate behind a logo (a colored square or circle), keeping the logo, re-centered. Icons without one are left as they are | none |
 | `badge` | Decoration in a corner | `asset` (required), `corner` (`top-right`, `top-left`, `bottom-right`, `bottom-left` or `random`), `scale` (0.35), `rotation` (0) |
 
 `overlay_face` and `badge` are left out of the 16 and 24 px icon sizes, where they would only

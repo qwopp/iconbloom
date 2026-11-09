@@ -419,7 +419,7 @@ class IconService:
         """Render ``choice`` for a group and write its .ico (and any variants); returns the file."""
         if dry_run:
             return self.styles.icon_path(target.slug, choice)
-        if not choice.is_custom and prepared is None:
+        if not choice.uses_own_image and prepared is None:
             prepared, _ = ops.prepare(self.original_icon(target).image)
         if self.status(target) is not Status.THEMED:
             self._save_original(target, prepared)
@@ -427,7 +427,7 @@ class IconService:
         variants: dict[str, Image.Image | None] = {}
         for name, location in self._io.variants(primary).items():
             variants[name] = None
-            if not choice.is_custom:
+            if not choice.uses_own_image:
                 extracted = self._extract(location, "", primary, use_shell=False)
                 variants[name], _ = ops.prepare(extracted.image)
         return self.styles.write_icon(target.slug, choice, prepared, variants)
