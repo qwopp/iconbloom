@@ -4,11 +4,11 @@ Only one field of a shortcut is ever written: its icon location. Targets,
 arguments and everything else are left exactly as they are.
 """
 
-import contextlib
 import hashlib
 import ntpath
 import os
 import re
+import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -144,16 +144,25 @@ _STGM_READWRITE = 0x00000002
 _MAX_PATH = 32767
 
 
-def ensure_com() -> None:
-    """Make COM usable on this thread, e.g. a UI worker thread.
+_com_ready = threading.local()
+# CoInitialize's error when the thread already runs COM in another threading
+# model. COM is still usable then, so it isn't a failure for us.
+_RPC_E_CHANGED_MODE = -2147417850
 
-    Repeat calls are harmless. If the thread already runs COM in another
-    threading model, it is usable as is.
-    """
+
+def ensure_com() -> None:
+    """Make COM usable on the current thread (UI worker threads need this). Idempotent."""
+    if getattr(_com_ready, "done", False):
+        return
     import pythoncom
 
-    with contextlib.suppress(pythoncom.com_error):
+    try:
         pythoncom.CoInitialize()
+    except pythoncom.com_error as exc:
+        # com_error's first argument is the HRESULT.
+        if not exc.args or exc.args[0] != _RPC_E_CHANGED_MODE:
+            raise
+    _com_ready.done = True
 
 
 def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":

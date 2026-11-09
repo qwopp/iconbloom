@@ -110,10 +110,15 @@ def test_system_dll_icons_are_looked_up_in_mun_files(
         return build_ico(load_sample("dark"))
 
     monkeypatch.setattr("platform_win.extract._pe_icon", fake_pe)
-    location = IconLocation(str(windir / "System32" / "imageres.dll"), -114)
-    result = extract_icon(location, "", tmp_path / "a.lnk", use_shell=False)
-    assert result.source == f"{mun},-114"
-    assert seen == [windir / "System32" / "imageres.dll", mun]
+    dll = windir / "System32" / "imageres.dll"
+    result = extract_icon(IconLocation(str(dll), -114), "", tmp_path / "a.lnk", use_shell=False)
+    assert result.image.size == (256, 256)
+    assert seen == [dll, mun]
+
+    # The target route gets the same redirect.
+    seen.clear()
+    assert extract_icon(IconLocation(), str(dll), tmp_path / "a.lnk", use_shell=False)
+    assert seen == [dll, mun]
 
 
 def test_nothing_to_extract(tmp_path: Path) -> None:
