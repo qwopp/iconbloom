@@ -47,6 +47,7 @@ def run_window() -> int:
         return 2
     window = MainWindow(service, hard_refresh=hard_refresh)
     window.show()
+    log.info("window shown")
     return app.exec()
 
 

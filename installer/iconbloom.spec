@@ -35,14 +35,40 @@ QT_EXCLUDES = [
     )
 ]
 
+OTHER_EXCLUDES = [
+    "tkinter", "unittest", "pydoc", "hypothesis", "pytest",
+    # Pillow's AVIF codec alone is ~8 MB, and icons are never AVIF.
+    "PIL._avif", "PIL.AvifImagePlugin",
+    # pywin32's MFC-based UI layer; only win32com.shell is used.
+    "win32ui", "win32uiole", "dde", "pythonwin",
+]
+
 a = Analysis(
     [str(ROOT / "app" / "main.py")],
     pathex=[str(ROOT)],
     datas=datas,
     hiddenimports=["win32com.shell.shell", "win32com.shell.shellcon"],
-    excludes=[*QT_EXCLUDES, "tkinter", "unittest", "pydoc", "hypothesis", "pytest"],
+    excludes=[*QT_EXCLUDES, *OTHER_EXCLUDES],
     noarchive=False,
 )
+
+# Files the hooks bring along that Iconbloom never loads.
+DROP_FILES = {"opengl32sw.dll", "qt6network.dll", "qt6pdf.dll", "qt6svg.dll", "mfc140u.dll"}
+KEEP_PLUGINS = ("plugins/platforms/qwindows.dll", "plugins/styles/")
+
+
+def wanted(entry):
+    dest = entry[0].replace("\\", "/")
+    name = dest.rsplit("/", 1)[-1].lower()
+    if name in DROP_FILES or "PySide6/translations/" in dest:
+        return False
+    if "PySide6/plugins/" in dest:
+        return any(keep in dest for keep in KEEP_PLUGINS)
+    return True
+
+
+a.binaries = [b for b in a.binaries if wanted(b)]
+a.datas = [d for d in a.datas if wanted(d)]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

@@ -50,6 +50,19 @@ jobs:
           if (-not (Test-Path $exe)) { throw "missing $exe" }
           $size = (Get-ChildItem dist\Iconbloom -Recurse | Measure-Object Length -Sum).Sum / 1MB
           "Build size: {0:N1} MB" -f $size
+          # Headless run: imports Qt, pywin32 and the engine from the frozen build.
+          $run = Start-Process $exe -ArgumentList "--revert-all" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "Iconbloom.exe --revert-all exited with $($run.ExitCode)" }
+          # GUI run: proves the trimmed build still has the Qt platform plugin it needs.
+          $gui = Start-Process $exe -PassThru
+          $log = "$env:LOCALAPPDATA\Iconbloom\logs\iconbloom.log"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Select-String -Path $log -Pattern "window shown" -Quiet)) {
+            if ($gui.HasExited -or (Get-Date) -gt $deadline) { Get-Content $log; throw "window never opened" }
+            Start-Sleep -Seconds 2
+          }
+          Stop-Process -Id $gui.Id
+          Get-Content $log -Tail 5
 
       - name: Build installer
         shell: pwsh
