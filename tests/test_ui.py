@@ -1,7 +1,8 @@
 """Smoke tests for the picker window, driven through pytest-qt against fake shortcuts."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import override
 
 import pytest
 from PySide6.QtCore import QItemSelectionModel, QPoint
@@ -10,14 +11,43 @@ from pytestqt.qtbot import QtBot
 
 from app.main import load_style
 from app.service import ChangeReport, IconService, Status
+from app.settings import Settings
 from app.ui.main_window import MainWindow
-from app.updates import Release
+from app.updates import Release, Updater
 from platform_win.shortcuts import Place
 from tests.conftest import load_sample
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
 RECIPES = 12
+
+
+class FakeUpdater(Updater):
+    """GitHub stand-in: offers ``release`` and 'downloads' a dummy installer."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release: Release | None = None
+        self.launched: list[Path] = []
+
+    @override
+    def check(self, timeout: float = 5.0) -> Release | None:
+        return self.release
+
+    @override
+    def download(
+        self, release: Release, folder: Path, progress: Callable[[int, int], None] | None = None
+    ) -> Path:
+        if progress is not None:
+            progress(5, 10)
+        folder.mkdir(parents=True, exist_ok=True)
+        installer = folder / release.installer_name
+        installer.write_bytes(b"installer")
+        return installer
+
+    @override
+    def launch(self, installer: Path) -> None:
+        self.launched.append(installer)
 
 
 class Harness:
@@ -27,9 +57,9 @@ class Harness:
         self.refreshes = 0
         # Text of every information/warning box the window tried to show.
         self.messages: list[str] = []
-        self.release: Release | None = None
+        self.updater = FakeUpdater()
         self.window = MainWindow(
-            desktop.service(), hard_refresh=self._hard_refresh, update_check=lambda: self.release
+            desktop.service(), hard_refresh=self._hard_refresh, updater=self.updater
         )
 
     def _hard_refresh(self) -> None:
@@ -75,6 +105,8 @@ def harness(
     tmp_path: Path, qtbot: QtBot, qapp: QApplication, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Harness]:
     desktop = FakeDesktop(tmp_path, icons=APPS, default="dark")
+    # The first-run update question is tested on its own below.
+    Settings(asked_about_updates=True).save(desktop.paths.settings)
     for name in APPS:
         desktop.make(name)
     desktop.make("Admin Tool", folder=desktop.common)
@@ -295,9 +327,41 @@ def test_popup_handles_point(harness: Harness) -> None:
     assert harness.window._popup.isVisible()
 
 
-def test_update_check_is_opt_in(harness: Harness) -> None:
-    harness.release = Release("9.9.9", "https://github.com/qwopp/iconbloom/releases/v9.9.9")
-    assert not harness.window.update_box.isChecked()
+RELEASE = Release(
+    "9.9.9",
+    "https://github.com/qwopp/iconbloom/releases/v9.9.9",
+    installer_url="https://dl/setup.exe",
+    checksums_url="https://dl/sums",
+)
+
+
+def test_first_launch_asks_before_checking_for_updates(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication
+) -> None:
+    desktop = FakeDesktop(tmp_path)
+    desktop.make("Paint")
+    updater = FakeUpdater()
+    updater.release = RELEASE
+    window = MainWindow(desktop.service(), hard_refresh=lambda: None, updater=updater)
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitUntil(window.notice.isVisible, timeout=5_000)
+    assert "new version" in window.notice_label.text()
+    window.update_box.setChecked(True)  # what "Yes, check" does
+    qtbot.waitUntil(lambda: "ready to install" in window.notice_label.text(), timeout=5_000)
+    saved = Settings.load(desktop.paths.settings)
+    assert saved.check_for_updates
+    assert saved.asked_about_updates
+    window.close()
+
+
+def test_update_downloads_installs_and_closes(harness: Harness) -> None:
+    harness.updater.release = RELEASE
     harness.window.update_box.setChecked(True)
-    harness.qtbot.waitUntil(lambda: "9.9.9" in harness.window.update_label.text(), timeout=5_000)
-    assert harness.window.service.paths.settings.exists()
+    harness.qtbot.waitUntil(
+        lambda: "9.9.9 is ready" in harness.window.notice_label.text(), timeout=5_000
+    )
+    harness.window.install_update()
+    harness.qtbot.waitUntil(lambda: bool(harness.updater.launched), timeout=5_000)
+    assert harness.updater.launched[0].name == "Iconbloom-Setup-9.9.9.exe"
+    assert not harness.window.isVisible()
