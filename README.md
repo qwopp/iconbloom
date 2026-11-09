@@ -7,7 +7,7 @@ Restyle your Windows desktop into one cute, matching theme, one icon at a time. 
 
 [![Download for Windows](https://img.shields.io/badge/Download_for_Windows-Iconbloom-2ea44f?style=for-the-badge)](https://github.com/qwopp/iconbloom/releases/latest)
 
-![Sample icons before, and in each of the five themes](docs/screenshots/before-after.png)
+![Sample icons before, and in every theme](docs/screenshots/before-after.png)
 
 ![Picking styles, switching themes and dark mode](docs/screenshots/picker.gif)
 

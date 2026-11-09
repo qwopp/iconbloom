@@ -16,7 +16,7 @@ from app.ui.palette import DARK, LIGHT, UiPalette, stylesheet
 from tests.fakes import FakeDesktop
 from tests.ui_harness import FakeUpdater, Harness, open_window
 
-COLOR_NAMES = [f.name for f in fields(UiPalette) if f.name != "dark"]
+COLOR_NAMES = [f.name for f in fields(UiPalette)]
 # WCAG AA for body text.
 MIN_TEXT_CONTRAST = 4.5
 
@@ -111,11 +111,6 @@ def _contrast(a: str, b: str) -> float:
 @pytest.mark.parametrize("background", ["window", "card", "preview", "hover", "tile_selected"])
 def test_text_is_readable(colors: UiPalette, background: str) -> None:
     assert _contrast(colors.text, getattr(colors, background)) >= MIN_TEXT_CONTRAST
-
-
-def test_palettes_say_which_mode_they_are() -> None:
-    assert not LIGHT.dark
-    assert DARK.dark
 
 
 def test_old_settings_files_follow_windows(tmp_path: Path) -> None:

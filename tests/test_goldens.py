@@ -19,14 +19,12 @@ from PIL import Image
 from engine import ops
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, Theme, list_themes, load_theme
-from tests.conftest import load_sample, sample_names
+from tests.conftest import REPRESENTATIVE_SAMPLES, load_sample, sample_names
 
 GOLDENS_DIR = Path(__file__).parent / "goldens"
 # Allows for tiny rounding differences between platforms, nothing visible.
 MAX_CHANNEL_DIFF = 2
 MIN_MATCHING_SHARE = 0.995
-# Colorful, a plain glyph, a gradient and a tiny icon.
-REPRESENTATIVE_SAMPLES = ("multicolor", "simple_glyph", "gradient_app", "tiny")
 
 
 @cache

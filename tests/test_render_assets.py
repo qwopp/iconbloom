@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from engine.themes import LIBRARY, THEMES_DIR, list_themes
+from engine.themes import THEMES_DIR, list_themes
 from scripts.render_assets import DECORATIONS, fill_tokens, find_source, render_theme
 
 TEMPLATES = sorted(p.stem for p in DECORATIONS.glob("*.svg"))
@@ -56,7 +56,7 @@ def test_theme_svg_overrides_the_shared_template(tmp_path: Path) -> None:
     own = tmp_path / "src" / "bow.svg"
     own.write_text("<svg/>", encoding="utf-8")
     assert find_source(tmp_path, "bow") == own
-    assert find_source(tmp_path, "star") == THEMES_DIR / LIBRARY / "decorations" / "star.svg"
+    assert find_source(tmp_path, "star") == DECORATIONS / "star.svg"
     assert find_source(tmp_path, "nothing") is None
 
 

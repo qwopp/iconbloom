@@ -167,14 +167,13 @@ class ShortcutGroup:
 class ScanRoot:
     path: Path
     source: Source
-    recursive: bool
+    # Which levels hold shortcuts: 1 is the folder itself, 2 the folders inside it,
+    # and so on. max_depth None means the whole tree.
+    min_depth: int = 1
+    max_depth: int | None = 1
     # Also list the folders directly inside (only the desktop does).
     folders: bool = False
-    # How deep shortcuts are looked for when recursive: 1 is the folder itself,
-    # 2 the folders inside it, and so on. None means no limit.
-    min_depth: int = 1
-    max_depth: int | None = None
-    # Stop after looking at this many files, so a huge folder can't stall the scan.
+    # Stop after this many files at those levels, so a huge folder can't stall the scan.
     limit: int | None = None
 
 
@@ -225,11 +224,11 @@ def default_roots() -> list[ScanRoot]:
     pinned = appdata / "Microsoft" / "Internet Explorer" / "Quick Launch" / "User Pinned"
     desktop = known_folder("Desktop")
     return [
-        ScanRoot(desktop, Source.DESKTOP, recursive=False, folders=True),
-        ScanRoot(known_folder("PublicDesktop"), Source.PUBLIC_DESKTOP, recursive=False),
-        ScanRoot(known_folder("Programs"), Source.START_MENU, recursive=True),
-        ScanRoot(known_folder("CommonPrograms"), Source.ALL_USERS_START_MENU, recursive=True),
-        ScanRoot(pinned / "TaskBar", Source.TASKBAR, recursive=False),
+        ScanRoot(desktop, Source.DESKTOP, folders=True),
+        ScanRoot(known_folder("PublicDesktop"), Source.PUBLIC_DESKTOP),
+        ScanRoot(known_folder("Programs"), Source.START_MENU, max_depth=None),
+        ScanRoot(known_folder("CommonPrograms"), Source.ALL_USERS_START_MENU, max_depth=None),
+        ScanRoot(pinned / "TaskBar", Source.TASKBAR),
         desktop_folders_root(desktop),
     ]
 
@@ -243,7 +242,6 @@ def desktop_folders_root(desktop: Path) -> ScanRoot:
     return ScanRoot(
         desktop,
         Source.DESKTOP_FOLDERS,
-        recursive=True,
         min_depth=2,
         max_depth=1 + DESKTOP_FOLDER_DEPTH,
         limit=DESKTOP_FOLDER_FILE_LIMIT,
@@ -380,59 +378,56 @@ _CLOUD_ONLY = (
 )
 
 
-def file_attributes(path: Path) -> int:
-    """The Windows attribute bits of ``path`` (0 elsewhere). Reading them never downloads."""
+def file_attributes(item: Path | os.DirEntry[str]) -> int:
+    """The Windows attribute bits of ``item`` (0 elsewhere). Reading them never downloads,
+    and for a directory entry Windows already listed them, so they cost nothing."""
     try:
-        return getattr(path.lstat(), "st_file_attributes", 0)
+        info = item.lstat() if isinstance(item, Path) else item.stat(follow_symlinks=False)
     except OSError:
         return 0
+    return getattr(info, "st_file_attributes", 0)
 
 
 def _items(root: ScanRoot) -> list[Path]:
-    if not root.path.is_dir():
-        return []
-    max_depth = root.max_depth if root.recursive else 1
     found: list[Path] = []
     looked_at = 0
-    for path, depth in _walk(root.path, max_depth):
-        if path.is_file():
+    for entry, depth in _walk(root.path, root.max_depth):
+        if entry.is_file():
+            if depth < root.min_depth:
+                continue
             looked_at += 1
             if root.limit is not None and looked_at > root.limit:
                 log.warning("stopped scanning %s after %d files", root.path, root.limit)
                 break
-            if (
-                depth >= root.min_depth
-                and path.suffix.casefold() in _SHORTCUT_SUFFIXES
-                and not file_attributes(path) & _CLOUD_ONLY
-            ):
-                found.append(path)
-        elif root.folders and depth == 1 and _is_visible_folder(path):
-            found.append(path)
-    return sorted(found)
+            is_shortcut = Path(entry.name).suffix.casefold() in _SHORTCUT_SUFFIXES
+            if is_shortcut and not file_attributes(entry) & _CLOUD_ONLY:
+                found.append(Path(entry.path))
+        elif root.folders and depth == 1 and _is_visible_folder(entry):
+            found.append(Path(entry.path))
+    return found
 
 
-def _walk(folder: Path, max_depth: int | None, depth: int = 1) -> Iterator[tuple[Path, int]]:
-    """Everything under ``folder`` with its depth, without entering hidden folders."""
+def _walk(
+    folder: Path, max_depth: int | None, depth: int = 1
+) -> Iterator[tuple[os.DirEntry[str], int]]:
+    """Everything under ``folder`` in path order with its depth, skipping hidden folders."""
     try:
-        entries = sorted(folder.iterdir())
+        with os.scandir(folder) as listing:
+            entries = sorted(listing, key=lambda entry: Path(entry.path))
     except OSError:
-        return  # gone, or not ours to read
-    for path in entries:
-        yield path, depth
+        return  # missing, gone, or not ours to read
+    for entry in entries:
+        yield entry, depth
         deeper = max_depth is None or depth < max_depth
-        if deeper and path.is_dir() and not path.is_symlink() and _worth_entering(path):
-            yield from _walk(path, max_depth, depth + 1)
+        if deeper and entry.name not in _SKIPPED_FOLDERS and _is_visible_folder(entry):
+            yield from _walk(Path(entry.path), max_depth, depth + 1)
 
 
-def _worth_entering(folder: Path) -> bool:
-    return folder.name not in _SKIPPED_FOLDERS and _is_visible_folder(folder)
-
-
-def _is_visible_folder(path: Path) -> bool:
-    """Folders a person sees in Explorer. Not "system" ones: Windows marks every
-    folder with a custom icon as system, including the ones Iconbloom themes."""
+def _is_visible_folder(entry: os.DirEntry[str]) -> bool:
+    """Folders a person sees in Explorer, not links to them. "System" folders count:
+    Windows marks every folder with a custom icon as system, including themed ones."""
     return (
-        path.is_dir()
-        and not path.name.startswith((".", "$"))
-        and not file_attributes(path) & FILE_ATTRIBUTE_HIDDEN
+        entry.is_dir(follow_symlinks=False)
+        and not entry.name.startswith((".", "$"))
+        and not file_attributes(entry) & FILE_ATTRIBUTE_HIDDEN
     )

@@ -302,6 +302,10 @@ class StylePicker(QWidget):
     def _clear_cards(self) -> None:
         self.popup.hide()
         for card in self._cards:
+            # Out of the layout and hidden now; deleteLater() alone would leave the old
+            # cards painted until the event loop gets round to deleting them.
+            self._cards_layout.removeWidget(card)
+            card.hide()
             card.deleteLater()
         self._cards.clear()
         self._chosen = None

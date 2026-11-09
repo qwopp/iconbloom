@@ -26,10 +26,10 @@ def _roots(tmp_path: Path) -> list[ScanRoot]:
     for folder in (desktop, start / "Games", common):
         folder.mkdir(parents=True)
     return [
-        ScanRoot(desktop, Source.DESKTOP, recursive=False),
-        ScanRoot(start, Source.START_MENU, recursive=True),
-        ScanRoot(common, Source.ALL_USERS_START_MENU, recursive=True),
-        ScanRoot(tmp_path / "missing", Source.TASKBAR, recursive=False),
+        ScanRoot(desktop, Source.DESKTOP),
+        ScanRoot(start, Source.START_MENU, max_depth=None),
+        ScanRoot(common, Source.ALL_USERS_START_MENU, max_depth=None),
+        ScanRoot(tmp_path / "missing", Source.TASKBAR),
     ]
 
 

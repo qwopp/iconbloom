@@ -27,11 +27,12 @@ from platform_win.refresh import hard_refresh
 log = logging.getLogger("iconbloom")
 
 
-def load_style(app: QApplication, dark: bool = False) -> None:
-    """Fonts and stylesheet. The window switches modes later from the user's setting."""
+def load_style(app: QApplication) -> None:
+    """Fonts and the light stylesheet, which dialogs before the window use too.
+    The window switches to dark mode itself if that's the user's setting."""
     for font in (UI_DIR / "fonts").glob("*.ttf"):
         QFontDatabase.addApplicationFont(str(font))
-    palette.apply(app, palette.DARK if dark else palette.LIGHT)
+    palette.apply(app, palette.LIGHT)
 
 
 def run_window(paths: AppPaths) -> int:

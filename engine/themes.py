@@ -67,12 +67,7 @@ def theme_name(theme_id: str, themes_dir: Path = THEMES_DIR) -> str:
 def load_theme(theme_id: str, themes_dir: Path = THEMES_DIR) -> Theme:
     folder = themes_dir / theme_id
     path = folder / THEME_FILE
-    try:
-        raw: Json = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise ThemeError(f"{path}: file not found") from exc
-    except json.JSONDecodeError as exc:
-        raise ThemeError(f"{path}: invalid JSON ({exc})") from exc
+    raw = _read_json(path)
     try:
         return _build(theme_id, folder, raw, load_library(themes_dir))
     except (ThemeError, RecipeError) as exc:
@@ -84,10 +79,7 @@ def load_library(themes_dir: Path = THEMES_DIR) -> dict[str, dict[str, Json]]:
     path = themes_dir / LIBRARY / LIBRARY_RECIPES
     if not path.is_file():
         return {}
-    try:
-        raw: Json = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ThemeError(f"{path}: invalid JSON ({exc})") from exc
+    raw = _read_json(path)
     items = raw.get("recipes") if isinstance(raw, dict) else None
     if not isinstance(items, list):
         raise ThemeError(f"{path}: 'recipes' must be a list")
@@ -97,6 +89,15 @@ def load_library(themes_dir: Path = THEMES_DIR) -> dict[str, dict[str, Json]]:
             raise ThemeError(f"{path}: every recipe needs a string 'id'")
         library[str(item["id"])] = item
     return library
+
+
+def _read_json(path: Path) -> Json:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ThemeError(f"{path}: file not found") from exc
+    except json.JSONDecodeError as exc:
+        raise ThemeError(f"{path}: invalid JSON ({exc})") from exc
 
 
 def _resolve(entry: Json, library: Mapping[str, dict[str, Json]]) -> Json:

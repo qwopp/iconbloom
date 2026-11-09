@@ -9,7 +9,7 @@ choices before calling them, so the same inputs always give the same pixels.
 import functools
 import math
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -19,6 +19,7 @@ type RGB = tuple[int, int, int]
 type FloatArray = npt.NDArray[np.float64]
 type Shape = Literal["squircle", "circle", "rounded"]
 type Pattern = Literal["dots", "stripes", "gingham", "hearts"]
+PATTERNS: tuple[Pattern, ...] = get_args(Pattern.__value__)
 type Corner = Literal["top-left", "top-right", "bottom-left", "bottom-right"]
 
 CANVAS = 256

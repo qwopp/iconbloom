@@ -25,28 +25,23 @@ from tests.fakes import FakeDesktop, FakeLinkIO
 
 
 @pytest.fixture
-def fake(tmp_path: Path) -> FakeDesktop:
-    return FakeDesktop(tmp_path)
+def desktop(env: FakeDesktop) -> Path:
+    return env.desktop
 
 
 @pytest.fixture
-def desktop(fake: FakeDesktop) -> Path:
-    return fake.desktop
+def link_io(env: FakeDesktop) -> FakeLinkIO:
+    return env.link_io
 
 
 @pytest.fixture
-def link_io(fake: FakeDesktop) -> FakeLinkIO:
-    return fake.link_io
-
-
-@pytest.fixture
-def io(fake: FakeDesktop) -> ItemIO:
-    return fake.io
+def io(env: FakeDesktop) -> ItemIO:
+    return env.io
 
 
 def _roots(desktop: Path, *extra: ScanRoot) -> list[ScanRoot]:
     return [
-        ScanRoot(desktop, Source.DESKTOP, recursive=False, folders=True),
+        ScanRoot(desktop, Source.DESKTOP, folders=True),
         *extra,
         desktop_folders_root(desktop),
     ]
@@ -64,7 +59,7 @@ def test_nested_shortcut_is_found_after_the_start_menu(
     start = tmp_path / "Start"
     _make(link_io, desktop / "Games" / "Chess.lnk", r"C:\Games\chess.exe")
     _make(link_io, start / "Paint.lnk", r"C:\Paint\paint.exe")
-    groups = scan(_roots(desktop, ScanRoot(start, Source.START_MENU, recursive=True)), io)
+    groups = scan(_roots(desktop, ScanRoot(start, Source.START_MENU, max_depth=None)), io)
     assert [g.name for g in groups] == ["Games", "Paint", "Chess"]
     chess = groups[2]
     assert chess.primary.source is Source.DESKTOP_FOLDERS
@@ -114,7 +109,7 @@ def test_hidden_attribute_hides_folders_but_system_does_not(
     # A folder with a custom icon is marked system by Windows; it must stay visible.
     system = 0x4
     attributes = {secret.parent: FILE_ATTRIBUTE_HIDDEN, themed.parent: system}
-    monkeypatch.setattr(shortcuts, "file_attributes", lambda path: attributes.get(path, 0))
+    monkeypatch.setattr(shortcuts, "file_attributes", lambda item: attributes.get(Path(item), 0))
     names = {g.name for g in scan(_roots(desktop), io)}
     assert {"Themed", "Shown"} <= names
     assert not {"Secret", "Hidden"} & names
@@ -132,7 +127,7 @@ def test_onedrive_online_only_files_are_never_read(
     local = _make(link_io, desktop / "Local.lnk", r"C:\Apps\local.exe")
     cloud_only = {cloud, nested}
     monkeypatch.setattr(
-        shortcuts, "file_attributes", lambda path: attribute if path in cloud_only else 0
+        shortcuts, "file_attributes", lambda item: attribute if Path(item) in cloud_only else 0
     )
     read: list[Path] = []
     original = link_io.read
@@ -149,21 +144,22 @@ def test_scan_stops_after_the_file_limit(
 ) -> None:
     for n in range(5):
         _make(link_io, desktop / "Many" / f"App{n}.lnk", rf"C:\Apps\app{n}.exe")
-    root = ScanRoot(desktop, Source.DESKTOP_FOLDERS, recursive=True, min_depth=2, limit=3)
+    root = ScanRoot(desktop, Source.DESKTOP_FOLDERS, min_depth=2, max_depth=None, limit=3)
     names = {g.name for g in scan([root], io)}
     assert names == {"App0", "App1", "App2"}
     assert "stopped scanning" in caplog.text
 
 
 def test_file_attributes_of_missing_path_is_zero(tmp_path: Path) -> None:
+    """Paths and directory entries both work; a vanished file reads as no attributes."""
     assert shortcuts.file_attributes(tmp_path / "missing") == 0
 
 
-def test_styling_a_group_changes_and_reverts_the_nested_copy(fake: FakeDesktop) -> None:
-    fake.make("Notes")
-    nested = fake.make("Notes", folder=fake.make_folder("Work"))
+def test_styling_a_group_changes_and_reverts_the_nested_copy(env: FakeDesktop) -> None:
+    env.make("Notes")
+    nested = env.make("Notes", folder=env.make_folder("Work"))
     before = nested.read_bytes()
-    service = fake.service()
+    service = env.service()
     notes = next(g for g in service.scan() if g.name == "Notes")
     assert nested in [s.path for s in notes.shortcuts]
     service.apply(notes, Choice(DEFAULT_THEME, "pastel_recolor"))

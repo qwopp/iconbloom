@@ -17,7 +17,7 @@ def _service(tmp_path: Path, shell_io: ShellLinkIO) -> IconService:
     return IconService(
         AppPaths(tmp_path / "Iconbloom"),
         shell_io,
-        [ScanRoot(desktop, Source.DESKTOP, recursive=False)],
+        [ScanRoot(desktop, Source.DESKTOP)],
     )
 
 

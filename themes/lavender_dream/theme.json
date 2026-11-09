@@ -40,8 +40,7 @@
      "ops": [{"op": "recolor", "stops": [["peach", "main", "light"], ["peach", "accent", "main"]]},
              {"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
     {"use": "sticker_face", "label": "Sticker + blush"},
-    {"id": "dot_tile", "label": "Polka-dot tile", "family": "pattern",
-     "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "pattern": "dots", "pattern_color": ["main", "accent"], "outline": "main"}]},
+    {"use": "polka_tile", "id": "dot_tile"},
     {"use": "recolor_tile", "label": "Recolor on cream tile"},
     {"id": "glow_dream", "label": "Tint + star", "family": "glow",
      "ops": [{"op": "tint", "stops": ["ink", "main", "light"]},
@@ -60,17 +59,12 @@
              {"op": "tile", "fill": ["#7C6BD6", "#4E4291"], "shape": "circle"},
              {"op": "badge", "asset": "star", "corner": ["bottom-left", "bottom-right"], "scale": 0.42, "rotation": 0}]},
     {"use": "bubble_cream", "label": "Bubble tile, cream"},
-    {"id": "halo_dream", "label": "Violet glow", "family": "glow",
-     "ops": [{"op": "tint", "stops": ["ink", "deep", "light"]},
-             {"op": "glow", "color": "main", "radius": 12, "strength": 0.9}]},
-    {"id": "striped_dream", "label": "Striped tile + star", "family": "pattern",
-     "ops": [{"op": "tile", "fill": "light", "pattern": "stripes", "pattern_color": ["main", "accent"], "shape": "circle", "scale": 0.66},
-             {"op": "badge", "asset": ["star", "sparkle"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": -12}]},
+    {"use": "rose_glow", "id": "halo_dream", "label": "Violet glow"},
+    {"use": "striped_star", "id": "striped_dream"},
     {"use": "sticker", "label": "Sticker"},
     {"id": "tile_dream", "label": "Tile + star", "family": "tile",
      "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "shape": "squircle", "scale": 0.66},
              {"op": "badge", "asset": ["star", "moon"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
-    {"id": "tint_dream", "label": "Lavender tint", "family": "tint",
-     "ops": [{"op": "tint", "stops": [["ink", "main", "light"], ["ink", "accent", "light"]]}]}
+    {"use": "pastel_tint", "id": "tint_dream", "label": "Lavender tint"}
   ]
 }

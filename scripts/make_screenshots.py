@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import override
 
 from PIL import Image, ImageDraw, ImageFont
-from PySide6.QtCore import QBuffer, QCoreApplication, QEvent, QIODevice
+from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtWidgets import QApplication
 
 from app.choices import Choice
@@ -22,6 +22,7 @@ from app.main import load_style
 from app.ui.main_window import MainWindow
 from app.updates import Release, Updater
 from engine import ops
+from engine.families import Family
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, Theme, list_themes, load_theme
 from tests.fakes import SAMPLES_DIR, FakeDesktop
@@ -38,25 +39,27 @@ APPS = {
     "Terminal": "dark",
     "Weather": "semi_transparent",
 }
-# One pick per app, as a person might choose in the picker, by position in the
-# theme's list. Every bundled theme orders its 20 styles in the same rhythm, so
-# the same position gives each theme's version of a look.
-PICKS = {
-    "Arcade": 4,  # second recolor on a sticker
-    "Browser": 9,  # gingham tile + badge
-    "Camera": 6,  # polka-dot tile
-    "Files": 0,  # recolor
-    "Music": 1,  # gradient tile
-    "Settings": 2,  # mono on cream
-    "Terminal": 3,  # bubble tile
-    "Weather": 8,  # tint + glow + badge
+# One pick per app, as a person might choose in the picker: the nth style of a
+# family in the theme's list, so every theme shows its own version of the look.
+PICKS: dict[str, tuple[Family, int]] = {
+    "Arcade": (Family.RECOLOR, 1),  # the theme's second recolor, on a sticker
+    "Browser": (Family.PATTERN, 1),  # gingham tile + badge
+    "Camera": (Family.PATTERN, 0),  # polka-dot tile
+    "Files": (Family.RECOLOR, 0),
+    "Music": (Family.GRADIENT, 0),
+    "Settings": (Family.MONO, 0),
+    "Terminal": (Family.TILE, 0),  # bubble tile
+    "Weather": (Family.GLOW, 0),  # tint + glow + badge
 }
+# How long the event loop runs after the previews land, so they are shown and laid out.
+LAYOUT_SETTLE_S = 0.2
 # The picker GIF switches to this theme halfway through.
 SECOND_THEME = "lavender_dream"
 
 
 def pick(theme: Theme, app: str) -> str:
-    return theme.recipes[PICKS[app]].id
+    family, nth = PICKS[app]
+    return [r.id for r in theme.recipes if r.family is family][nth]
 
 
 class OfflineUpdater(Updater):
@@ -79,12 +82,15 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
     while True:
         window.jobs.wait()
         app.processEvents()
-        # processEvents() skips deleteLater(); without this, replaced cards stay on screen.
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         if time.monotonic() >= settled and not window.jobs.busy and _previews_ready(window):
             break
         if time.monotonic() > give_up:
             raise TimeoutError("previews never finished rendering")
+        time.sleep(0.02)
+    # New cards are shown and laid out on later event-loop passes; let those run.
+    shown = time.monotonic() + LAYOUT_SETTLE_S
+    while time.monotonic() < shown:
+        app.processEvents()
         time.sleep(0.02)
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)

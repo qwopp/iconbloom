@@ -59,7 +59,7 @@ class OpDef:
 
 
 _SHAPES = ("squircle", "circle", "rounded")
-_PATTERNS = ("dots", "stripes", "gingham", "hearts")
+
 _CORNERS = ("top-right", "top-left", "bottom-right", "bottom-left")
 
 OPS: Mapping[str, OpDef] = {
@@ -105,7 +105,7 @@ OPS: Mapping[str, OpDef] = {
             "scale": Param("number", 0.7, low=0.3, high=1.0),
             "shadow": Param("bool", True),
             "outline": Param("color"),
-            "pattern": Param("choice", choices=_PATTERNS),
+            "pattern": Param("choice", choices=ops.PATTERNS),
             "pattern_color": Param("color", "#FFFFFF"),
         },
     ),

@@ -32,7 +32,7 @@ def test_scan_reads_real_links(tmp_path: Path, shell_io: ShellLinkIO) -> None:
     shell_io.create(tmp_path / "Notepad.lnk", str(NOTEPAD))
     shell_io.create(tmp_path / "Notepad again.lnk", str(NOTEPAD))
     shell_io.create(tmp_path / "Paint.lnk", str(SYSTEM32 / "mspaint.exe"))
-    groups = scan([ScanRoot(tmp_path, Source.DESKTOP, recursive=False)], shell_io)
+    groups = scan([ScanRoot(tmp_path, Source.DESKTOP)], shell_io)
     assert sorted(len(g.shortcuts) for g in groups) == [1, 2]
 
 
