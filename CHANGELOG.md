@@ -18,6 +18,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 - After **Apply**, Iconbloom stays on the icon you just styled, with that style still
   picked, instead of jumping to the next one. **Skip** still moves on.
+- Switching back to Iconbloom picks up shortcuts added, removed or changed since it opened,
+  without restarting it.
 
 ## [0.4.1] - 2026-11-09
 

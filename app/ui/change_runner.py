@@ -51,6 +51,11 @@ class ChangeRunner:
         self._paths = paths
         self._refresh_icons = refresh_icons
         self._reload = reload
+        self._running = 0
+
+    @property
+    def running(self) -> bool:
+        return bool(self._running)
 
     def run(
         self,
@@ -70,6 +75,7 @@ class ChangeRunner:
         dialog.setMinimumDuration(PROGRESS_DELAY_MS)
         stop = threading.Event()
         dialog.canceled.connect(stop.set)
+        self._running += 1
 
         def work(report: Callable[[object], None]) -> ChangeReport:
             def step(i: int, target: ShortcutGroup) -> bool:
@@ -84,6 +90,7 @@ class ChangeRunner:
                 dialog.setLabelText(f"{title}\n{item.name}")
 
         def finished(result: object) -> None:
+            self._running -= 1
             dialog.reset()
             if isinstance(result, ChangeReport):
                 self._show_skipped(result)
@@ -93,6 +100,7 @@ class ChangeRunner:
                 self._reload()
 
         def failed(message: str) -> None:
+            self._running -= 1
             dialog.reset()
             QMessageBox.warning(self._parent, "That didn't work", message)
             self._reload()

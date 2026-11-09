@@ -58,6 +58,7 @@ class ShortcutList(QWidget):
         self.setObjectName("card")
         self._service = service
         self._jobs = jobs
+        self._scans_running = 0
         self._groups: dict[str, ShortcutGroup] = {}
         self._items: dict[str, QStandardItem] = {}
 
@@ -132,7 +133,34 @@ class ShortcutList(QWidget):
 
     def reload(self) -> None:
         """Rescan in the background and refresh the grid."""
-        self._jobs.start(lambda _report: self._service.scan(), on_done=self._on_scanned)
+        self._start_scan(self._on_scanned)
+
+    def rescan(self) -> None:
+        """Pick up shortcuts added, removed or changed outside the app.
+
+        The grid is only rebuilt when the scan found a difference: rebuilding it for
+        nothing would drop a multi-selection and the scroll position every time the
+        user switches back to the window.
+        """
+        if self._scans_running:
+            return
+        self._start_scan(self._on_rescanned)
+
+    def _start_scan(self, on_done: Callable[[object], None]) -> None:
+        self._scans_running += 1
+
+        def finished(result: object) -> None:
+            self._scans_running -= 1
+            on_done(result)
+
+        def failed(_message: str) -> None:
+            self._scans_running -= 1
+
+        self._jobs.start(lambda _report: self._service.scan(), on_done=finished, on_failed=failed)
+
+    def _on_rescanned(self, result: object) -> None:
+        if result != self.groups:
+            self._on_scanned(result)
 
     def _on_scanned(self, result: object) -> None:
         if not isinstance(result, list):
