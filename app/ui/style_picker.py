@@ -206,10 +206,8 @@ class StylePicker(QWidget):
             self.show_group(self._target)
 
     def reset(self) -> None:
-        """A different icon was picked: back to the default look and the app's own icon."""
+        """A different icon was picked: back to the default look."""
         self._seed = 0
-        self._image = None
-        self._show_image_button()
         self._clear_cards()
 
     def show_message(self, text: str) -> None:
@@ -217,6 +215,9 @@ class StylePicker(QWidget):
 
     def show_group(self, target: ShortcutGroup) -> None:
         self._target = target
+        # Each app keeps its own image until the user goes back to the app's icon.
+        self._image = self._service.own_image(target)
+        self._show_image_button()
         self.name_label.setText(target.name)
         self._set_detail(target, upscaled=False)
         self._clear_cards()
@@ -237,12 +238,11 @@ class StylePicker(QWidget):
             self._seed += 1
             self.show_group(self._target)
 
-    def use_custom_image(self, image: str | None) -> None:
-        """Draw every style from the user's own image (None: the app's icon again)."""
-        self._image = image
-        self._show_image_button()
-        if self._target is not None:
-            self.show_group(self._target)
+    def use_custom_image(self, target: ShortcutGroup, image: str | None) -> None:
+        """Draw every style of ``target`` from the user's own image (None: the app's icon
+        again), and keep doing so until they switch back."""
+        self._service.set_own_image(target, image)
+        self.show_group(target)
 
     def _show_image_button(self) -> None:
         text, tip = APP_IMAGE if self._image is not None else OWN_IMAGE

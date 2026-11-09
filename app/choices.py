@@ -58,6 +58,9 @@ class ChoiceStore:
         self._path = path
         self._choices: dict[str, Choice] = {}
         self._skipped: set[str] = set()
+        # The user's own image per app, shown in the picker until they go back to the
+        # app's icon. Kept apart from choices so a revert doesn't forget it.
+        self._images: dict[str, str] = {}
         self._load()
 
     def get(self, key: str) -> Choice | None:
@@ -81,6 +84,19 @@ class ChoiceStore:
         self._skipped.clear()
         self._save()
 
+    def image(self, key: str) -> str | None:
+        return self._images.get(key)
+
+    def set_image(self, key: str, image_name: str | None) -> None:
+        """Remember ``key``'s own image; None forgets it."""
+        if self._images.get(key) == image_name:
+            return
+        if image_name is None:
+            del self._images[key]
+        else:
+            self._images[key] = image_name
+        self._save()
+
     def is_skipped(self, key: str) -> bool:
         return key in self._skipped
 
@@ -97,18 +113,26 @@ class ChoiceStore:
                 raise ValueError("unknown version")
             self._choices = {k: Choice(**v) for k, v in raw["choices"].items()}
             self._skipped = set(raw["skipped"])
+            if "images" in raw:
+                self._images = {str(k): str(v) for k, v in raw["images"].items()}
+            else:
+                # Older files only had applied choices; their own images carry over.
+                self._images = {
+                    k: c.custom_image for k, c in self._choices.items() if c.custom_image
+                }
         except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             # Losing choices only means "Reapply" forgets them; never block the app.
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
             aside = self._path.with_name(f"{self._path.name}.unreadable-{stamp}")
             self._path.replace(aside)
             log.warning("could not read %s (%s); moved it to %s", self._path, exc, aside.name)
-            self._choices, self._skipped = {}, set()
+            self._choices, self._skipped, self._images = {}, set(), {}
 
     def _save(self) -> None:
         payload = {
             "version": CHOICES_VERSION,
             "choices": {k: asdict(v) for k, v in self._choices.items()},
             "skipped": sorted(self._skipped),
+            "images": self._images,
         }
         write_json(self._path, payload)

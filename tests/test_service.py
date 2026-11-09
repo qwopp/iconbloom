@@ -314,6 +314,19 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
     assert service.is_ours(env.link_io.read(lnk).icon)
 
 
+def test_own_image_is_remembered_until_its_file_is_gone(env: FakeDesktop, tmp_path: Path) -> None:
+    env.make("Paint")
+    service = env.service()
+    image = _cutout_of_own_image(service, tmp_path).custom_image
+    assert image is not None
+    service.set_own_image(_group(service, "Paint"), image)
+    restarted = env.service()
+    assert restarted.own_image(_group(restarted, "Paint")) == image
+    (env.paths.custom_images / image).unlink()  # deleted by hand
+    assert restarted.own_image(_group(restarted, "Paint")) is None
+    assert restarted.choices.image(_group(restarted, "Paint").key) is None
+
+
 def _cutout_of_own_image(service: IconService, tmp_path: Path) -> Choice:
     picture = tmp_path / "kitty.png"
     load_sample("plate_glyph").save(picture)

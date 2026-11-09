@@ -4,12 +4,13 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtWidgets import QFileDialog, QGridLayout
+from pytestqt.qtbot import QtBot
 
 from app.service import Status
 from engine.families import Family
 from engine.themes import Theme
 from tests.conftest import load_sample
-from tests.ui_harness import APPS, Harness
+from tests.ui_harness import APPS, Harness, open_window
 
 
 def test_launch_selects_first_untouched_and_shows_previews(harness: Harness) -> None:
@@ -147,6 +148,41 @@ def test_switching_back_to_the_apps_icon(
     assert picker.custom_image is None
     assert not any(c.choice.uses_own_image for c in picker.cards)
     assert picker.own_image_button.text() == "Use my own image…"
+
+
+def test_own_image_stays_with_its_app(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qtbot: QtBot
+) -> None:
+    _pick_own_image(harness, tmp_path, monkeypatch)
+    picker = harness.window.picker
+    image = picker.custom_image
+    assert image is not None
+    harness.select("Browser")
+    assert picker.custom_image is None
+    assert not any(c.choice.uses_own_image for c in picker.cards)
+    harness.select("Arcade")
+    assert picker.custom_image == image
+    assert picker.cards[0].label == "Your image"
+    assert picker.own_image_button.text() == "Use the app's icon"
+
+    # A restart (an update, say) opens on Arcade with the image still in use.
+    restarted = open_window(harness.desktop, harness.updater, qtbot)
+    qtbot.waitUntil(lambda: bool(restarted.picker.cards), timeout=15_000)
+    assert restarted.picker.custom_image == image
+    assert restarted.picker.cards[0].label == "Your image"
+    restarted.close()
+
+
+def test_going_back_to_the_apps_icon_survives_a_restart(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qtbot: QtBot
+) -> None:
+    _pick_own_image(harness, tmp_path, monkeypatch)
+    harness.window.picker.own_image_button.click()
+    harness.wait_for_previews()
+    restarted = open_window(harness.desktop, harness.updater, qtbot)
+    qtbot.waitUntil(lambda: bool(restarted.picker.cards), timeout=15_000)
+    assert restarted.picker.custom_image is None
+    restarted.close()
 
 
 def test_shared_shortcut_is_changed_after_permission(harness: Harness) -> None:

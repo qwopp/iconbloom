@@ -1,3 +1,5 @@
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 from app.choices import Choice, ChoiceStore
@@ -57,3 +59,44 @@ def test_unreadable_file_is_set_aside(tmp_path: Path) -> None:
     assert len(list(tmp_path.glob("choices.json.unreadable-*"))) == 1
     store.set("a", Choice("t", "r"))
     assert ChoiceStore(path).get("a") is not None
+
+
+def test_own_images_persist_until_forgotten(tmp_path: Path) -> None:
+    path = tmp_path / "choices.json"
+    store = ChoiceStore(path)
+    store.set_image("app", "abc.png")
+    assert ChoiceStore(path).image("app") == "abc.png"
+    store.set_image("app", None)
+    store.set_image("missing", None)
+    assert ChoiceStore(path).image("app") is None
+
+
+def test_reverting_keeps_own_images(tmp_path: Path) -> None:
+    store = ChoiceStore(tmp_path / "choices.json")
+    store.set("a", Choice("t", "r", custom_image="abc.png"))
+    store.set_image("a", "abc.png")
+    store.set_image("b", "def.png")
+    store.clear("a")
+    store.clear_all()
+    assert (store.image("a"), store.image("b")) == ("abc.png", "def.png")
+
+
+def test_older_files_take_own_images_from_applied_choices(tmp_path: Path) -> None:
+    path = tmp_path / "choices.json"
+    styled = Choice("kawaii_pink", "cutout", custom_image="abc.png")
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "choices": {"cat": asdict(styled), "plain": asdict(Choice("t", "r"))},
+                "skipped": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = ChoiceStore(path)
+    assert store.image("cat") == "abc.png"
+    assert store.image("plain") is None
+    # Once saved with images, going back to the app's icon sticks.
+    store.set_image("cat", None)
+    assert ChoiceStore(path).image("cat") is None

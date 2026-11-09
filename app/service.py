@@ -126,6 +126,19 @@ class IconService:
             return Status.NEEDS_REAPPLY
         return Status.ORIGINAL
 
+    def own_image(self, target: ShortcutGroup) -> str | None:
+        """The user's own image for this app, if they picked one and it's still there."""
+        name = self.choices.image(target.key)
+        if name is not None and not (self.paths.custom_images / name).is_file():
+            log.warning("own image %s for %s is gone; using the app's icon", name, target.name)
+            self.choices.set_image(target.key, None)
+            return None
+        return name
+
+    def set_own_image(self, target: ShortcutGroup, image_name: str | None) -> None:
+        """Style this app from ``image_name`` from now on (None: the app's icon again)."""
+        self.choices.set_image(target.key, image_name)
+
     def is_untouched(self, target: ShortcutGroup) -> bool:
         """Hasn't been themed or skipped yet."""
         return self.status(target) is Status.ORIGINAL
