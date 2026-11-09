@@ -24,6 +24,11 @@ class AppPaths:
         return self.root / "originals"
 
     @property
+    def original_icons(self) -> Path:
+        """Pictures of each item's own icon, saved when it was first styled."""
+        return self.root / "original-icons"
+
+    @property
     def custom_images(self) -> Path:
         """Images the user picked with "Use my own image", kept for reapplying."""
         return self.root / "custom"
@@ -45,7 +50,13 @@ class AppPaths:
         return self.root / "settings.json"
 
     def ensure(self) -> "AppPaths":
-        for folder in (self.icons, self.originals, self.custom_images, self.logs):
+        for folder in (
+            self.icons,
+            self.originals,
+            self.original_icons,
+            self.custom_images,
+            self.logs,
+        ):
             folder.mkdir(parents=True, exist_ok=True)
         return self
 

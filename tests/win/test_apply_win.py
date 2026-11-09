@@ -4,8 +4,9 @@ from pathlib import Path
 
 from app.choices import Choice
 from app.service import IconService
+from platform_win.item_io import ShellLinkIO
 from platform_win.paths import AppPaths
-from platform_win.shortcuts import IconLocation, ScanRoot, ShellLinkIO, Source
+from platform_win.shortcuts import IconLocation, ScanRoot, Source
 from tests.win.conftest import NOTEPAD, SYSTEM32
 
 TARGETS = ["notepad.exe", "mspaint.exe", "calc.exe", "charmap.exe", "cmd.exe"]
@@ -48,7 +49,7 @@ def test_apply_and_revert_five_real_shortcuts(tmp_path: Path, shell_io: ShellLin
     assert {link: link.read_bytes() for link in links} == before
 
 
-def test_original_icon_comes_back_from_backup(tmp_path: Path, shell_io: ShellLinkIO) -> None:
+def test_original_icon_survives_styling(tmp_path: Path, shell_io: ShellLinkIO) -> None:
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
     shell_io.create(desktop / "Notepad.lnk", str(NOTEPAD))
@@ -56,5 +57,8 @@ def test_original_icon_comes_back_from_backup(tmp_path: Path, shell_io: ShellLin
     (group,) = service.scan()
     service.apply(group, Choice("kawaii_pink", "mono_rose"))
     (themed,) = service.scan()
-    again = service.original_icon(themed)
-    assert "notepad" in again.source.casefold()
+    assert service.original_icon(themed).source == "saved original"
+    # Without the saved picture, the recorded location still leads back to notepad.exe.
+    for saved in service.paths.original_icons.iterdir():
+        saved.unlink()
+    assert "notepad" in service.original_icon(themed).source.casefold()

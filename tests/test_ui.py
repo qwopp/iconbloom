@@ -6,7 +6,7 @@ from typing import override
 
 import pytest
 from PySide6.QtCore import QItemSelectionModel, QPoint
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox
 from pytestqt.qtbot import QtBot
 
 from app.main import load_style
@@ -196,10 +196,13 @@ def test_revert_all_after_applying_everything(harness: Harness, say_yes: None) -
         assert harness.path(name).read_bytes() == originals[name]
 
 
-def test_use_own_image(harness: Harness, tmp_path: Path) -> None:
+def test_use_own_image(harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     picture = tmp_path / "bunny.png"
     load_sample("gradient_app").save(picture)
-    harness.window.use_own_image(picture)
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(picture), "Images")
+    )
+    harness.window.own_image_button.click()  # the real button, as a person would
     harness.wait_for_previews(RECIPES + 1)
     assert harness.window._cards[0].choice.is_custom
     harness.window._choose(harness.window._cards[0])
@@ -365,3 +368,27 @@ def test_update_downloads_installs_and_closes(harness: Harness) -> None:
     harness.qtbot.waitUntil(lambda: bool(harness.updater.launched), timeout=5_000)
     assert harness.updater.launched[0].name == "Iconbloom-Setup-9.9.9.exe"
     assert not harness.window.isVisible()
+
+
+def test_every_button_works_when_clicked(harness: Harness, say_yes: None) -> None:
+    """Clicking sends Qt's "checked" flag; no handler may mistake it for an argument."""
+    window = harness.window
+    for button in (
+        window.shuffle_button,
+        window.skip_button,
+        window.apply_button,
+        window.revert_button,
+        window.all_button,
+    ):
+        harness.wait_for_previews()
+        if button.isEnabled():
+            button.click()
+            harness.settle()
+    for action in window.findChildren(QMenu)[0].actions():
+        action.trigger()
+        harness.settle()
+    assert harness.refreshes == 1
+
+
+def test_detail_says_where_a_style_lands(harness: Harness) -> None:
+    assert harness.window.detail_label.text().startswith("Desktop \u00b7 original")

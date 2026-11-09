@@ -62,7 +62,7 @@ from engine import analyze, ops
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, Theme
 from platform_win.refresh import touches_taskbar
-from platform_win.shortcuts import Place, ShortcutGroup
+from platform_win.shortcuts import ItemKind, Place, ShortcutGroup
 
 log = logging.getLogger(__name__)
 
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         ):
             action = menu.addAction(text)
             action.setToolTip(tip)
-            action.triggered.connect(slot)
+            action.triggered.connect(_without_arguments(slot))
         more = QToolButton()
         more.setObjectName("more")
         more.setText("More")
@@ -236,12 +236,12 @@ class MainWindow(QMainWindow):
         panel.setObjectName("card")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(12, 12, 12, 12)
-        heading = QLabel("Your shortcuts")
+        heading = QLabel("Your icons")
         heading.setObjectName("heading")
         layout.addWidget(heading)
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("Search shortcuts")
+        self.search.setPlaceholderText("Search apps, folders and more")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._apply_filter)
         layout.addWidget(self.search)
@@ -519,7 +519,7 @@ class MainWindow(QMainWindow):
         button.setProperty("role", role)
         button.setToolTip(tip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.clicked.connect(slot)
+        button.clicked.connect(_without_arguments(slot))
         return button
 
     # ---- shortcuts grid -----------------------------------------------------
@@ -672,8 +672,15 @@ class MainWindow(QMainWindow):
         return updated
 
     def _tooltip(self, target: ShortcutGroup) -> str:
-        lines = [target.name, target.primary.info.target or "(Store or advertised app)"]
-        lines += [f"{s.source}: {s.path}" for s in target.shortcuts]
+        primary = target.primary
+        if primary.kind is ItemKind.SHORTCUT:
+            opens = primary.info.target or "(Store or advertised app)"
+        else:
+            opens = primary.info.target or str(primary.kind)
+        lines = [target.name, opens]
+        lines += [
+            f"{s.source}: {s.path}" for s in target.shortcuts if s.kind is not ItemKind.WINDOWS_ICON
+        ]
         if target.shared_shortcuts:
             lines.append("Shared by every user: Windows asks for permission to change it.")
         return "\n".join(lines)
@@ -687,7 +694,11 @@ class MainWindow(QMainWindow):
         self._render_previews(target)
 
     def _set_detail(self, target: ShortcutGroup, *, upscaled: bool) -> None:
-        notes = [f"{target.primary.source} · {self.service.status(target)}"]
+        # Say where the style lands, so a missing taskbar pin is no surprise.
+        where = ", ".join(place for place in Place if place in target.places)
+        kind = target.primary.kind
+        prefix = "" if kind is ItemKind.SHORTCUT else f"{kind} \u00b7 "
+        notes = [f"{prefix}{where} \u00b7 {self.service.status(target)}"]
         if target.shared_shortcuts:
             notes.append("Shared by every user on this PC: Windows will ask for permission.")
         if upscaled:
@@ -1203,6 +1214,19 @@ class MainWindow(QMainWindow):
         self._pool.clear()
         self._pool.waitForDone(5_000)
         super().closeEvent(event)
+
+
+def _without_arguments(slot: Callable[[], object]) -> Callable[..., None]:
+    """Call ``slot`` with no arguments, whatever the signal sends.
+
+    Qt passes a button's "checked" flag to its clicked handler, and an action
+    with an optional parameter would take that flag as its argument.
+    """
+
+    def call(*_ignored: object) -> None:
+        slot()
+
+    return call
 
 
 def _count(items: Sized, noun: str) -> str:

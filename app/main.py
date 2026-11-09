@@ -20,9 +20,9 @@ from app.ui import UI_DIR
 from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
+from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import hard_refresh
-from platform_win.shortcuts import ShellLinkIO
 
 log = logging.getLogger("iconbloom")
 
@@ -67,7 +67,7 @@ def revert_everything(paths: AppPaths) -> int:
 def run_elevated_request(paths: AppPaths, request: Path) -> int:
     """The elevated copy: carry out one request from the normal app, then exit."""
     try:
-        service = IconService(paths, ShellLinkIO(), roots=[])
+        service = IconService(paths, windows_item_io(), roots=[])
         return handle_request(request, service, shared_folders())
     except BackupCorruptError as exc:
         log.error("elevated request refused: %s", exc)

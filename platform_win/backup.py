@@ -1,14 +1,19 @@
-"""The backup manifest: how to put every changed shortcut back exactly as it was.
+"""The backup manifest: how to put every changed item back exactly as it was.
+
+An item's "state" is whatever decides its icon, as its ItemIO saves it: a
+shortcut file's bytes, a folder's desktop.ini, a few registry values. A state
+of None means "nothing there" (a folder without a desktop.ini), which is a
+real original too: restoring it removes what was added.
 
 Rules this module enforces:
 
-* A shortcut's original state is recorded, and the manifest saved to disk,
-  before the shortcut is touched. A crash at any later point loses nothing.
+* An item's original state is recorded, and the manifest saved to disk,
+  before the item is touched. A crash at any later point loses nothing.
 * A recorded original is never replaced by a themed state.
 * The manifest is replaced atomically, and the previous version is kept as
   ``backup.json.prev``.
 * A manifest that can't be read is reported and left untouched; nothing that
-  changes shortcuts runs until a person looks at it.
+  changes icons runs until a person looks at it.
 
 Nothing here calls Windows APIs, so all of it is tested on every OS.
 """
@@ -31,14 +36,19 @@ class BackupCorruptError(Exception):
     """backup.json exists but can't be trusted. It is left exactly as found."""
 
 
+# Hash recorded for an item whose original state was "nothing there".
+ABSENT = "absent"
+
+
 @dataclass(frozen=True)
 class BackupEntry:
+    # The item's path (named for the shortcuts it first covered; kept for compatibility).
     shortcut: str
     original_icon_path: str
     original_icon_index: int
     original_sha256: str
-    # File name of the byte-for-byte copy under AppPaths.originals.
-    original_copy: str
+    # File name of the saved state under AppPaths.originals; None when it was absent.
+    original_copy: str | None
     recorded_at: str
     # Filled in once the themed icon is saved into the shortcut.
     applied_sha256: str | None = None
@@ -49,8 +59,15 @@ class BackupEntry:
         return IconLocation(self.original_icon_path, self.original_icon_index)
 
 
-def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+@dataclass(frozen=True)
+class SavedState:
+    """A recorded original state; ``data`` None means the item had none."""
+
+    data: bytes | None
+
+
+def state_hash(state: bytes | None) -> str:
+    return ABSENT if state is None else hashlib.sha256(state).hexdigest()
 
 
 class BackupManifest:
@@ -74,77 +91,80 @@ class BackupManifest:
         """Re-read the file after another process (the elevated helper) changed it."""
         self._entries = self._load()
 
-    def get(self, shortcut: Path) -> BackupEntry | None:
-        return self._entries.get(_key(shortcut))
+    def get(self, item: Path) -> BackupEntry | None:
+        return self._entries.get(_key(item))
 
-    def record_original(self, shortcut: Path, icon: IconLocation) -> BackupEntry:
-        """Save the shortcut's current bytes and icon location as its original.
+    def record_original(self, item: Path, icon: IconLocation, state: bytes | None) -> BackupEntry:
+        """Save the item's current state and icon location as its original.
 
         If an original is already recorded, it's kept and returned unchanged.
         """
-        existing = self.get(shortcut)
+        existing = self.get(item)
         if existing is not None:
             return existing
-        return self._record(shortcut, icon)
+        return self._record(item, icon, state)
 
-    def rerecord_original(self, shortcut: Path, icon: IconLocation) -> BackupEntry:
-        """Replace the recorded original after something else rewrote the shortcut.
+    def rerecord_original(self, item: Path, icon: IconLocation, state: bytes | None) -> BackupEntry:
+        """Replace the recorded original after something else rewrote the item.
 
-        Only for a shortcut whose current icon is not one of ours, typically
+        Only for an item whose current icon is not one of ours, typically
         because an app update reinstalled it. Its current state is then the
         app's real original, and the old record would undo the update.
         """
-        old = self.get(shortcut)
-        entry = self._record(shortcut, icon)
-        if old is not None and old.original_copy != entry.original_copy:
+        old = self.get(item)
+        entry = self._record(item, icon, state)
+        if old is not None and old.original_copy not in (None, entry.original_copy):
             (self._originals / old.original_copy).unlink(missing_ok=True)
         return entry
 
-    def mark_applied(self, shortcut: Path, icon_file: Path) -> BackupEntry:
-        entry = self._require(shortcut)
-        updated = replace(entry, applied_sha256=file_sha256(shortcut), applied_icon=str(icon_file))
-        self._entries[_key(shortcut)] = updated
+    def mark_applied(self, item: Path, icon_file: Path, state: bytes | None) -> BackupEntry:
+        entry = self._require(item)
+        updated = replace(entry, applied_sha256=state_hash(state), applied_icon=str(icon_file))
+        self._entries[_key(item)] = updated
         self._save()
         return updated
 
-    def original_bytes(self, entry: BackupEntry) -> bytes | None:
-        """The saved original, or None if the copy is missing or doesn't match its hash."""
+    def original_state(self, entry: BackupEntry) -> SavedState | None:
+        """The recorded original, or None if its copy is missing or doesn't match its hash."""
+        if entry.original_copy is None:
+            return SavedState(None) if entry.original_sha256 == ABSENT else None
         try:
             data = (self._originals / entry.original_copy).read_bytes()
         except OSError:
             return None
-        return data if hashlib.sha256(data).hexdigest() == entry.original_sha256 else None
+        return SavedState(data) if state_hash(data) == entry.original_sha256 else None
 
-    def forget(self, shortcut: Path) -> None:
-        """Drop an entry once its shortcut is back to the original."""
-        entry = self._entries.pop(_key(shortcut), None)
+    def forget(self, item: Path) -> None:
+        """Drop an entry once its item is back to the original."""
+        entry = self._entries.pop(_key(item), None)
         if entry is None:
             return
         self._save()
-        (self._originals / entry.original_copy).unlink(missing_ok=True)
+        if entry.original_copy is not None:
+            (self._originals / entry.original_copy).unlink(missing_ok=True)
 
-    def _record(self, shortcut: Path, icon: IconLocation) -> BackupEntry:
-        data = shortcut.read_bytes()
-        digest = hashlib.sha256(data).hexdigest()
-        copy_name = f"{hashlib.sha256(_key(shortcut).encode()).hexdigest()[:16]}_{digest[:8]}.lnk"
-        self._originals.mkdir(parents=True, exist_ok=True)
-        atomic_write(self._originals / copy_name, data)
+    def _record(self, item: Path, icon: IconLocation, state: bytes | None) -> BackupEntry:
+        digest = state_hash(state)
+        copy_name = None
+        if state is not None:
+            copy_name = f"{hashlib.sha256(_key(item).encode()).hexdigest()[:16]}_{digest[:8]}.bak"
+            atomic_write(self._originals / copy_name, state)
         entry = BackupEntry(
-            shortcut=str(shortcut),
+            shortcut=str(item),
             original_icon_path=icon.path,
             original_icon_index=icon.index,
             original_sha256=digest,
             original_copy=copy_name,
             recorded_at=datetime.now(UTC).isoformat(timespec="seconds"),
         )
-        self._entries[_key(shortcut)] = entry
+        self._entries[_key(item)] = entry
         self._save()
         return entry
 
-    def _require(self, shortcut: Path) -> BackupEntry:
-        entry = self.get(shortcut)
+    def _require(self, item: Path) -> BackupEntry:
+        entry = self.get(item)
         if entry is None:
-            raise KeyError(f"no backup recorded for {shortcut}")
+            raise KeyError(f"no backup recorded for {item}")
         return entry
 
     def _load(self) -> dict[str, BackupEntry]:
@@ -192,14 +212,13 @@ def _parse(raw: object) -> dict[str, BackupEntry]:
 def _parse_entry(item: object) -> BackupEntry:
     if not isinstance(item, dict):
         raise ValueError("each entry must be an object")
-    strings = ("shortcut", "original_icon_path", "original_sha256", "original_copy", "recorded_at")
-    for name in strings:
+    for name in ("shortcut", "original_icon_path", "original_sha256", "recorded_at"):
         if not isinstance(item.get(name), str):
             raise ValueError(f"entry field '{name}' must be a string")
     index = item.get("original_icon_index")
     if not isinstance(index, int) or isinstance(index, bool):
         raise ValueError("entry field 'original_icon_index' must be an integer")
-    for name in ("applied_sha256", "applied_icon"):
+    for name in ("original_copy", "applied_sha256", "applied_icon"):
         if item.get(name) is not None and not isinstance(item.get(name), str):
             raise ValueError(f"entry field '{name}' must be a string or null")
     try:
@@ -208,5 +227,5 @@ def _parse_entry(item: object) -> BackupEntry:
         raise ValueError(f"unexpected entry fields: {exc}") from exc
 
 
-def _key(shortcut: Path) -> str:
-    return normalize_path(str(shortcut))
+def _key(item: Path) -> str:
+    return normalize_path(str(item))

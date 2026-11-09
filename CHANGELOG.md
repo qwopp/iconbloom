@@ -6,6 +6,33 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Game and web shortcuts (`.url` files, which Steam and Epic use for desktop shortcuts).
+- Folders on the desktop, through the same hidden `desktop.ini` Windows uses.
+- The Recycle Bin (with styled empty and full versions), This PC, Network and your user
+  folder, through the same per-user setting as Windows' Desktop icon settings.
+- A picture of each item's original icon is saved when it's first styled, so previews and
+  Reapply still work for items whose original Windows can no longer show (Store apps,
+  folders, the Recycle Bin).
+- The detail line says where a style applies (Desktop, Taskbar, Start menu).
+
+### Changed
+
+- Shortcuts that run the same program and have the same name are one app, even when their
+  arguments differ (Discord's desktop and Start menu shortcuts, for example). Different
+  Chrome profiles, web apps and games launched through one program stay separate.
+- An app whose shortcuts are only partly styled (an update recreated one of them) is marked
+  "needs reapply".
+
+### Fixed
+
+- **Use my own image…** failed with "'bool' object has no attribute 'read'". Every button
+  and menu item now ignores the extra value Qt sends when clicked, and the test clicks the
+  real button.
+- Paths with non-English characters are written to `.url` and `desktop.ini` files in a form
+  Windows reads correctly.
+
 ## [0.2.0] - 2026-11-09
 
 ### Added

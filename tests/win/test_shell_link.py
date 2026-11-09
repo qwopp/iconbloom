@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
+from platform_win.item_io import ShellLinkIO
 from platform_win.paths import known_folder
-from platform_win.shortcuts import IconLocation, ScanRoot, ShellLinkIO, Source, scan
+from platform_win.shortcuts import IconLocation, ScanRoot, Source, scan
 from tests.win.conftest import NOTEPAD, SYSTEM32
 
 
