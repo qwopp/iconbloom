@@ -6,6 +6,8 @@ import pytest
 from PySide6.QtWidgets import QFileDialog, QGridLayout
 
 from app.service import Status
+from engine.families import Family
+from engine.themes import DEFAULT_THEME, load_theme
 from tests.conftest import load_sample
 from tests.ui_harness import APPS, Harness
 
@@ -103,9 +105,10 @@ def test_own_image_gets_every_style_and_reverts_exactly(
     picker = harness.window.picker
     labels = [c.label for c in picker.cards]
     assert labels[0] == "Your image"
-    assert labels[-4:] == ["Cut out", "Cut out + recolor", "Cut out + mono", "Cut out on a tile"]
+    cut_outs = [r.label for r in load_theme(DEFAULT_THEME).recipes if r.family is Family.CUTOUT]
+    assert labels[-len(cut_outs) :] == cut_outs
     assert all(c.choice.custom_image == picker.custom_image for c in picker.cards)
-    cut_out = picker.cards[-4]
+    cut_out = picker.cards[-len(cut_outs)]
     picker.choose(cut_out)
     harness.window.apply_chosen()
     harness.settle()

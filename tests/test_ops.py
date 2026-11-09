@@ -57,6 +57,9 @@ OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
         strength=d.draw(st.floats(0, 1)),
     ),
     "mono": lambda img, d: ops.mono(img, color=d.draw(_rgb()), knockout=d.draw(st.booleans())),
+    "duotone": lambda img, d: ops.duotone(
+        img, body=d.draw(st.none() | _rgb()), detail=d.draw(st.none() | _rgb())
+    ),
     "gradient_fill": lambda img, d: ops.gradient_fill(
         img, stops=[d.draw(_rgb()), d.draw(_rgb())], angle=d.draw(st.floats(-360, 360))
     ),
@@ -218,6 +221,40 @@ def test_mono_knocks_out_contrasting_detail() -> None:
 def test_mono_keeps_flat_glyph_whole() -> None:
     icon, _ = ops.prepare(Image.new("RGBA", (64, 64), (30, 30, 30, 255)))
     assert ops.mono(icon, color=PINK).getpixel((128, 128)) == (*PINK, 255)
+
+
+def _cat() -> Image.Image:
+    """A white body with a thin pink bar across it, like a white cat's whiskers."""
+    img = Image.new("RGBA", (64, 64), (255, 255, 255, 255))
+    ImageDraw.Draw(img).rectangle((8, 30, 56, 34), fill=(*PINK, 255))
+    return ops.prepare(img)[0]
+
+
+def test_duotone_swaps_the_two_tones() -> None:
+    out = ops.duotone(_cat())
+    assert _px(out, (128, 60))[:3] == PINK
+    assert _px(out, (128, 128))[:3] == (255, 255, 255)
+
+
+def test_duotone_paints_body_and_detail() -> None:
+    out = ops.duotone(_cat(), body=LAVENDER, detail=INK)
+    assert _px(out, (128, 60)) == (*LAVENDER, 255)
+    assert _px(out, (128, 128)) == (*INK, 255)
+
+
+def test_duotone_tells_yellow_from_white() -> None:
+    """Close in brightness, so mono would see one tone; duotone goes by color."""
+    img = Image.new("RGBA", (64, 64), (255, 255, 255, 255))
+    ImageDraw.Draw(img).rectangle((24, 8, 40, 56), fill=(255, 204, 40, 255))
+    out = ops.duotone(ops.prepare(img)[0])
+    assert _px(out, (128, 128))[:3] == (255, 255, 255)  # the bar
+    assert _px(out, (60, 128))[:3] == (255, 204, 40)  # the body
+
+
+def test_duotone_on_a_flat_glyph() -> None:
+    icon, _ = ops.prepare(Image.new("RGBA", (64, 64), (30, 30, 30, 255)))
+    assert _px(ops.duotone(icon, body=PINK), (128, 128)) == (*PINK, 255)
+    assert _px(ops.duotone(icon), (128, 128)) == (30, 30, 30, 255)
 
 
 def test_gradient_fill_runs_between_stops() -> None:

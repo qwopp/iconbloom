@@ -96,6 +96,10 @@ OPS: Mapping[str, OpDef] = {
             "knockout": Param("bool", True),
         },
     ),
+    "duotone": OpDef(
+        ops.duotone,
+        {"body": Param("color"), "detail": Param("color")},
+    ),
     "tile": OpDef(
         ops.tile,
         {

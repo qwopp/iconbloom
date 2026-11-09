@@ -34,6 +34,8 @@ _ALPHA_VISIBLE = 8
 # Two tones must differ this much in luminance before mono cuts one out.
 _KNOCKOUT_CONTRAST = 0.25
 _KNOCKOUT_SOFTNESS = 0.08
+# duotone measures colors this many pixels inside the icon's outline.
+_TONE_EDGE = 2
 # recolor treats chroma below this as gray, and at this much above it as fully colored.
 _NEUTRAL_CHROMA = 0.05
 _FULL_CHROMA = 0.25
@@ -159,6 +161,26 @@ def gradient_fill(
     gradient = np.asarray(linear_gradient(img.size, stops[0], stops[1], angle), dtype=np.float64)
     out = np.dstack([gradient / 255, alpha])
     return _finish(_from_array(out))
+
+
+def duotone(img: Image.Image, *, body: RGB | None = None, detail: RGB | None = None) -> Image.Image:
+    """Paint the icon's main tone and its contrasting details two flat colors.
+
+    A color left out takes the other part's own color, so with neither given the
+    two trade places: a white cat with pink whiskers becomes a pink cat with white
+    whiskers. One-tone icons get ``body`` all over, or stay as they are.
+    """
+    arr = _to_array(img)
+    split = _split_tones(arr, by_color=True)
+    if split is None:
+        if body is not None:
+            arr[..., :3] = np.asarray(body, dtype=np.float64) / 255
+        return _finish(_from_array(arr))
+    ramp, own_body, own_detail = split
+    body_rgb = own_detail if body is None else np.asarray(body, dtype=np.float64) / 255
+    detail_rgb = own_body if detail is None else np.asarray(detail, dtype=np.float64) / 255
+    arr[..., :3] = body_rgb * (1.0 - ramp[..., None]) + detail_rgb * ramp[..., None]
+    return _finish(_from_array(arr))
 
 
 def tile(
@@ -594,25 +616,67 @@ def _normalized(lum: FloatArray, opaque: npt.NDArray[np.bool_]) -> FloatArray:
 
 
 def _knockout_alpha(arr: FloatArray) -> FloatArray:
-    """Alpha with the icon's minority tone cut out, when it has two distinct tones.
-
-    Splits opaque pixels into a dark and a light group (Otsu's method). If the
-    groups differ enough, the smaller one is the detail and fades to clear.
-    """
+    """Alpha with the icon's minority tone cut out, when it has two distinct tones."""
     alpha = arr[..., 3]
-    opaque = alpha > 0.5
-    if opaque.sum() < 32:
+    split = _split_tones(arr)
+    if split is None:
         return alpha
-    lum = _luminance(arr)
-    values = lum[opaque]
-    threshold = _otsu(values)
-    dark, light = values[values <= threshold], values[values > threshold]
-    if len(dark) == 0 or len(light) == 0 or float(light.mean() - dark.mean()) < _KNOCKOUT_CONTRAST:
-        return alpha
-    ramp = np.clip((lum - threshold) / _KNOCKOUT_SOFTNESS + 0.5, 0.0, 1.0)
-    detail = ramp if len(light) < len(dark) else 1.0 - ramp
     # Keep the cutout from eating the whole icon when the "detail" touches the edge.
-    return alpha * (1.0 - detail * 0.92)
+    return alpha * (1.0 - split[0] * 0.92)
+
+
+def _split_tones(
+    arr: FloatArray, *, by_color: bool = False
+) -> tuple[FloatArray, FloatArray, FloatArray] | None:
+    """How much each pixel belongs to the icon's detail, plus the body and detail colors.
+
+    Splits opaque pixels into two groups (Otsu's method), by brightness or, with
+    ``by_color``, along the icon's main color difference, which also tells yellow
+    from white. If the groups differ enough, the smaller one is the detail. None
+    for one-tone icons.
+    """
+    opaque = arr[..., 3] > 0.5
+    if opaque.sum() < 32:
+        return None
+    sample = opaque
+    if by_color:
+        # A cut-out's outermost pixels can keep specks of the old background, which
+        # would otherwise count as a third color.
+        core = _shrink(opaque, _TONE_EDGE)
+        sample = core if core.sum() >= 32 else opaque
+    level = _color_axis(arr, sample) if by_color else _luminance(arr)
+    values = level[sample]
+    threshold = _otsu(values)
+    low, high = values <= threshold, values > threshold
+    if not low.any() or not high.any():
+        return None
+    rgb = arr[..., :3][sample]
+    low_rgb, high_rgb = np.median(rgb[low], axis=0), np.median(rgb[high], axis=0)
+    if by_color:
+        contrast = float(np.linalg.norm(high_rgb - low_rgb))
+        # Otsu's cut can land at either end of an empty gap; soften around its middle.
+        threshold = float(values[low].mean() + values[high].mean()) / 2
+    else:
+        contrast = float(values[high].mean() - values[low].mean())
+    if contrast < _KNOCKOUT_CONTRAST:
+        return None
+    ramp = np.clip((level - threshold) / _KNOCKOUT_SOFTNESS + 0.5, 0.0, 1.0)
+    if high.sum() < low.sum():
+        return ramp, low_rgb, high_rgb
+    return 1.0 - ramp, high_rgb, low_rgb
+
+
+def _color_axis(arr: FloatArray, sample: npt.NDArray[np.bool_]) -> FloatArray:
+    """Each pixel's place (0 to 1) along the line through color space the icon varies most on."""
+    rgb = arr[..., :3]
+    points = rgb[sample]
+    center = points.mean(axis=0)
+    _, vectors = np.linalg.eigh(np.cov((points - center).T))
+    along = (rgb - center) @ vectors[:, -1]
+    low, high = (float(v) for v in np.percentile(along[sample], [1, 99]))
+    if high - low < 1e-6:
+        return np.zeros_like(along)
+    return np.clip((along - low) / (high - low), 0.0, 1.0)
 
 
 def _otsu(values: FloatArray) -> float:

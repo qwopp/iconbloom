@@ -6,6 +6,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Four more cut-out styles: colors swapped (a white logo with pink lines turns pink with white
+  lines), two-tone, tint and sticker.
+
 ## [0.5.2] - 2026-11-09
 
 ### Fixed

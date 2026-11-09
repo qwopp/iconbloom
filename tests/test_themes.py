@@ -12,7 +12,16 @@ from engine.themes import DEFAULT_THEME, ThemeError, list_themes, load_theme
 from tests.conftest import REPRESENTATIVE_SAMPLES, load_sample, sample_names
 
 STYLES_PER_THEME = 20
-CUTOUT_ROW = ["cutout", "cutout_recolor", "cutout_mono", "cutout_tile"]
+CUTOUT_ROW = [
+    "cutout",
+    "cutout_recolor",
+    "cutout_mono",
+    "cutout_tile",
+    "cutout_swap",
+    "cutout_duotone",
+    "cutout_tint",
+    "cutout_sticker",
+]
 
 _RECIPE = {"id": "a", "label": "A", "family": "mono", "ops": [{"op": "mono", "color": "main"}]}
 
