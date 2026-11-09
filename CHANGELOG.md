@@ -16,6 +16,9 @@ All notable changes to Iconbloom are documented here. The format follows
   it together.
 - A banner offering to refresh Windows' icons after a taskbar pin changes.
 - Hover text on every button.
+- One-click updates: after asking once whether to check for new versions, Iconbloom
+  offers **Update now**, which downloads the installer, verifies its SHA-256 checksum and
+  upgrades in place.
 
 ### Changed
 

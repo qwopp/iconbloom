@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import override
 
 from PIL import Image, ImageDraw, ImageFont
 from PySide6.QtCore import QBuffer, QIODevice
@@ -18,8 +19,10 @@ from PySide6.QtWidgets import QApplication
 
 from app.choices import Choice
 from app.main import load_style
+from app.settings import Settings
 from app.ui.main_window import MainWindow
 from app.ui.widgets import PreviewCard
+from app.updates import Release, Updater
 from engine import ops
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, load_theme
@@ -50,6 +53,14 @@ PICKS = {
 }
 
 
+class OfflineUpdater(Updater):
+    """Screenshots never touch the network."""
+
+    @override
+    def check(self, timeout: float = 5.0) -> Release | None:
+        return None
+
+
 def _sample(app: str) -> Image.Image:
     with Image.open(SAMPLES_DIR / f"{APPS[app]}.png") as img:
         return img.convert("RGBA")
@@ -74,10 +85,11 @@ def picker_media(app: QApplication) -> None:
         for name in APPS:
             desktop.make(name)
         service = desktop.service()
+        Settings(asked_about_updates=True).save(desktop.paths.settings)
         for target in service.scan():
             if target.name in ("Camera", "Music"):
                 service.apply(target, Choice(DEFAULT_THEME, PICKS[target.name]))
-        window = MainWindow(service, hard_refresh=lambda: None, update_check=lambda: None)
+        window = MainWindow(service, hard_refresh=lambda: None, updater=OfflineUpdater())
         window.resize(1180, 760)
         window.show()
         frames = [_grab(app, window)]

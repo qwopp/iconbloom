@@ -8,8 +8,15 @@ from pathlib import Path
 from typing import override
 
 from PIL import Image
-from PySide6.QtCore import QModelIndex, QPoint, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QCloseEvent, QIcon, QImage, QStandardItem, QStandardItemModel
+from PySide6.QtCore import QModelIndex, QPoint, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import (
+    QCloseEvent,
+    QDesktopServices,
+    QIcon,
+    QImage,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -33,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import __version__, updates
+from app import __version__
 from app.choices import Choice
 from app.service import DECLINED_REASON, SHARED_REASON, ChangeReport, IconService, Status
 from app.settings import Settings
@@ -50,7 +57,7 @@ from app.ui.widgets import (
     pixmap_at,
     to_qimage,
 )
-from app.updates import Release
+from app.updates import Release, Updater
 from engine import analyze, ops
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, Theme
@@ -97,18 +104,25 @@ class BatchStep:
     name: str
 
 
+@dataclass(frozen=True)
+class DownloadStep:
+    done: int
+    total: int
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
         service: IconService,
         *,
         hard_refresh: Callable[[], None],
-        update_check: Callable[[], Release | None] = updates.check,
+        updater: Updater | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self._hard_refresh = hard_refresh
-        self._update_check = update_check
+        self._updater = updater or Updater()
+        self._release: Release | None = None
         self.settings = Settings.load(service.paths.settings)
         self._pool = QThreadPool(self)
         self._jobs: set[Job] = set()
@@ -138,6 +152,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.reload_shortcuts)
         if self.settings.check_for_updates:
             QTimer.singleShot(0, self.check_for_updates)
+        elif not self.settings.asked_about_updates:
+            QTimer.singleShot(0, self._ask_about_updates)
 
     # ---- layout -------------------------------------------------------------
 
@@ -357,13 +373,10 @@ class MainWindow(QMainWindow):
 
     def _build_status_bar(self) -> None:
         bar = self.statusBar()
-        self.update_label = QLabel()
-        self.update_label.setOpenExternalLinks(True)
-        bar.addPermanentWidget(self.update_label)
         self.update_box = QCheckBox("Check for updates")
         self.update_box.setToolTip(
-            "Ask GitHub for a newer version when Iconbloom starts. Off by default; "
-            "it's the only time Iconbloom uses the internet, and it never downloads anything."
+            "Ask GitHub for a newer version when Iconbloom starts. It's the only time "
+            "Iconbloom uses the internet, and nothing is installed unless you click Update."
         )
         self.update_box.setChecked(self.settings.check_for_updates)
         self.update_box.toggled.connect(self._on_update_toggled)
@@ -450,7 +463,7 @@ class MainWindow(QMainWindow):
         self._start(work).signals.progress.connect(on_icon)
 
     def _build_notice(self) -> QFrame:
-        """Banner for things worth knowing right after an action, like taskbar caching."""
+        """Banner for things worth knowing now: a stale taskbar, an update, a question."""
         self.notice = QFrame()
         self.notice.setObjectName("notice")
         row = QHBoxLayout(self.notice)
@@ -458,14 +471,8 @@ class MainWindow(QMainWindow):
         self.notice_label = QLabel()
         self.notice_label.setWordWrap(True)
         row.addWidget(self.notice_label, 1)
-        row.addWidget(
-            self._button(
-                "Refresh icons",
-                self.refresh_icons,
-                "secondary",
-                "Rebuild Windows' icon cache and restart Explorer",
-            )
-        )
+        self.notice_actions = QHBoxLayout()
+        row.addLayout(self.notice_actions)
         close = QToolButton()
         close.setObjectName("closeNotice")
         close.setText("\u2715")
@@ -475,13 +482,35 @@ class MainWindow(QMainWindow):
         self.notice.hide()
         return self.notice
 
+    def show_notice(
+        self, text: str, actions: Sequence[tuple[str, Callable[[], object], str]] = ()
+    ) -> None:
+        """Show ``text`` with buttons (label, action, hover text); any button closes it."""
+        while self.notice_actions.count():
+            item = self.notice_actions.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
+        for i, (label, action, tip) in enumerate(actions):
+            button = self._button(label, action, "primary" if i == 0 else "secondary", tip)
+            button.clicked.connect(self.notice.hide)
+            self.notice_actions.addWidget(button)
+        self.notice_label.setText(text)
+        self.notice.show()
+
     def _show_taskbar_notice(self, report: ChangeReport) -> None:
         if any(touches_taskbar(p) for p in report.changed):
-            self.notice_label.setText(
+            self.show_notice(
                 "Windows keeps its own copy of taskbar icons, so they can take a moment to "
-                "update. If one still looks old, refresh Windows' icons."
+                "update. If one still looks old, refresh Windows' icons.",
+                [
+                    (
+                        "Refresh icons",
+                        self.refresh_icons,
+                        "Rebuild Windows' icon cache and restart Explorer",
+                    )
+                ],
             )
-            self.notice.show()
 
     def _button(
         self, text: str, slot: Callable[[], object], role: str, tip: str = ""
@@ -1063,19 +1092,83 @@ class MainWindow(QMainWindow):
 
     def _on_update_toggled(self, enabled: bool) -> None:
         self.settings.check_for_updates = enabled
+        self.settings.asked_about_updates = True
         self._guard(lambda: self.settings.save(self.service.paths.settings))
         if enabled:
             self.check_for_updates()
 
+    def _ask_about_updates(self) -> None:
+        """Once, on first launch: may Iconbloom check GitHub for new versions?"""
+        self.show_notice(
+            "Want Iconbloom to tell you when a new version is out? It asks GitHub when it "
+            "starts, and never installs anything unless you click Update.",
+            [
+                ("Yes, check", lambda: self.update_box.setChecked(True), "Check now and at start"),
+                ("No thanks", lambda: self._on_update_toggled(False), "You can turn it on later"),
+            ],
+        )
+
     def check_for_updates(self) -> None:
-        job = self._start(lambda _report: self._update_check())
+        job = self._start(lambda _report: self._updater.check())
         job.signals.done.connect(self._on_update_result)
 
     def _on_update_result(self, result: object) -> None:
-        if isinstance(result, Release):
-            self.update_label.setText(
-                f'<a href="{result.url}">Iconbloom {result.version} is available</a>'
+        if not isinstance(result, Release):
+            return
+        self._release = result
+        self.show_notice(
+            f"Iconbloom {result.version} is ready to install. Your icons and backups stay "
+            "as they are.",
+            [
+                ("Update now", self.install_update, "Download, check and install the update"),
+                (
+                    "What's new",
+                    lambda: QDesktopServices.openUrl(QUrl(result.url)),
+                    "Open the release notes in your browser",
+                ),
+            ],
+        )
+
+    def install_update(self) -> None:
+        """Download the installer, verify it, start it and close so it can replace the app."""
+        release = self._release
+        if release is None:
+            return
+        dialog = QProgressDialog("Downloading the update\u2026", "Cancel", 0, 100, self)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        folder = self.service.paths.root / "updates"
+
+        def work(report: Callable[[object], None]) -> Path:
+            return self._updater.download(
+                release, folder, lambda done, total: report(DownloadStep(done, total))
             )
+
+        def on_progress(item: object) -> None:
+            if isinstance(item, DownloadStep) and item.total > 0:
+                dialog.setValue(min(99, item.done * 100 // item.total))
+
+        def on_done(result: object) -> None:
+            if dialog.wasCanceled() or not isinstance(result, Path):
+                dialog.reset()
+                return
+            dialog.reset()
+            try:
+                self._updater.launch(result)
+            except OSError as exc:
+                log.exception("could not start the installer")
+                QMessageBox.warning(self, "The update didn't start", str(exc))
+                return
+            self.close()  # the installer replaces the app's files once it has closed
+
+        def on_failed(message: str) -> None:
+            dialog.reset()
+            QMessageBox.warning(self, "The update didn't download", message)
+
+        job = self._start(work)
+        job.signals.progress.connect(on_progress)
+        job.signals.done.connect(on_done)
+        job.signals.failed.connect(on_failed)
 
     # ---- plumbing -----------------------------------------------------------
 

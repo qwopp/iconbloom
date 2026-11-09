@@ -1,5 +1,5 @@
+import hashlib
 import io
-import json
 import tomllib
 from pathlib import Path
 
@@ -7,8 +7,43 @@ import pytest
 
 from app import __version__, updates
 from app.settings import Settings
+from app.updates import Release, UpdateError, Updater
 
 ROOT = Path(__file__).resolve().parent.parent
+INSTALLER = b"pretend installer bytes" * 1000
+
+
+class FakeResponse(io.BytesIO):
+    def __init__(self, data: bytes) -> None:
+        super().__init__(data)
+        self.headers = {"Content-Length": str(len(data))}
+
+
+class FakeGitHub:
+    """Serves a release, its checksum file and its installer by URL."""
+
+    def __init__(self, checksums: str | None = None, installer: bytes = INSTALLER) -> None:
+        digest = hashlib.sha256(installer).hexdigest()
+        self.files = {
+            updates.RELEASES_API: (
+                b'{"tag_name": "v9.0.0", "html_url": "https://github.com/x/releases/v9.0.0", '
+                b'"assets": [{"name": "Iconbloom-Setup-9.0.0.exe", '
+                b'"browser_download_url": "https://dl/setup.exe"}, '
+                b'{"name": "SHA256SUMS.txt", "browser_download_url": "https://dl/sums"}]}'
+            ),
+            "https://dl/sums": (
+                checksums
+                if checksums is not None
+                else f"{digest}  Iconbloom-Setup-9.0.0.exe\n{'0' * 64}  other.zip\n"
+            ).encode(),
+            "https://dl/setup.exe": installer,
+        }
+        self.requested: list[str] = []
+
+    def __call__(self, request: object, timeout: float) -> FakeResponse:
+        url = getattr(request, "full_url", "")
+        self.requested.append(url)
+        return FakeResponse(self.files[url])
 
 
 def test_version_matches_pyproject() -> None:
@@ -24,41 +59,91 @@ def test_parse_version(text: str, parsed: tuple[int, int, int] | None) -> None:
     assert updates.parse_version(text) == parsed
 
 
-def _payload(tag: str) -> dict[str, str]:
-    return {"tag_name": tag, "html_url": f"https://github.com/qwopp/iconbloom/releases/{tag}"}
-
-
-def test_newer_release_found() -> None:
-    release = updates.newer_release(_payload("v0.2.0"), current="0.1.0")
-    assert release == updates.Release("0.2.0", _payload("v0.2.0")["html_url"])
-
-
 @pytest.mark.parametrize(
     "payload",
-    [_payload("v0.1.0"), _payload("v0.0.9"), _payload("nightly"), {"tag_name": 3}, []],
+    [
+        {"tag_name": "v0.1.0", "html_url": "https://x"},
+        {"tag_name": "v0.0.9", "html_url": "https://x"},
+        {"tag_name": "nightly", "html_url": "https://x"},
+        {"tag_name": 3},
+        [],
+    ],
 )
 def test_no_update_when_not_newer_or_malformed(payload: object) -> None:
     assert updates.newer_release(payload, current="0.1.0") is None
 
 
-def test_check_reads_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[str] = []
+def test_check_finds_the_installer_and_checksums() -> None:
+    release = Updater(FakeGitHub()).check()
+    assert release == Release(
+        "9.0.0",
+        "https://github.com/x/releases/v9.0.0",
+        installer_url="https://dl/setup.exe",
+        checksums_url="https://dl/sums",
+    )
 
-    def fake_urlopen(request: object, timeout: float) -> io.BytesIO:
-        seen.append(getattr(request, "full_url", ""))
-        return io.BytesIO(json.dumps(_payload("v99.0.0")).encode())
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", fake_urlopen)
-    release = updates.check()
+def test_download_verifies_the_checksum(tmp_path: Path) -> None:
+    github = FakeGitHub()
+    updater = Updater(github)
+    release = updater.check()
     assert release is not None
-    assert release.version == "99.0.0"
-    assert seen == [updates.RELEASES_API]
+    seen: list[tuple[int, int]] = []
+    installer = updater.download(release, tmp_path, lambda done, total: seen.append((done, total)))
+    assert installer.read_bytes() == INSTALLER
+    assert installer.name == "Iconbloom-Setup-9.0.0.exe"
+    assert seen[-1] == (len(INSTALLER), len(INSTALLER))
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_tampered_download_is_deleted(tmp_path: Path) -> None:
+    github = FakeGitHub()
+    github.files["https://dl/setup.exe"] = b"something else entirely"
+    updater = Updater(github)
+    release = updater.check()
+    assert release is not None
+    with pytest.raises(UpdateError, match="didn't match"):
+        updater.download(release, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("release", "message"),
+    [
+        (Release("9.0.0", "https://x"), "no installer"),
+        (
+            Release("9.0.0", "https://x", "https://dl/setup.exe", "https://dl/sums"),
+            "doesn't list its installer",
+        ),
+    ],
+)
+def test_download_refuses_without_a_checksum(
+    tmp_path: Path, release: Release, message: str
+) -> None:
+    with pytest.raises(UpdateError, match=message):
+        Updater(FakeGitHub(checksums="not a checksum file")).download(release, tmp_path)
+
+
+def test_parse_checksums_accepts_binary_marker() -> None:
+    digest = "A" * 64
+    assert updates.parse_checksums(f"{digest} *Setup.exe\njunk line\n") == {
+        "Setup.exe": digest.lower()
+    }
+
+
+def test_launch_starts_installer_silently(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    started: list[list[str]] = []
+    monkeypatch.setattr(updates.subprocess, "Popen", started.append)
+    Updater().launch(tmp_path / "Setup.exe")
+    assert started == [[str(tmp_path / "Setup.exe"), *updates.INSTALLER_ARGS]]
 
 
 def test_settings_default_off_and_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
-    assert not Settings.load(path).check_for_updates
-    Settings(check_for_updates=True).save(path)
+    loaded = Settings.load(path)
+    assert not loaded.check_for_updates
+    assert not loaded.asked_about_updates
+    Settings(check_for_updates=True, asked_about_updates=True).save(path)
     assert Settings.load(path).check_for_updates
 
 
