@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from PIL import IcoImagePlugin, Image, UnidentifiedImageError
 
-from platform_win.shortcuts import IconLocation
+from platform_win.shortcuts import IconLocation, ensure_com
 
 log = logging.getLogger(__name__)
 # icoextract warns about every .mun redirect; we handle those ourselves.
@@ -148,9 +148,7 @@ def shell_image(path: Path, size: int = 256) -> Image.Image:
     import ctypes
     from ctypes import wintypes
 
-    import pythoncom
-
-    pythoncom.CoInitialize()
+    ensure_com()
     shell32 = ctypes.windll.shell32
     ole32 = ctypes.windll.ole32
 
