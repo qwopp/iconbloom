@@ -14,6 +14,8 @@ log = logging.getLogger(__name__)
 class Settings:
     # Opt-in: the only network request Iconbloom ever makes.
     check_for_updates: bool = False
+    # Shortcuts every user shares need a permission prompt: "ask", "include" or "skip".
+    shared_shortcuts: str = "ask"
 
     @classmethod
     def load(cls, path: Path) -> "Settings":

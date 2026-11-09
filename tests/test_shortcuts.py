@@ -4,6 +4,7 @@ import pytest
 
 from platform_win.shortcuts import (
     IconLocation,
+    Place,
     ScanRoot,
     Source,
     group_key,
@@ -54,7 +55,7 @@ def test_real_apps_are_kept(name: str) -> None:
     assert not is_noise(name, rf"C:\Apps\{name}.exe")
 
 
-def test_scan_groups_same_target_and_prefers_writable_desktop(
+def test_scan_groups_same_target_and_prefers_own_desktop(
     tmp_path: Path, link_io: FakeLinkIO
 ) -> None:
     roots = _roots(tmp_path)
@@ -73,17 +74,17 @@ def test_scan_groups_same_target_and_prefers_writable_desktop(
         Source.START_MENU,
         Source.ALL_USERS_START_MENU,
     ]
-    assert len(paint.writable_shortcuts) == 2
-    assert paint.writable
+    assert len(paint.own_shortcuts) == 2
+    assert len(paint.shared_shortcuts) == 1
     assert len(paint.slug) == 12
 
 
-def test_read_only_only_group(tmp_path: Path, link_io: FakeLinkIO) -> None:
+def test_shared_only_group(tmp_path: Path, link_io: FakeLinkIO) -> None:
     roots = _roots(tmp_path)
     link_io.create(roots[2].path / "Admin Tool.lnk", r"C:\Tool\tool.exe")
     (group,) = scan(roots, link_io)
-    assert not group.writable
-    assert not group.primary.writable
+    assert not group.own_shortcuts
+    assert group.primary.shared
 
 
 def test_unreadable_links_are_skipped(tmp_path: Path, link_io: FakeLinkIO) -> None:
@@ -109,3 +110,24 @@ def test_arguments_split_groups(tmp_path: Path, link_io: FakeLinkIO) -> None:
     a, b = (s for g in scan(roots, link_io) for s in g.shortcuts)
     profile = type(b.info)(b.info.target, "--profile-directory=Work", IconLocation())
     assert group_key(a) != group_key(type(b)(b.path, b.source, profile))
+
+
+def test_desktop_comes_first_and_windows_tools_last(
+    tmp_path: Path, link_io: FakeLinkIO, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
+    roots = _roots(tmp_path)
+    link_io.create(roots[1].path / "Aardvark.lnk", r"C:\Apps\aardvark.exe")
+    link_io.create(roots[1].path / "Command Prompt.lnk", r"C:\Windows\System32\cmd.exe")
+    link_io.create(roots[1].path / "Zebra.lnk", r"C:\Apps\zebra.exe")
+    link_io.create(roots[0].path / "Zoom.lnk", r"C:\Apps\zoom.exe")
+    names = [g.name for g in scan(roots, link_io)]
+    assert names == ["Zoom", "Aardvark", "Zebra", "Command Prompt"]
+
+
+def test_groups_know_where_they_appear(tmp_path: Path, link_io: FakeLinkIO) -> None:
+    roots = _roots(tmp_path)
+    link_io.create(roots[0].path / "Paint.lnk", r"C:\Paint\paint.exe")
+    link_io.create(roots[2].path / "Paint.lnk", r"C:\Paint\paint.exe")
+    (paint,) = scan(roots, link_io)
+    assert paint.places == {Place.DESKTOP, Place.START_MENU}

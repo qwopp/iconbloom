@@ -1,12 +1,14 @@
 """Stand-ins for Windows pieces, so shortcut logic is testable on any OS."""
 
 import json
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path, PureWindowsPath
 
 from PIL import Image
 
+from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request
 from app.service import IconService
+from platform_win.elevate import ElevationDeclinedError
 from platform_win.extract import SHARP_MIN, ExtractedIcon
 from platform_win.paths import AppPaths
 from platform_win.shortcuts import IconLocation, LinkInfo, ScanRoot, Source
@@ -61,10 +63,14 @@ class FakeDesktop:
         self.paths = AppPaths(root / "Iconbloom")
         self.link_io = FakeLinkIO()
         self.notified = 0
+        self.refreshed: list[Path] = []
         self.roots = [
             ScanRoot(self.desktop, Source.DESKTOP, recursive=False),
             ScanRoot(self.common, Source.ALL_USERS_START_MENU, recursive=True),
         ]
+        # Plays Windows' permission prompt: True = the user says No.
+        self.decline_permission = False
+        self.elevations: list[list[str]] = []
         self._icons = dict(icons or {})
         self._default = default
         self._unreadable = set(unreadable)
@@ -76,8 +82,23 @@ class FakeDesktop:
 
     def service(self) -> IconService:
         return IconService(
-            self.paths, self.link_io, self.roots, extractor=self.extract, notify=self._notify
+            self.paths,
+            self.link_io,
+            self.roots,
+            extractor=self.extract,
+            notify=self._notify,
+            elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
         )
+
+    def _launch_elevated(self, arguments: Sequence[str]) -> int:
+        """Stand-in for starting the elevated copy: same request file, same checks."""
+        self.elevations.append(list(arguments))
+        if self.decline_permission:
+            raise ElevationDeclinedError
+        flag, request = arguments
+        assert flag == ELEVATED_FLAG
+        admin = IconService(self.paths, self.link_io, roots=[])
+        return handle_request(Path(request), admin, [self.common])
 
     def extract(
         self, icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
@@ -92,5 +113,6 @@ class FakeDesktop:
         source = icon.path if not use_shell else f"{icon.path} (shell allowed)"
         return ExtractedIcon(image, max(image.size) < SHARP_MIN, source)
 
-    def _notify(self) -> None:
+    def _notify(self, paths: Sequence[Path]) -> None:
         self.notified += 1
+        self.refreshed.extend(paths)

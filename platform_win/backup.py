@@ -70,6 +70,10 @@ class BackupManifest:
     def __len__(self) -> int:
         return len(self._entries)
 
+    def reload(self) -> None:
+        """Re-read the file after another process (the elevated helper) changed it."""
+        self._entries = self._load()
+
     def get(self, shortcut: Path) -> BackupEntry | None:
         return self._entries.get(_key(shortcut))
 
