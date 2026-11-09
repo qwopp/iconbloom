@@ -80,7 +80,8 @@ def test_bad_theme_is_reported(tmp_path: Path, change: dict[str, object], messag
 
 def test_duplicate_recipe_ids_are_rejected(tmp_path: Path) -> None:
     theme = _valid()
-    theme["recipes"] = [*theme["recipes"], *theme["recipes"]]  # type: ignore[misc]
+    recipe = {"id": "a", "label": "A", "ops": [{"op": "mono", "color": "main"}]}
+    theme["recipes"] = [recipe, recipe]
     _write_theme(tmp_path, theme)
     with pytest.raises(ThemeError, match="duplicate recipe id"):
         load_theme("t", tmp_path)

@@ -8,6 +8,9 @@ from PIL import Image
 from engine.themes import DEFAULT_THEME, Theme, load_theme
 from tests.fakes import SAMPLES_DIR, FakeDesktop
 
+# Fixtures for driving the window (``harness``, ``say_yes``).
+pytest_plugins = ["tests.ui_harness"]
+
 # UI tests never open real windows.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

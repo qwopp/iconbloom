@@ -109,7 +109,7 @@ def test_system_dll_icons_are_looked_up_in_mun_files(
             raise ValueError("icons moved to .mun")
         return build_ico(load_sample("dark"))
 
-    monkeypatch.setattr("platform_win.extract._pe_icon", fake_pe)
+    monkeypatch.setattr("platform_win.extract.pe_icon_data", fake_pe)
     dll = windir / "System32" / "imageres.dll"
     result = extract_icon(IconLocation(str(dll), -114), "", tmp_path / "a.lnk", use_shell=False)
     assert result.image.size == (256, 256)
