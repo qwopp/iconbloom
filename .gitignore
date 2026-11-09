@@ -16,9 +16,14 @@ dist/
 
 # Local renders
 contact_sheet.png
+sheet.png
 
 # Editors / OS
 .vscode/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Local agent settings
+CLAUDE.local.md
+.claude/settings.local.json
