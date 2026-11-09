@@ -2,7 +2,11 @@
 
 import json
 import os
+import time
 from pathlib import Path
+
+# About 2 seconds in total before giving up and reporting the error.
+_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8)
 
 
 def atomic_write(path: Path, data: bytes) -> None:
@@ -17,7 +21,23 @@ def atomic_write(path: Path, data: bytes) -> None:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
-    tmp.replace(path)
+    _replace(tmp, path)
+
+
+def _replace(source: Path, target: Path) -> None:
+    """Rename over ``target``, waiting out brief locks.
+
+    Antivirus scanners and the search indexer often hold a just-written file
+    open for a moment, and Windows refuses to replace an open file.
+    """
+    for delay in _RETRY_DELAYS:
+        try:
+            source.replace(target)
+        except PermissionError:
+            time.sleep(delay)
+        else:
+            return
+    source.replace(target)
 
 
 def write_json(path: Path, payload: object) -> None:

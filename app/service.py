@@ -21,7 +21,7 @@ from PIL import Image
 
 from app.choices import Choice, ChoiceStore
 from engine import ops
-from engine.ico import write_ico
+from engine.ico import build_ico
 from engine.recipes import render
 from engine.themes import THEMES_DIR, Theme, list_themes, load_theme, theme_name
 from platform_win.backup import BackupManifest, file_sha256
@@ -192,7 +192,7 @@ class IconService:
         icon_file = self.paths.icons / f"{target.slug}_{choice.file_tag}.ico"
         report.written.append(icon_file)
         if not dry_run:
-            write_ico(icon_file, full, simple)
+            atomic_write(icon_file, build_ico(full, simple))
         for shortcut in writable:
             try:
                 self._apply_one(shortcut.path, icon_file, dry_run=dry_run)

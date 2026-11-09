@@ -1,13 +1,12 @@
 import io
 import struct
-from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import IcoImagePlugin, Image, ImageDraw
 
 from engine import ops
-from engine.ico import ICO_SIZES, build_ico, write_ico
+from engine.ico import ICO_SIZES, build_ico
 from engine.recipes import render
 from engine.themes import Theme
 from tests.conftest import load_sample
@@ -85,15 +84,6 @@ def test_and_mask_marks_transparent_pixels() -> None:
     mask = data[offset + 40 + 16 * 16 * 4 : offset + length]
     assert len(mask) == 16 * 4  # 16 rows padded to 32 bits
     assert mask[:4] == bytes([0x00, 0xFF, 0x00, 0x00])
-
-
-def test_write_ico_replaces_file_atomically(tmp_path: Path, kawaii: Theme) -> None:
-    full, simple = _full_and_simple(kawaii)
-    path = tmp_path / "icon.ico"
-    path.write_bytes(b"old")
-    write_ico(path, full, simple)
-    assert path.read_bytes()[:4] == b"\x00\x00\x01\x00"
-    assert not (tmp_path / "icon.ico.tmp").exists()
 
 
 @pytest.mark.parametrize("sizes", [[], [0], [512]])

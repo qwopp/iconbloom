@@ -12,7 +12,6 @@ that size and keeps the file small.
 import io
 import struct
 from collections.abc import Sequence
-from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -61,14 +60,6 @@ def build_ico(
 def frame_source(size: int, full: Image.Image, simple: Image.Image) -> Image.Image:
     """Which render a frame of this size is drawn from."""
     return simple if size <= SIMPLIFIED_MAX else full
-
-
-def write_ico(path: Path, full: Image.Image, simple: Image.Image | None = None) -> None:
-    """Write the .ico next to a temporary name first, so a crash never leaves half a file."""
-    data = build_ico(full, simple)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
 
 
 def _encode_png(frame: Image.Image) -> bytes:
