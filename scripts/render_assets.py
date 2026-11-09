@@ -2,7 +2,7 @@
 
 Run after editing any SVG under themes/<theme>/src/:
 
-    uv run python scripts/render_assets.py
+    uv run python -m scripts.render_assets
 
 The PNGs are committed so the app never needs an SVG renderer at runtime.
 """

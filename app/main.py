@@ -8,19 +8,18 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
-from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.logs import log_uncaught, setup_logging
 from app.service import windows_service
+from app.ui import UI_DIR
 from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import default_app_paths
 from platform_win.refresh import hard_refresh
 
-UI_DIR = Path(__file__).resolve().parent / "ui"
 log = logging.getLogger("iconbloom")
 
 
@@ -47,6 +46,7 @@ def run_window() -> int:
         return 2
     window = MainWindow(service, hard_refresh=hard_refresh)
     window.show()
+    log.info("window shown")
     return app.exec()
 
 

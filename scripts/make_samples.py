@@ -3,7 +3,7 @@
 They're drawn here instead of copied from real apps, so the repo ships no
 third-party artwork. Each one covers a case the style engine has to handle.
 
-    uv run python scripts/make_samples.py
+    uv run python -m scripts.make_samples
 """
 
 import math

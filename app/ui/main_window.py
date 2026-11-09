@@ -8,8 +8,9 @@ from typing import override
 
 from PIL import Image
 from PySide6.QtCore import QModelIndex, QPoint, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QCloseEvent, QImage, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QCloseEvent, QIcon, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QGridLayout,
@@ -26,8 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app import __version__, updates
 from app.choices import CUSTOM_RECIPE, Choice
 from app.service import IconService, Status
+from app.settings import Settings
+from app.ui import UI_DIR
 from app.ui.widgets import (
     KEY_ROLE,
     STATUS_COLORS,
@@ -40,6 +44,7 @@ from app.ui.widgets import (
     pixmap_at,
     to_qimage,
 )
+from app.updates import Release
 from engine import analyze, ops
 from engine.recipes import render
 from engine.themes import THEMES_DIR, Theme, list_themes, load_theme
@@ -47,6 +52,7 @@ from platform_win.shortcuts import ShortcutGroup
 
 log = logging.getLogger(__name__)
 
+APP_ICON = UI_DIR / "iconbloom.png"
 PREVIEW_COLUMNS = 4
 DEFAULT_THEME = "kawaii_pink"
 
@@ -77,11 +83,14 @@ class MainWindow(QMainWindow):
         *,
         hard_refresh: Callable[[], None],
         themes_dir: Path = THEMES_DIR,
+        update_check: Callable[[], Release | None] = updates.check,
     ) -> None:
         super().__init__()
         self.service = service
         self._hard_refresh = hard_refresh
         self._themes_dir = themes_dir
+        self._update_check = update_check
+        self.settings = Settings.load(service.paths.settings)
         self._pool = QThreadPool(self)
         self._groups: dict[str, ShortcutGroup] = {}
         self._token = 0
@@ -94,10 +103,14 @@ class MainWindow(QMainWindow):
         self.theme = self._load_initial_theme()
 
         self.setWindowTitle("Iconbloom")
+        self.setWindowIcon(QIcon(str(APP_ICON)))
         self.resize(1180, 760)
         self._popup = SizePopup(self)
         self._build()
+        self._build_status_bar()
         QTimer.singleShot(0, self.reload_shortcuts)
+        if self.settings.check_for_updates:
+            QTimer.singleShot(0, self.check_for_updates)
 
     # ---- layout -------------------------------------------------------------
 
@@ -228,6 +241,37 @@ class MainWindow(QMainWindow):
         self._update_buttons()
         return panel
 
+    def _build_status_bar(self) -> None:
+        bar = self.statusBar()
+        self.update_label = QLabel()
+        self.update_label.setOpenExternalLinks(True)
+        bar.addPermanentWidget(self.update_label)
+        self.update_box = QCheckBox("Check for updates")
+        self.update_box.setToolTip(
+            "Ask GitHub for a newer version when Iconbloom starts. Off by default; "
+            "it's the only time Iconbloom uses the internet, and it never downloads anything."
+        )
+        self.update_box.setChecked(self.settings.check_for_updates)
+        self.update_box.toggled.connect(self._on_update_toggled)
+        bar.addPermanentWidget(self.update_box)
+        bar.addPermanentWidget(QLabel(f"v{__version__}"))
+
+    def _on_update_toggled(self, enabled: bool) -> None:
+        self.settings.check_for_updates = enabled
+        self._guard(lambda: self.settings.save(self.service.paths.settings))
+        if enabled:
+            self.check_for_updates()
+
+    def check_for_updates(self) -> None:
+        job = self._start(lambda _report: self._update_check(), token=-2)
+        job.signals.done.connect(self._on_update_result)
+
+    def _on_update_result(self, _token: int, result: object) -> None:
+        if isinstance(result, Release):
+            self.update_label.setText(
+                f'<a href="{result.url}">Iconbloom {result.version} is available</a>'
+            )
+
     def _button(self, text: str, slot: Callable[[], object], role: str) -> QPushButton:
         button = QPushButton(text)
         button.setProperty("role", role)
@@ -239,6 +283,7 @@ class MainWindow(QMainWindow):
 
     def reload_shortcuts(self) -> None:
         groups = self.service.scan()
+        log.info("found %d shortcut groups", len(groups))
         self._groups = {g.key: g for g in groups}
         self.model.clear()
         for target in groups:

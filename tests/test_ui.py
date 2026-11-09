@@ -11,6 +11,7 @@ from pytestqt.qtbot import QtBot
 from app.main import load_style
 from app.service import IconService, Status
 from app.ui.main_window import MainWindow
+from app.updates import Release
 from platform_win.extract import ExtractedIcon
 from platform_win.shortcuts import IconLocation
 from tests.conftest import load_sample
@@ -192,3 +193,12 @@ def test_popup_handles_point(harness: Harness) -> None:
         harness.window._cards[0].image, harness.window._cards[1].image, QPoint(10, 10)
     )
     assert harness.window._popup.isVisible()
+
+
+def test_update_check_is_opt_in(harness: Harness) -> None:
+    release = Release("9.9.9", "https://github.com/qwopp/iconbloom/releases/v9.9.9")
+    harness.window._update_check = lambda: release  # pyright: ignore[reportPrivateUsage]
+    assert not harness.window.update_box.isChecked()
+    harness.window.update_box.setChecked(True)
+    harness.qtbot.waitUntil(lambda: "9.9.9" in harness.window.update_label.text(), timeout=5_000)
+    assert harness.window.service.paths.settings.exists()

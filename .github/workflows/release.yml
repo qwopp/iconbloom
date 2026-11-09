@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Pull requests that touch packaging, and manual runs, build everything and upload it
+  # as a workflow artifact without publishing anything.
+  pull_request:
+    paths:
+      - "installer/**"
+      - ".github/workflows/release.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --group release
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          $project = uv run python -c "import app; print(app.__version__)"
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $tag = $env:GITHUB_REF_NAME.TrimStart("v")
+            if ($tag -ne $project) { throw "Tag v$tag does not match app version $project" }
+          }
+          "version=$project" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: uv run pytest -q
+        env:
+          # Only the tests run offscreen; the built app is checked with a real window below.
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Build app folder
+        run: uv run pyinstaller installer/iconbloom.spec --noconfirm
+
+      - name: Smoke-test the build
+        shell: pwsh
+        run: |
+          $exe = "dist\Iconbloom\Iconbloom.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $size = (Get-ChildItem dist\Iconbloom -Recurse | Measure-Object Length -Sum).Sum / 1MB
+          "Build size: {0:N1} MB" -f $size
+          # Headless run: imports Qt, pywin32 and the engine from the frozen build.
+          $run = Start-Process $exe -ArgumentList "--revert-all" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "Iconbloom.exe --revert-all exited with $($run.ExitCode)" }
+          # GUI run: proves the trimmed build still has the Qt platform plugin it needs.
+          $gui = Start-Process $exe -PassThru
+          $log = "$env:LOCALAPPDATA\Iconbloom\logs\iconbloom.log"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Select-String -Path $log -Pattern "found \d+ shortcut groups" -Quiet)) {
+            if ($gui.HasExited -or (Get-Date) -gt $deadline) { Get-Content $log; throw "window never finished loading" }
+            Start-Sleep -Seconds 2
+          }
+          Start-Sleep -Seconds 5  # let icon thumbnails load too
+          Stop-Process -Id $gui.Id
+          Get-Content $log -Tail 8
+          if (Select-String -Path $log -Pattern "CRITICAL|ERROR|Traceback" -Quiet) { throw "the app logged an error" }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) { choco install innosetup -y --no-progress }
+          $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+          iscc /DAppVersion=${{ steps.version.outputs.version }} installer\iconbloom.iss
+
+      - name: Portable zip and checksums
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path dist\Iconbloom -DestinationPath "dist\Iconbloom-$v-portable.zip"
+          Push-Location dist
+          Get-FileHash "Iconbloom-Setup-$v.exe", "Iconbloom-$v-portable.zip" -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+          Pop-Location
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iconbloom-${{ steps.version.outputs.version }}
+          path: |
+            dist/Iconbloom-Setup-*.exe
+            dist/Iconbloom-*-portable.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          uv run python -m scripts.release_notes $v | Set-Content -Encoding utf8 notes.md
+          gh release create "v$v" --title "Iconbloom $v" --notes-file notes.md `
+            "dist\Iconbloom-Setup-$v.exe" "dist\Iconbloom-$v-portable.zip" dist\SHA256SUMS.txt

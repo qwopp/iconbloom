@@ -4,6 +4,7 @@ Only one field of a shortcut is ever written: its icon location. Targets,
 arguments and everything else are left exactly as they are.
 """
 
+import contextlib
 import hashlib
 import ntpath
 import os
@@ -143,12 +144,23 @@ _STGM_READWRITE = 0x00000002
 _MAX_PATH = 32767
 
 
+def ensure_com() -> None:
+    """Make COM usable on this thread, e.g. a UI worker thread.
+
+    Repeat calls are harmless. If the thread already runs COM in another
+    threading model, it is usable as is.
+    """
+    import pythoncom
+
+    with contextlib.suppress(pythoncom.com_error):
+        pythoncom.CoInitialize()
+
+
 def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":
     import pythoncom
     from win32com.shell import shell
 
-    # Harmless if COM is already set up on this thread; required on worker threads.
-    pythoncom.CoInitialize()
+    ensure_com()
     unknown = pythoncom.CoCreateInstance(
         shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink
     )
