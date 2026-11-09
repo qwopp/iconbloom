@@ -102,6 +102,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = "${{ steps.version.outputs.version }}"
-          uv run python -m scripts.release_notes $v | Set-Content -Encoding utf8 notes.md
+          uv run python -m scripts.release_notes $v --output notes.md
           gh release create "v$v" --title "Iconbloom $v" --notes-file notes.md `
             "dist\Iconbloom-Setup-$v.exe" "dist\Iconbloom-$v-portable.zip" dist\SHA256SUMS.txt
