@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import override
 
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QIcon
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -203,6 +203,15 @@ class MainWindow(QMainWindow):
         picker.all_button.clicked.connect(without_arguments(self.apply_style_to_all))
         picker.skip_button.clicked.connect(without_arguments(self.skip_selected))
         picker.apply_button.clicked.connect(without_arguments(self.apply_chosen))
+        app = QGuiApplication.instance()
+        if isinstance(app, QGuiApplication):
+            app.applicationStateChanged.connect(self._on_app_state_changed)
+
+    def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
+        # Coming back to the window after installing or deleting something: show it.
+        # A change in progress reloads the list itself when it finishes.
+        if state is Qt.ApplicationState.ApplicationActive and not self.changes.running:
+            self.shortcuts.rescan()
 
     # ---- following the selection --------------------------------------------
 

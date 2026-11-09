@@ -6,6 +6,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Switching back to Iconbloom picks up shortcuts added, removed or changed since it opened,
+  without restarting it.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added
