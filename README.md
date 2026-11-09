@@ -52,7 +52,7 @@ Iconbloom only changes one thing: the icon a shortcut (`.lnk` file) points to. I
 
 ## Privacy
 
-Iconbloom makes no network requests and collects no data. The one exception is **Check for updates**, which is off by default. If you turn it on, Iconbloom asks GitHub whether a newer version exists when it starts, and shows a link if one does. It never downloads anything by itself.
+Iconbloom collects no data. The only network request it can make is checking for updates, and it asks you first, the first time it opens. If you say yes, it asks GitHub whether a newer version exists each time it starts. When there is one, **Update now** downloads the official installer, checks it against the SHA-256 checksum published with the release, and installs it; your icons and backups stay as they are. Nothing is downloaded or installed unless you click it. You can switch the check off at the bottom of the window.
 
 ## FAQ
 
