@@ -7,6 +7,9 @@ app/            Qt window, CLI, IconService (the only code that changes shortcut
   |
   +-- engine/         Pure image code: ops, recipes, themes, color analysis, .ico writer
   +-- platform_win/   Windows: shortcut scan, IShellLink, icon extraction, backup manifest
+
+themes/         Data: one folder per theme, plus _library/ (shared recipes and drawings)
+scripts/        Developer tools; never imported by the app
 ```
 
 ## engine/ (OS-free)
@@ -98,6 +101,15 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 - `palette.py`: every UI color by name, light and dark. `style.qss` is a template that
   uses those names, so switching modes is one restyle.
 
+## scripts/
+
+- `render_assets.py`: fills each decoration template with a theme's `decor` colors and
+  writes the PNGs the app loads.
+- `bundle.py`: the theme files the packaged app ships, used by the PyInstaller spec.
+- `make_screenshots.py`: the README images, from the real window offscreen.
+- `make_samples.py`, `make_app_icon.py`: the test sample icons and Iconbloom's own icon.
+- `release_notes.py`: a version's CHANGELOG section, for the GitHub release.
+
 ## Runtime data
 
 Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` files),
@@ -115,3 +127,6 @@ Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` file
 - `tests/win/` repeats the key checks on real `.lnk` files in temp folders, on the Windows CI
   runner only.
 - pytest-qt drives the real window offscreen.
+- Other tests keep the edges honest: every theme loads from exactly the files the installer
+  ships, committed PNGs match their SVGs, docs links resolve, the theme guide's example
+  works, and the version matches everywhere.
