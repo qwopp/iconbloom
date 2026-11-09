@@ -14,17 +14,16 @@ from pathlib import Path
 from typing import override
 
 from PIL import Image, ImageDraw, ImageFont
-from PySide6.QtCore import QBuffer, QIODevice
+from PySide6.QtCore import QBuffer, QCoreApplication, QEvent, QIODevice
 from PySide6.QtWidgets import QApplication
 
 from app.choices import Choice
 from app.main import load_style
 from app.ui.main_window import MainWindow
-from app.ui.widgets import PreviewCard
 from app.updates import Release, Updater
 from engine import ops
 from engine.recipes import render
-from engine.themes import DEFAULT_THEME, load_theme
+from engine.themes import DEFAULT_THEME, Theme, list_themes, load_theme
 from tests.fakes import SAMPLES_DIR, FakeDesktop
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,17 +38,25 @@ APPS = {
     "Terminal": "dark",
     "Weather": "semi_transparent",
 }
-# One cohesive pick per app, as a person might choose in the picker.
+# One pick per app, as a person might choose in the picker, by position in the
+# theme's list. Every bundled theme orders its 20 styles in the same rhythm, so
+# the same position gives each theme's version of a look.
 PICKS = {
-    "Arcade": "sticker_face",
-    "Browser": "tile_bow",
-    "Camera": "bubble_cream",
-    "Files": "pastel_tint",
-    "Music": "gradient_white",
-    "Settings": "mono_rose",
-    "Terminal": "bubble_pink",
-    "Weather": "tint_sparkle",
+    "Arcade": 4,  # second recolor on a sticker
+    "Browser": 9,  # gingham tile + badge
+    "Camera": 6,  # polka-dot tile
+    "Files": 0,  # recolor
+    "Music": 1,  # gradient tile
+    "Settings": 2,  # mono on cream
+    "Terminal": 3,  # bubble tile
+    "Weather": 8,  # tint + glow + badge
 }
+# The picker GIF switches to this theme halfway through.
+SECOND_THEME = "lavender_dream"
+
+
+def pick(theme: Theme, app: str) -> str:
+    return theme.recipes[PICKS[app]].id
 
 
 class OfflineUpdater(Updater):
@@ -67,10 +74,17 @@ def _sample(app: str) -> Image.Image:
 
 def _grab(app: QApplication, window: MainWindow) -> Image.Image:
     # Let the selection delay fire and every background render land.
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline:
-        app.processEvents()
+    settled = time.monotonic() + 0.5
+    give_up = time.monotonic() + 20
+    while True:
         window.jobs.wait()
+        app.processEvents()
+        # processEvents() skips deleteLater(); without this, replaced cards stay on screen.
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        if time.monotonic() >= settled and not window.jobs.busy and _previews_ready(window):
+            break
+        if time.monotonic() > give_up:
+            raise TimeoutError("previews never finished rendering")
         time.sleep(0.02)
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -78,7 +92,14 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
     return Image.open(io.BytesIO(bytes(buffer.data().data()))).convert("RGB")
 
 
+def _previews_ready(window: MainWindow) -> bool:
+    theme = window.service.styles.theme(str(window.theme_box.currentData()))
+    return len(window.picker.cards) == len(theme.recipes)
+
+
 def picker_media(app: QApplication) -> None:
+    """picker.png, and picker.gif: pick, apply, switch theme, pick again, go dark."""
+    kawaii = load_theme(DEFAULT_THEME)
     with tempfile.TemporaryDirectory() as tmp:
         desktop = FakeDesktop(Path(tmp), icons=APPS)
         for name in APPS:
@@ -86,14 +107,15 @@ def picker_media(app: QApplication) -> None:
         service = desktop.service()
         for target in service.scan():
             if target.name in ("Camera", "Music"):
-                service.apply(target, Choice(DEFAULT_THEME, PICKS[target.name]))
+                service.apply(target, Choice(DEFAULT_THEME, pick(kawaii, target.name)))
         window = MainWindow(service, hard_refresh=lambda: None, updater=OfflineUpdater())
+        window.set_dark_mode(False, save=False)
         window.resize(1180, 760)
         window.show()
         frames = [_grab(app, window)]
 
         def click(card: int) -> None:
-            chosen = window.findChildren(PreviewCard)[card]
+            chosen = window.picker.cards[card]
             chosen.clicked.emit(chosen)
             frames.append(_grab(app, window))
 
@@ -101,8 +123,12 @@ def picker_media(app: QApplication) -> None:
         click(3)
         window.apply_chosen()
         frames.append(_grab(app, window))
+        window.theme_box.setCurrentIndex(window.theme_box.findData(SECOND_THEME))
+        frames.append(_grab(app, window))
         click(1)
         window.apply_chosen()
+        frames.append(_grab(app, window))
+        window.set_dark_mode(True, save=False)
         frames.append(_grab(app, window))
         frames[1].save(OUT / "picker.png", optimize=True)
         small = [
@@ -114,35 +140,44 @@ def picker_media(app: QApplication) -> None:
             OUT / "picker.gif",
             save_all=True,
             append_images=palette[1:],
-            duration=[1400, 1000, 1000, 1400, 1000, 1800],
+            duration=[1400, 1000, 1000, 1400, 1400, 1000, 1400, 2200],
             loop=0,
             optimize=True,
         )
+        window.set_dark_mode(False, save=False)
         window.close()
 
 
 def before_after() -> None:
-    theme = load_theme(DEFAULT_THEME)
-    size, gap, label_w = 64, 26, 90
+    """The sample icons as they come, then in every bundled theme."""
+    themes = [load_theme(t) for t in list_themes()]
+    themes.sort(key=lambda t: t.id != DEFAULT_THEME)
+    size, gap, label_w, row_h = 64, 26, 150, 104
     width = label_w + len(APPS) * (size + gap) + gap
-    sheet = Image.new("RGB", (width, 2 * (size + 40) + 20), (0, 0, 0))
+    sheet = Image.new("RGB", (width, (1 + len(themes)) * row_h + 20), (0, 0, 0))
     wallpaper = ops.linear_gradient(sheet.size, (92, 120, 168), (170, 140, 190), 20)
     sheet.paste(wallpaper)
     draw = ImageDraw.Draw(sheet)
     font = ImageFont.load_default(size=15)
-    for row, caption in enumerate(("Before", "After")):
-        y = 20 + row * (size + 40)
+    rows: list[tuple[str, Theme | None]] = [("Before", None), *((t.name, t) for t in themes)]
+    for row, (caption, theme) in enumerate(rows):
+        y = 20 + row * row_h
         draw.text((18, y + size // 2), caption, fill=(255, 255, 255), font=font, anchor="lm")
         for col, app in enumerate(APPS):
             icon, _ = ops.prepare(_sample(app))
-            if row == 1:
-                icon = render(theme.recipe(PICKS[app]), icon, theme)
+            if theme is not None:
+                icon = render(theme.recipe(pick(theme, app)), icon, theme)
             x = label_w + gap + col * (size + gap)
             small = icon.resize((size, size), Image.Resampling.LANCZOS)
             sheet.paste(small, (x, y), small)
-            draw.text(
-                (x + size // 2, y + size + 14), app, fill=(255, 255, 255), font=font, anchor="mm"
-            )
+            if row == 0:
+                draw.text(
+                    (x + size // 2, y + size + 14),
+                    app,
+                    fill=(255, 255, 255),
+                    font=font,
+                    anchor="mm",
+                )
     sheet.save(OUT / "before-after.png", optimize=True)
 
 
