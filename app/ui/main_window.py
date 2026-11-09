@@ -152,8 +152,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.reload_shortcuts)
         if self.settings.check_for_updates:
             QTimer.singleShot(0, self.check_for_updates)
-        elif not self.settings.asked_about_updates:
-            QTimer.singleShot(0, self._ask_about_updates)
 
     # ---- layout -------------------------------------------------------------
 
@@ -376,7 +374,7 @@ class MainWindow(QMainWindow):
         self.update_box = QCheckBox("Check for updates")
         self.update_box.setToolTip(
             "Ask GitHub for a newer version when Iconbloom starts. It's the only time "
-            "Iconbloom uses the internet, and nothing is installed unless you click Update."
+            "Iconbloom uses the internet, and nothing is installed unless you click Update now."
         )
         self.update_box.setChecked(self.settings.check_for_updates)
         self.update_box.toggled.connect(self._on_update_toggled)
@@ -1103,21 +1101,10 @@ class MainWindow(QMainWindow):
 
     def _on_update_toggled(self, enabled: bool) -> None:
         self.settings.check_for_updates = enabled
-        self.settings.asked_about_updates = True
+        self.settings.update_check_chosen = True
         self._guard(lambda: self.settings.save(self.service.paths.settings))
         if enabled:
             self.check_for_updates()
-
-    def _ask_about_updates(self) -> None:
-        """Once, on first launch: may Iconbloom check GitHub for new versions?"""
-        self.show_notice(
-            "Want Iconbloom to tell you when a new version is out? It asks GitHub when it "
-            "starts, and never installs anything unless you click Update.",
-            [
-                ("Yes, check", lambda: self.update_box.setChecked(True), "Check now and at start"),
-                ("No thanks", lambda: self._on_update_toggled(False), "You can turn it on later"),
-            ],
-        )
 
     def check_for_updates(self) -> None:
         job = self._start(lambda _report: self._updater.check())

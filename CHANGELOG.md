@@ -6,6 +6,13 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Update checks are on by default, with no first-run question. Iconbloom asks GitHub for
+  the latest version when it opens, and still installs nothing unless you click
+  **Update now**. Anyone who already said no keeps it off; untick **Check for updates** to
+  turn it off.
+
 ## [0.3.0] - 2026-11-09
 
 ### Added

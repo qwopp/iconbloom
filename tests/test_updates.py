@@ -138,20 +138,38 @@ def test_launch_starts_installer_silently(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert started == [[str(tmp_path / "Setup.exe"), *updates.INSTALLER_ARGS]]
 
 
-def test_settings_default_off_and_round_trip(tmp_path: Path) -> None:
+def test_update_checks_default_on(tmp_path: Path) -> None:
+    assert Settings.load(tmp_path / "settings.json").check_for_updates
+
+
+def test_switching_off_is_remembered(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
-    loaded = Settings.load(path)
-    assert not loaded.check_for_updates
-    assert not loaded.asked_about_updates
-    Settings(check_for_updates=True, asked_about_updates=True).save(path)
-    assert Settings.load(path).check_for_updates
+    Settings(check_for_updates=False, update_check_chosen=True).save(path)
+    assert not Settings.load(path).check_for_updates
+
+
+@pytest.mark.parametrize(
+    ("saved", "checks"),
+    [
+        # 0.2/0.3 saved "off" before the user answered; that was never a choice.
+        ('{"check_for_updates": false, "asked_about_updates": false}', True),
+        ('{"check_for_updates": false, "shared_shortcuts": "include"}', True),
+        # They answered "No thanks" (or unticked the box): keep it off.
+        ('{"check_for_updates": false, "asked_about_updates": true}', False),
+        ('{"check_for_updates": true, "asked_about_updates": true}', True),
+    ],
+)
+def test_settings_from_earlier_versions(tmp_path: Path, saved: str, checks: bool) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(saved, encoding="utf-8")
+    assert Settings.load(path).check_for_updates is checks
 
 
 def test_settings_ignore_junk(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
-    path.write_text('{"check_for_updates": true, "mystery": 1}', encoding="utf-8")
-    assert Settings.load(path).check_for_updates
+    path.write_text('{"shared_shortcuts": "skip", "mystery": 1}', encoding="utf-8")
+    assert Settings.load(path).shared_shortcuts == "skip"
     path.write_text("not json", encoding="utf-8")
-    assert not Settings.load(path).check_for_updates
+    assert Settings.load(path) == Settings()
     path.write_text("[1, 2]", encoding="utf-8")
-    assert not Settings.load(path).check_for_updates
+    assert Settings.load(path) == Settings()

@@ -1,4 +1,4 @@
-"""User preferences stored in settings.json. Everything defaults to off."""
+"""User preferences stored in settings.json."""
 
 import json
 import logging
@@ -12,10 +12,11 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Settings:
-    # Opt-in: checking for updates is the only network request Iconbloom makes.
-    check_for_updates: bool = False
-    # Whether the user has answered the one-time "check for updates?" question.
-    asked_about_updates: bool = False
+    # Asks GitHub for the latest version number at start; the only network request
+    # Iconbloom makes. Nothing is downloaded unless the user clicks Update now.
+    check_for_updates: bool = True
+    # True once the user has switched the check on or off themselves.
+    update_check_chosen: bool = False
     # Shortcuts every user shares need a permission prompt: "ask", "include" or "skip".
     shared_shortcuts: str = "ask"
 
@@ -28,8 +29,15 @@ class Settings:
         except (OSError, ValueError) as exc:
             log.warning("ignoring unreadable %s: %s", path, exc)
             return cls()
+        if not isinstance(raw, dict):
+            return cls()
         known = {f.name for f in fields(cls)}
-        values = {k: v for k, v in raw.items() if k in known} if isinstance(raw, dict) else {}
+        values = {k: v for k, v in raw.items() if k in known}
+        # 0.2/0.3 asked first and saved "off" until answered; only an answer counts as a choice.
+        if raw.get("asked_about_updates") is True:
+            values.setdefault("update_check_chosen", True)
+        if not values.get("update_check_chosen"):
+            values["check_for_updates"] = True
         return cls(**values)
 
     def save(self, path: Path) -> None:

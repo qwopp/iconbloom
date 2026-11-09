@@ -19,7 +19,6 @@ from PySide6.QtWidgets import QApplication
 
 from app.choices import Choice
 from app.main import load_style
-from app.settings import Settings
 from app.ui.main_window import MainWindow
 from app.ui.widgets import PreviewCard
 from app.updates import Release, Updater
@@ -85,7 +84,6 @@ def picker_media(app: QApplication) -> None:
         for name in APPS:
             desktop.make(name)
         service = desktop.service()
-        Settings(asked_about_updates=True).save(desktop.paths.settings)
         for target in service.scan():
             if target.name in ("Camera", "Music"):
                 service.apply(target, Choice(DEFAULT_THEME, PICKS[target.name]))
