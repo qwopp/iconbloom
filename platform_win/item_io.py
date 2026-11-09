@@ -14,7 +14,8 @@ Every kind implements ``shortcuts.ItemIO``:
 import base64
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -52,21 +53,24 @@ class ShellLinkIO(FileStateIO):
     """.lnk shortcuts, through the Windows shell's own IShellLink implementation."""
 
     def read(self, path: Path) -> LinkInfo:
-        link, persist = _new_link()
-        persist.Load(str(path), _STGM_READ)
-        target, _ = link.GetPath(0, _MAX_PATH)
-        icon_path, icon_index = link.GetIconLocation(_MAX_PATH)
+        with _shell_errors_as_os_errors(path):
+            link, persist = _new_link()
+            persist.Load(str(path), _STGM_READ)
+            target, _ = link.GetPath(0, _MAX_PATH)
+            icon_path, icon_index = link.GetIconLocation(_MAX_PATH)
+            arguments = link.GetArguments(_MAX_PATH)
         return LinkInfo(
             target=str(target),
-            arguments=str(link.GetArguments(_MAX_PATH)),
+            arguments=str(arguments),
             icon=IconLocation(str(icon_path), int(icon_index)),
         )
 
     def set_icon(self, path: Path, icon: IconLocation) -> None:
-        link, persist = _new_link()
-        persist.Load(str(path), _STGM_READWRITE)
-        link.SetIconLocation(icon.path, icon.index)
-        persist.Save(str(path), True)
+        with _shell_errors_as_os_errors(path):
+            link, persist = _new_link()
+            persist.Load(str(path), _STGM_READWRITE)
+            link.SetIconLocation(icon.path, icon.index)
+            persist.Save(str(path), True)
 
     def create(self, path: Path, target: str, icon: IconLocation | None = None) -> None:
         """Make a new shortcut. Used by tests to build real .lnk fixtures."""
@@ -299,6 +303,18 @@ def ensure_com() -> None:
         if not exc.args or exc.args[0] != _RPC_E_CHANGED_MODE:
             raise
     _com_ready.done = True
+
+
+@contextmanager
+def _shell_errors_as_os_errors(path: Path) -> Iterator[None]:
+    """A corrupt, locked or half-synced .lnk makes the shell raise com_error. It means
+    the same as any unreadable file, so callers handle it the same way: as OSError."""
+    import pythoncom
+
+    try:
+        yield
+    except pythoncom.com_error as exc:
+        raise OSError(f"Windows couldn't use the shortcut {path} ({exc})") from exc
 
 
 def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":
