@@ -2,10 +2,11 @@
 
 The normal app writes a request file and starts a copy of itself with
 administrator rights (Windows asks the user first). That copy runs
-``handle_request``, which trusts nothing in the request: it only touches .lnk
+``handle_request``, which trusts nothing in the request: it only touches shortcut
 files inside the shared shortcut folders, only changes their icon field,
 and only points them at icons in Iconbloom's own folder or back at their
 recorded original. So a tampered request can't be used to write anywhere else.
+(Folders and Windows' own icons are per-user and never need this helper.)
 """
 
 import json
@@ -26,6 +27,8 @@ type Action = Literal["apply", "revert"]
 REQUEST_FILE = "elevated-request.json"
 RESULT_FILE = "elevated-result.json"
 ELEVATED_FLAG = "--elevated"
+# The only things in shared folders the helper will ever change.
+SHORTCUT_SUFFIXES = frozenset({".lnk", ".url"})
 
 
 @dataclass
@@ -138,7 +141,7 @@ def _check(
 ) -> str | None:
     if action not in ("apply", "revert"):
         return "unknown action"
-    if shortcut.suffix.casefold() != ".lnk" or not is_inside(shortcut, shared):
+    if shortcut.suffix.casefold() not in SHORTCUT_SUFFIXES or not is_inside(shortcut, shared):
         return "not a shortcut in a shared folder"
     if not shortcut.is_file():
         return "shortcut not found"

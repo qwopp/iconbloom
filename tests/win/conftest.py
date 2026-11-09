@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from platform_win.shortcuts import ShellLinkIO
+from platform_win.item_io import ShellLinkIO
 
 SYSTEM32 = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32"
 NOTEPAD = SYSTEM32 / "notepad.exe"

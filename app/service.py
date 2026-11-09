@@ -10,6 +10,7 @@ same order, so a crash at any step leaves a recoverable state:
 """
 
 import hashlib
+import io
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -25,23 +26,26 @@ from engine import ops
 from engine.ico import build_ico
 from engine.recipes import render
 from engine.themes import THEMES_DIR, Theme, list_themes, load_theme, theme_name
-from platform_win.backup import BackupManifest, file_sha256
+from platform_win.backup import BackupManifest, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
-from platform_win.extract import ExtractedIcon, extract_icon, read_icon_file
+from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
 from platform_win.fileio import atomic_write
+from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import notify_icons_changed
+from platform_win.shell_icons import WINDOWS_ICONS
 from platform_win.shortcuts import (
     SHARED_SOURCES,
     IconLocation,
-    LinkIO,
+    ItemIO,
     ScanRoot,
-    ShellLinkIO,
     Shortcut,
     ShortcutGroup,
+    WindowsIcon,
     default_roots,
     normalize_path,
     scan,
+    variant_path,
 )
 
 log = logging.getLogger(__name__)
@@ -94,17 +98,19 @@ class IconService:
     def __init__(
         self,
         paths: AppPaths,
-        link_io: LinkIO,
+        io: ItemIO,
         roots: Sequence[ScanRoot],
         *,
+        windows_icons: Sequence[WindowsIcon] = (),
         extractor: Extractor = extract_icon,
         notify: Callable[[Sequence[Path]], None] = lambda _paths: None,
         themes_dir: Path = THEMES_DIR,
         elevator: Elevator | None = None,
     ) -> None:
         self.paths = paths.ensure()
-        self._link_io = link_io
+        self._io = io
         self._roots = roots
+        self._windows_icons = windows_icons
         self._extract = extractor
         self._notify = notify
         self._themes_dir = themes_dir
@@ -117,7 +123,7 @@ class IconService:
         self.choices = ChoiceStore(paths.choices)
 
     def scan(self) -> list[ShortcutGroup]:
-        return scan(self._roots, self._link_io)
+        return scan(self._roots, self._io, self._windows_icons)
 
     def theme_names(self) -> list[tuple[str, str]]:
         """(id, display name) of every installed theme, without loading them."""
@@ -132,9 +138,9 @@ class IconService:
     def reload(self, target: ShortcutGroup) -> ShortcutGroup:
         """Re-read a group's shortcuts after they changed."""
         fresh = tuple(
-            Shortcut(s.path, s.source, self._link_io.read(s.path))
+            Shortcut(s.path, s.source, self._io.read(s.path), s.label)
             for s in target.shortcuts
-            if s.path.exists()
+            if self._io.exists(s.path)
         )
         return ShortcutGroup(target.key, fresh or target.shortcuts)
 
@@ -142,11 +148,16 @@ class IconService:
         return bool(icon.path) and normalize_path(icon.path).startswith(self._icons_prefix)
 
     def status(self, target: ShortcutGroup) -> Status:
+        chosen = self.choices.get(target.key) is not None
         if any(self.is_ours(s.info.icon) for s in target.shortcuts):
+            # Some of the group lost the style (an update recreated one shortcut, say).
+            own = target.own_shortcuts
+            if chosen and not all(self.is_ours(s.info.icon) for s in own):
+                return Status.NEEDS_REAPPLY
             return Status.THEMED
         if self.choices.is_skipped(target.key):
             return Status.SKIPPED
-        if self.choices.get(target.key) is not None:
+        if chosen:
             return Status.NEEDS_REAPPLY
         return Status.ORIGINAL
 
@@ -155,14 +166,23 @@ class IconService:
         return self.status(target) is Status.ORIGINAL
 
     def original_icon(self, target: ShortcutGroup) -> ExtractedIcon:
-        """The app's own icon, even when the shortcut currently shows a themed one."""
+        """The item's own icon, even when it currently shows a styled one.
+
+        While styled, Windows would hand back our icon, so the original comes
+        from the picture saved at apply time, or failing that from the
+        recorded icon location.
+        """
         primary = target.primary
         icon = primary.info.icon
-        themed = self.is_ours(icon)
-        if themed:
-            entry = self.manifest.get(primary.path)
-            icon = entry.original_icon if entry is not None else IconLocation()
-        return self._extract(icon, primary.info.target, primary.path, use_shell=not themed)
+        if not self.is_ours(icon):
+            return self._extract(icon, primary.info.target, primary.path)
+        saved = self._saved_original_path(target)
+        if saved.is_file():
+            with Image.open(saved) as img:
+                return ExtractedIcon(img.convert("RGBA"), upscaled=False, source="saved original")
+        entry = self.manifest.get(primary.path)
+        icon = entry.original_icon if entry is not None else IconLocation()
+        return self._extract(icon, primary.info.target, primary.path, use_shell=False)
 
     def current_icon(self, target: ShortcutGroup) -> Image.Image:
         """What the shortcut shows right now: our .ico when themed, else the original."""
@@ -302,7 +322,7 @@ class IconService:
         for path in paths:
             if self.manifest.get(path) is None:
                 continue
-            if self.is_shared(path) and path.exists():
+            if self.is_shared(path) and self._io.exists(path):
                 shared.append(ElevatedItem(path))
             elif self._revert_one(path, dry_run=dry_run):
                 report.changed.append(path)
@@ -382,7 +402,9 @@ class IconService:
             normalize_path(e.applied_icon) for e in self.manifest if e.applied_icon is not None
         }
         for path in sorted(self.paths.icons.glob("*.ico")):
-            if normalize_path(str(path)) not in in_use:
+            # A variant ("x.full.ico") is in use when its main icon ("x.ico") is.
+            main = path.with_name(path.name.split(".", 1)[0] + path.suffix)
+            if normalize_path(str(main)) not in in_use:
                 report.removed.append(path)
                 if not dry_run:
                     path.unlink(missing_ok=True)
@@ -421,7 +443,7 @@ class IconService:
         return Choice.custom(name)
 
     def _apply_one(self, path: Path, icon_file: Path, *, dry_run: bool) -> None:
-        current = self._link_io.read(path)
+        current = self._io.read(path)
         entry = self.manifest.get(path)
         ours = self.is_ours(current.icon)
         if entry is None and ours:
@@ -430,25 +452,52 @@ class IconService:
             )
         if dry_run:
             return
+        state = self._io.snapshot(path)
         if entry is None:
-            self.manifest.record_original(path, current.icon)
-        elif not ours and file_sha256(path) not in (entry.original_sha256, entry.applied_sha256):
+            self.manifest.record_original(path, current.icon, state)
+        elif not ours and state_hash(state) not in (entry.original_sha256, entry.applied_sha256):
             # Rewritten by something else (an app update): that is the new original.
-            self.manifest.rerecord_original(path, current.icon)
-        self._link_io.set_icon(path, IconLocation(str(icon_file), 0))
-        self.manifest.mark_applied(path, icon_file)
+            self.manifest.rerecord_original(path, current.icon, state)
+        self._io.set_icon(path, IconLocation(str(icon_file), 0))
+        self.manifest.mark_applied(path, icon_file, self._io.snapshot(path))
 
     def _themed_icon(
         self, target: ShortcutGroup, choice: Choice, prepared: Image.Image | None, *, dry_run: bool
     ) -> Path:
-        """Render ``choice`` for a group and write its .ico; returns the file."""
-        if prepared is None and not choice.is_custom:
+        """Render ``choice`` for a group and write its .ico (and any variants); returns the file."""
+        if not choice.is_custom and prepared is None:
             prepared, _ = ops.prepare(self.original_icon(target).image)
         full, simple = self.render_choice(choice, prepared)
         icon_file = self.paths.icons / f"{target.slug}_{choice.file_tag}.ico"
-        if not dry_run:
-            atomic_write(icon_file, build_ico(full, simple))
+        if dry_run:
+            return icon_file
+        if self.status(target) is not Status.THEMED:
+            self._save_original(target, prepared)
+        atomic_write(icon_file, build_ico(full, simple))
+        primary = target.primary.path
+        for name, location in self._io.variants(primary).items():
+            source = None
+            if not choice.is_custom:
+                extracted = self._extract(location, "", primary, use_shell=False)
+                source, _ = ops.prepare(extracted.image)
+            variant_full, variant_simple = self.render_choice(choice, source)
+            atomic_write(variant_path(icon_file, name), build_ico(variant_full, variant_simple))
         return icon_file
+
+    def _save_original(self, target: ShortcutGroup, prepared: Image.Image | None) -> None:
+        """Keep a picture of the item's own icon, since Windows reports ours once it's styled."""
+        if prepared is None:
+            try:
+                prepared, _ = ops.prepare(self.original_icon(target).image)
+            except (ExtractionError, OSError, ValueError):
+                log.warning("could not save the original icon of %s", target.name)
+                return
+        buffer = io.BytesIO()
+        prepared.save(buffer, format="PNG")
+        atomic_write(self._saved_original_path(target), buffer.getvalue())
+
+    def _saved_original_path(self, target: ShortcutGroup) -> Path:
+        return self.paths.original_icons / f"{target.slug}.png"
 
     def _revert_one(self, path: Path, *, dry_run: bool, whole_file: bool = True) -> bool:
         entry = self.manifest.get(path)
@@ -456,17 +505,15 @@ class IconService:
             return False
         if dry_run:
             return True
-        if path.exists():
-            current_sha = file_sha256(path)
-            original = self.manifest.original_bytes(entry)
-            if whole_file and current_sha == entry.applied_sha256 and original is not None:
-                # Nothing else touched the shortcut since we did: restore it byte for byte.
-                atomic_write(path, original)
-            elif current_sha != entry.original_sha256 and self.is_ours(
-                self._link_io.read(path).icon
-            ):
-                # Changed since, but still showing our icon: restore just the icon field.
-                self._link_io.set_icon(path, entry.original_icon)
+        if self._io.exists(path):
+            current = state_hash(self._io.snapshot(path))
+            original = self.manifest.original_state(entry)
+            if whole_file and current == entry.applied_sha256 and original is not None:
+                # Nothing else touched the item since we did: restore it exactly.
+                self._io.restore(path, original.data)
+            elif current != entry.original_sha256 and self.is_ours(self._io.read(path).icon):
+                # Changed since, but still showing our icon: restore just the icon.
+                self._io.set_icon(path, entry.original_icon)
         self.manifest.forget(path)
         return True
 
@@ -476,8 +523,9 @@ def windows_service(paths: AppPaths | None = None) -> IconService:
     paths = paths or default_app_paths()
     return IconService(
         paths,
-        ShellLinkIO(),
+        windows_item_io(),
         default_roots(),
+        windows_icons=WINDOWS_ICONS,
         notify=notify_icons_changed,
         elevator=WindowsElevator(paths),
     )

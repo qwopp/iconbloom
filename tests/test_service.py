@@ -99,7 +99,7 @@ def test_crash_after_shortcut_saved_still_reverts(
     lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
 
-    def crash(path: Path, icon_file: Path) -> None:
+    def crash(path: Path, icon_file: Path, state: bytes | None) -> None:
         raise OSError("simulated crash before the hash was noted")
 
     monkeypatch.setattr(service.manifest, "mark_applied", crash)
@@ -270,13 +270,25 @@ def test_skip_and_status(env: FakeDesktop) -> None:
     assert service.status(target) is Status.SKIPPED
 
 
-def test_original_icon_of_themed_shortcut_comes_from_backup(env: FakeDesktop) -> None:
+def test_original_icon_of_styled_item_is_the_saved_picture(env: FakeDesktop) -> None:
     env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
     service.apply(_group(service, "Paint"), CHOICE)
     themed = _group(service, "Paint")
-    assert service.original_icon(themed).source == r"C:\Apps\paint.ico"
+    original = service.original_icon(themed)
+    assert original.source == "saved original"
+    assert original.image.size == (256, 256)
     assert service.reload(themed).primary.info.icon.path.endswith(".ico")
+
+
+def test_without_a_saved_picture_the_backup_location_is_used(env: FakeDesktop) -> None:
+    env.make("Paint", icon=r"C:\Apps\paint.ico")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    for saved in env.paths.original_icons.iterdir():
+        saved.unlink()
+    original = service.original_icon(_group(service, "Paint"))
+    assert original.source == r"C:\Apps\paint.ico"  # no "(shell allowed)": Windows would show ours
 
 
 def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:

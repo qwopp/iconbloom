@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from platform_win.backup import BackupCorruptError, BackupManifest, file_sha256
+from platform_win.backup import ABSENT, BackupCorruptError, BackupManifest, SavedState, state_hash
 from platform_win.shortcuts import IconLocation
 
 ORIGINAL = IconLocation(r"C:\Apps\app.exe", 2)
@@ -27,75 +27,106 @@ def test_new_manifest_is_empty(tmp_path: Path) -> None:
 
 
 def test_record_saves_copy_and_survives_reload(tmp_path: Path, lnk: Path) -> None:
-    entry = _manifest(tmp_path).record_original(lnk, ORIGINAL)
+    entry = _manifest(tmp_path).record_original(lnk, ORIGINAL, lnk.read_bytes())
     reloaded = _manifest(tmp_path)
     assert reloaded.get(lnk) == entry
     assert entry.original_icon == ORIGINAL
-    assert reloaded.original_bytes(entry) == b"original link bytes"
+    assert reloaded.original_state(entry) == SavedState(b"original link bytes")
 
 
 def test_record_never_overwrites_existing_original(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    first = manifest.record_original(lnk, ORIGINAL)
+    first = manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
     lnk.write_bytes(b"themed bytes")
-    second = manifest.record_original(lnk, IconLocation(r"C:\themed.ico", 0))
+    second = manifest.record_original(lnk, IconLocation(r"C:\themed.ico", 0), lnk.read_bytes())
     assert second == first
-    assert manifest.original_bytes(second) == b"original link bytes"
+    assert manifest.original_state(second) == SavedState(b"original link bytes")
 
 
 def test_keys_ignore_case_and_slashes(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    manifest.record_original(lnk, ORIGINAL)
+    manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
     assert manifest.get(Path(str(lnk).upper().replace("/", "\\"))) is not None
 
 
 def test_mark_applied_records_hash(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    manifest.record_original(lnk, ORIGINAL)
+    manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
     lnk.write_bytes(b"themed bytes")
-    entry = manifest.mark_applied(lnk, tmp_path / "pink.ico")
-    assert entry.applied_sha256 == file_sha256(lnk)
+    entry = manifest.mark_applied(lnk, tmp_path / "pink.ico", lnk.read_bytes())
+    assert entry.applied_sha256 == state_hash(lnk.read_bytes())
     assert entry.applied_icon == str(tmp_path / "pink.ico")
 
 
 def test_mark_applied_needs_a_recorded_original(tmp_path: Path, lnk: Path) -> None:
     with pytest.raises(KeyError, match="no backup"):
-        _manifest(tmp_path).mark_applied(lnk, tmp_path / "pink.ico")
+        _manifest(tmp_path).mark_applied(lnk, tmp_path / "pink.ico", None)
 
 
 def test_rerecord_replaces_original_and_its_copy(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    old = manifest.record_original(lnk, ORIGINAL)
+    old = manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
     lnk.write_bytes(b"reinstalled by updater")
-    new = manifest.rerecord_original(lnk, IconLocation(r"C:\Apps\v2.exe", 0))
-    assert manifest.original_bytes(new) == b"reinstalled by updater"
+    new = manifest.rerecord_original(lnk, IconLocation(r"C:\Apps\v2.exe", 0), lnk.read_bytes())
+    assert manifest.original_state(new) == SavedState(b"reinstalled by updater")
+    assert old.original_copy is not None
     assert not (tmp_path / "data" / "originals" / old.original_copy).exists()
 
 
 def test_forget_removes_entry_and_copy(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    entry = manifest.record_original(lnk, ORIGINAL)
+    entry = manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
     manifest.forget(lnk)
     manifest.forget(lnk)  # forgetting twice is harmless
     assert _manifest(tmp_path).get(lnk) is None
+    assert entry.original_copy is not None
     assert not (tmp_path / "data" / "originals" / entry.original_copy).exists()
 
 
 def test_tampered_copy_is_not_trusted(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    entry = manifest.record_original(lnk, ORIGINAL)
+    entry = manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
+    assert entry.original_copy is not None
     (tmp_path / "data" / "originals" / entry.original_copy).write_bytes(b"something else")
-    assert manifest.original_bytes(entry) is None
+    assert manifest.original_state(entry) is None
     (tmp_path / "data" / "originals" / entry.original_copy).unlink()
-    assert manifest.original_bytes(entry) is None
+    assert manifest.original_state(entry) is None
 
 
 def test_previous_generation_is_kept(tmp_path: Path, lnk: Path) -> None:
     manifest = _manifest(tmp_path)
-    manifest.record_original(lnk, ORIGINAL)
-    manifest.mark_applied(lnk, tmp_path / "pink.ico")
+    manifest.record_original(lnk, ORIGINAL, lnk.read_bytes())
+    manifest.mark_applied(lnk, tmp_path / "pink.ico", lnk.read_bytes())
     prev = json.loads((tmp_path / "data" / "backup.json.prev").read_text(encoding="utf-8"))
     assert prev["entries"][0]["applied_sha256"] is None
+
+
+def test_absent_original_is_a_real_state(tmp_path: Path) -> None:
+    folder = tmp_path / "Games"
+    manifest = _manifest(tmp_path)
+    entry = manifest.record_original(folder, IconLocation(), None)
+    assert entry.original_copy is None
+    assert entry.original_sha256 == ABSENT
+    assert _manifest(tmp_path).original_state(entry) == SavedState(None)
+    manifest.forget(folder)
+    assert len(_manifest(tmp_path)) == 0
+
+
+def test_manifests_from_earlier_versions_still_load(tmp_path: Path) -> None:
+    path = tmp_path / "data" / "backup.json"
+    path.parent.mkdir()
+    entry = {
+        "shortcut": "C:/Users/x/Desktop/App.lnk",
+        "original_icon_path": "",
+        "original_icon_index": 0,
+        "original_sha256": "ab" * 32,
+        "original_copy": "abc_def.lnk",
+        "recorded_at": "2026-11-09T00:00:00+00:00",
+        "applied_sha256": None,
+        "applied_icon": None,
+    }
+    path.write_text(json.dumps({"version": 1, "entries": [entry]}), encoding="utf-8")
+    assert len(_manifest(tmp_path)) == 1
 
 
 @pytest.mark.parametrize(

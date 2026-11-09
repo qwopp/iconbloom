@@ -1,8 +1,9 @@
-"""Stand-ins for Windows pieces, so shortcut logic is testable on any OS."""
+"""Stand-ins for Windows pieces, so every kind of item is testable on any OS."""
 
 import json
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path, PureWindowsPath
+from types import MappingProxyType
 
 from PIL import Image
 
@@ -10,13 +11,15 @@ from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request
 from app.service import IconService
 from platform_win.elevate import ElevationDeclinedError
 from platform_win.extract import SHARP_MIN, ExtractedIcon
+from platform_win.item_io import FileStateIO, FolderIO, ItemRouter, UrlFileIO
 from platform_win.paths import AppPaths
+from platform_win.shell_icons import RECYCLE_BIN, WINDOWS_ICONS, RegValue, WindowsIconIO
 from platform_win.shortcuts import IconLocation, LinkInfo, ScanRoot, Source
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 
 
-class FakeLinkIO:
+class FakeLinkIO(FileStateIO):
     """Shortcuts stored as small JSON files with a .lnk name.
 
     Writing rewrites the whole file like IShellLink does, so byte-level
@@ -42,6 +45,56 @@ class FakeLinkIO:
         path.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
 
 
+class FakeAttributes:
+    """File attributes kept in memory; every existing path starts with none set."""
+
+    def __init__(self) -> None:
+        self.values: dict[Path, int] = {}
+
+    def get(self, path: Path) -> int | None:
+        return self.values.get(path, 0) if path.exists() else None
+
+    def set(self, path: Path, value: int) -> None:
+        self.values[path] = value
+
+
+class FakeRegistry:
+    """The user's Explorer CLSID key as a dict of {key: {value name: value}}."""
+
+    # What Windows itself ships for the Recycle Bin, by value name.
+    SYSTEM: Mapping[str, str] = MappingProxyType(
+        {
+            "": r"%SystemRoot%\System32\imageres.dll,-55",
+            "empty": r"%SystemRoot%\System32\imageres.dll,-55",
+            "full": r"%SystemRoot%\System32\imageres.dll,-54",
+        }
+    )
+
+    def __init__(self) -> None:
+        self.keys: dict[str, dict[str, RegValue]] = {}
+
+    def read_values(self, key: str, names: Sequence[str]) -> dict[str, RegValue | None]:
+        values = self.keys.get(key, {})
+        return {name: values.get(name) for name in names}
+
+    def key_exists(self, key: str) -> bool:
+        return any(k == key or k.startswith(key + "\\") for k in self.keys)
+
+    def write_value(self, key: str, name: str, value: RegValue) -> None:
+        self.keys.setdefault(key, {})[name] = value
+
+    def delete_value(self, key: str, name: str) -> None:
+        self.keys.get(key, {}).pop(name, None)
+
+    def delete_key_if_empty(self, key: str) -> None:
+        has_subkeys = any(k.startswith(key + "\\") for k in self.keys)
+        if key in self.keys and not self.keys[key] and not has_subkeys:
+            del self.keys[key]
+
+    def system_default(self, clsid: str, name: str) -> str | None:
+        return self.SYSTEM.get(name) if clsid == RECYCLE_BIN.clsid else None
+
+
 class FakeDesktop:
     """A temp-folder stand-in for the user's shortcut folders, wired to an IconService.
 
@@ -55,6 +108,7 @@ class FakeDesktop:
         icons: Mapping[str, str] | None = None,
         default: str = "multicolor",
         unreadable: Collection[str] = (),
+        windows_icons: bool = False,
     ) -> None:
         self.desktop = root / "Desktop"
         self.common = root / "Common"
@@ -62,10 +116,19 @@ class FakeDesktop:
         self.common.mkdir()
         self.paths = AppPaths(root / "Iconbloom")
         self.link_io = FakeLinkIO()
+        self.attributes = FakeAttributes()
+        self.registry = FakeRegistry()
+        self.io = ItemRouter(
+            shortcut=self.link_io,
+            web_shortcut=UrlFileIO(),
+            folder=FolderIO(self.attributes),
+            windows_icon=WindowsIconIO(self.registry),
+        )
+        self.windows_icons = WINDOWS_ICONS if windows_icons else ()
         self.notified = 0
         self.refreshed: list[Path] = []
         self.roots = [
-            ScanRoot(self.desktop, Source.DESKTOP, recursive=False),
+            ScanRoot(self.desktop, Source.DESKTOP, recursive=False, folders=True),
             ScanRoot(self.common, Source.ALL_USERS_START_MENU, recursive=True),
         ]
         # Plays Windows' permission prompt: True = the user says No.
@@ -80,11 +143,35 @@ class FakeDesktop:
         self.link_io.create(path, rf"C:\Apps\{name}.exe", IconLocation(icon, 1 if icon else 0))
         return path
 
+    def make_url(
+        self, name: str, url: str, icon_file: str = "", folder: Path | None = None
+    ) -> Path:
+        """A .url shortcut laid out the way Steam writes them."""
+        path = (folder or self.desktop) / f"{name}.url"
+        lines = [
+            "[{000214A0-0000-0000-C000-000000000046}]",
+            "Prop3=19,0",
+            "[InternetShortcut]",
+            "IDList=",
+            "IconIndex=0",
+            f"URL={url}",
+        ]
+        if icon_file:
+            lines.append(f"IconFile={icon_file}")
+        path.write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
+        return path
+
+    def make_folder(self, name: str) -> Path:
+        path = self.desktop / name
+        path.mkdir()
+        return path
+
     def service(self) -> IconService:
         return IconService(
             self.paths,
-            self.link_io,
+            self.io,
             self.roots,
+            windows_icons=self.windows_icons,
             extractor=self.extract,
             notify=self._notify,
             elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
@@ -97,7 +184,7 @@ class FakeDesktop:
             raise ElevationDeclinedError
         flag, request = arguments
         assert flag == ELEVATED_FLAG
-        admin = IconService(self.paths, self.link_io, roots=[])
+        admin = IconService(self.paths, self.io, roots=[])
         return handle_request(Path(request), admin, [self.common])
 
     def extract(

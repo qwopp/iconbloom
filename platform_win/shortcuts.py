@@ -1,26 +1,25 @@
-"""Find .lnk shortcuts and read or change the icon they point at.
+"""What Iconbloom can restyle, where it finds it, and which items belong together.
 
-Only one field of a shortcut is ever written: its icon location. Targets,
-arguments and everything else are left exactly as they are.
+"Shortcut" covers everything with a changeable icon: .lnk and .url shortcut
+files, folders on the desktop, and Windows' own desktop icons such as the
+Recycle Bin. How each kind is read and changed lives in ``item_io``; only the
+icon is ever changed, never what an item opens.
 """
 
 import hashlib
 import ntpath
 import os
 import re
-import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
-
-if TYPE_CHECKING:
-    from _win32typing import PyIPersistFile, PyIShellLink
+from typing import Protocol
 
 
 class Source(StrEnum):
     DESKTOP = "Desktop"
+    WINDOWS = "Windows icons"
     PUBLIC_DESKTOP = "Public desktop"
     TASKBAR = "Taskbar"
     START_MENU = "Start menu"
@@ -35,8 +34,31 @@ class Place(StrEnum):
     START_MENU = "Start menu"
 
 
+class ItemKind(StrEnum):
+    SHORTCUT = "Shortcut"
+    WEB_SHORTCUT = "Web or game shortcut"
+    FOLDER = "Folder"
+    WINDOWS_ICON = "Windows icon"
+
+
+# Windows' own name for a shell object such as the Recycle Bin: "::{CLSID}".
+WINDOWS_ICON_PREFIX = "::{"
+
+
+def kind_of(path: Path) -> ItemKind:
+    if str(path).startswith(WINDOWS_ICON_PREFIX):
+        return ItemKind.WINDOWS_ICON
+    suffix = path.suffix.casefold()
+    if suffix == ".lnk" and not path.is_dir():
+        return ItemKind.SHORTCUT
+    if suffix == ".url" and not path.is_dir():
+        return ItemKind.WEB_SHORTCUT
+    return ItemKind.FOLDER
+
+
 _PLACES = {
     Source.DESKTOP: Place.DESKTOP,
+    Source.WINDOWS: Place.DESKTOP,
     Source.PUBLIC_DESKTOP: Place.DESKTOP,
     Source.TASKBAR: Place.TASKBAR,
     Source.START_MENU: Place.START_MENU,
@@ -54,7 +76,7 @@ _SOURCE_ORDER = list(Source)
 
 @dataclass(frozen=True)
 class IconLocation:
-    """Where a shortcut's icon comes from. Empty path means "use the target's icon"."""
+    """Where an item's icon comes from. Empty path means the item's default icon."""
 
     path: str = ""
     index: int = 0
@@ -72,10 +94,18 @@ class Shortcut:
     path: Path
     source: Source
     info: LinkInfo
+    # Display name for items whose path doesn't make one, like the Recycle Bin.
+    label: str = ""
+
+    @property
+    def kind(self) -> ItemKind:
+        return kind_of(self.path)
 
     @property
     def name(self) -> str:
-        return self.path.stem
+        if self.label:
+            return self.label
+        return self.path.name if self.kind is ItemKind.FOLDER else self.path.stem
 
     @property
     def place(self) -> Place:
@@ -133,83 +163,47 @@ class ScanRoot:
     path: Path
     source: Source
     recursive: bool
+    # Also list the folders directly inside (only the desktop does).
+    folders: bool = False
 
 
-class LinkIO(Protocol):
-    """Reads and writes shortcut files. The Windows version wraps IShellLink."""
+@dataclass(frozen=True)
+class WindowsIcon:
+    """One of Windows' own desktop icons, identified by its shell CLSID."""
+
+    clsid: str
+    name: str
+
+    @property
+    def path(self) -> Path:
+        return Path(f"::{self.clsid}")
+
+
+class ItemIO(Protocol):
+    """Reads and changes one kind of item's icon, and saves or restores its full state.
+
+    The state is whatever decides the icon (a shortcut file's bytes, a folder's
+    desktop.ini, a few registry values), so a backup of it can undo a change exactly.
+    """
+
+    def exists(self, path: Path) -> bool: ...
 
     def read(self, path: Path) -> LinkInfo: ...
 
     def set_icon(self, path: Path, icon: IconLocation) -> None: ...
 
+    def snapshot(self, path: Path) -> bytes | None: ...
 
-class ShellLinkIO:
-    """LinkIO backed by the Windows shell's own IShellLink implementation."""
+    def restore(self, path: Path, state: bytes | None) -> None: ...
 
-    def read(self, path: Path) -> LinkInfo:
-        link, persist = _new_link()
-        persist.Load(str(path), _STGM_READ)
-        target, _ = link.GetPath(0, _MAX_PATH)
-        icon_path, icon_index = link.GetIconLocation(_MAX_PATH)
-        return LinkInfo(
-            target=str(target),
-            arguments=str(link.GetArguments(_MAX_PATH)),
-            icon=IconLocation(str(icon_path), int(icon_index)),
-        )
-
-    def set_icon(self, path: Path, icon: IconLocation) -> None:
-        link, persist = _new_link()
-        persist.Load(str(path), _STGM_READWRITE)
-        link.SetIconLocation(icon.path, icon.index)
-        persist.Save(str(path), True)
-
-    def create(self, path: Path, target: str, icon: IconLocation | None = None) -> None:
-        """Make a new shortcut. Used by tests to build real .lnk fixtures."""
-        link, persist = _new_link()
-        link.SetPath(target)
-        if icon is not None:
-            link.SetIconLocation(icon.path, icon.index)
-        persist.Save(str(path), True)
+    def variants(self, path: Path) -> Mapping[str, IconLocation]:
+        """Extra icons the item needs styled too, by name (the Recycle Bin's "full")."""
+        ...
 
 
-_STGM_READ = 0x00000000
-_STGM_READWRITE = 0x00000002
-# Generous buffer for paths in shortcuts; long-path-aware apps can exceed MAX_PATH.
-_MAX_PATH = 32767
-
-
-_com_ready = threading.local()
-# CoInitialize's error when the thread already runs COM in another threading
-# model. COM is still usable then, so it isn't a failure for us.
-_RPC_E_CHANGED_MODE = -2147417850
-
-
-def ensure_com() -> None:
-    """Make COM usable on the current thread (UI worker threads need this). Idempotent."""
-    if getattr(_com_ready, "done", False):
-        return
-    import pythoncom
-
-    try:
-        pythoncom.CoInitialize()
-    except pythoncom.com_error as exc:
-        # com_error's first argument is the HRESULT.
-        if not exc.args or exc.args[0] != _RPC_E_CHANGED_MODE:
-            raise
-    _com_ready.done = True
-
-
-def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":
-    import pythoncom
-    from win32com.shell import shell
-
-    ensure_com()
-    unknown = pythoncom.CoCreateInstance(
-        shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink
-    )
-    link = cast("PyIShellLink", unknown)
-    persist = cast("PyIPersistFile", unknown.QueryInterface(pythoncom.IID_IPersistFile))
-    return link, persist
+def variant_path(icon_file: Path, variant: str) -> Path:
+    """Where the styled ``variant`` of a generated icon is written."""
+    return icon_file.with_name(f"{icon_file.stem}.{variant}{icon_file.suffix}")
 
 
 def default_roots() -> list[ScanRoot]:
@@ -219,7 +213,7 @@ def default_roots() -> list[ScanRoot]:
     appdata = known_folder("RoamingAppData")
     pinned = appdata / "Microsoft" / "Internet Explorer" / "Quick Launch" / "User Pinned"
     return [
-        ScanRoot(known_folder("Desktop"), Source.DESKTOP, recursive=False),
+        ScanRoot(known_folder("Desktop"), Source.DESKTOP, recursive=False, folders=True),
         ScanRoot(known_folder("PublicDesktop"), Source.PUBLIC_DESKTOP, recursive=False),
         ScanRoot(known_folder("Programs"), Source.START_MENU, recursive=True),
         ScanRoot(known_folder("CommonPrograms"), Source.ALL_USERS_START_MENU, recursive=True),
@@ -242,29 +236,70 @@ def is_noise(name: str, target: str) -> bool:
     return bool(_NOISE_NAME.search(name) or _NOISE_TARGET.search(target))
 
 
-def scan(roots: Sequence[ScanRoot], link_io: LinkIO) -> list[ShortcutGroup]:
-    """Read every shortcut under ``roots`` and group the ones that launch the same thing."""
+def scan(
+    roots: Sequence[ScanRoot], io: ItemIO, windows_icons: Sequence[WindowsIcon] = ()
+) -> list[ShortcutGroup]:
+    """Read everything under ``roots`` (plus Windows' own icons) and group what belongs together."""
     shortcuts: list[Shortcut] = []
     for root in roots:
-        for path in _lnk_files(root):
+        for path in _items(root):
             try:
-                info = link_io.read(path)
+                info = io.read(path)
             except OSError:
-                continue  # unreadable or half-written link; leave it alone
-            if not is_noise(path.stem, info.target):
-                shortcuts.append(Shortcut(path=path, source=root.source, info=info))
+                continue  # unreadable or half-written; leave it alone
+            shortcut = Shortcut(path=path, source=root.source, info=info)
+            if not is_noise(shortcut.name, info.target):
+                shortcuts.append(shortcut)
+    for icon in windows_icons:
+        try:
+            info = io.read(icon.path)
+        except OSError:
+            continue
+        shortcuts.append(Shortcut(icon.path, Source.WINDOWS, info, label=icon.name))
     return group(shortcuts)
 
 
 def group(shortcuts: Iterable[Shortcut]) -> list[ShortcutGroup]:
-    groups: dict[str, list[Shortcut]] = {}
-    for shortcut in shortcuts:
-        groups.setdefault(group_key(shortcut), []).append(shortcut)
-    result = [
-        ShortcutGroup(key, tuple(sorted(members, key=_preference)))
-        for key, members in groups.items()
-    ]
+    """Shortcuts that launch the same thing become one group, styled together.
+
+    Two shortcuts belong together when they run the same program and either
+    pass it the same arguments or have the same name. A Start-menu "Discord"
+    that runs Discord.exe plainly joins the desktop "Discord" that adds a
+    launcher flag, while Chrome profiles, web apps and Steam games stay apart.
+    """
+    items = list(shortcuts)
+    parent = list(range(len(items)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    first: dict[str, int] = {}
+    for i, shortcut in enumerate(items):
+        for key in _match_keys(shortcut):
+            if key in first:
+                parent[root(i)] = root(first[key])
+            else:
+                first[key] = i
+    clusters: dict[int, list[Shortcut]] = {}
+    for i, shortcut in enumerate(items):
+        clusters.setdefault(root(i), []).append(shortcut)
+    result: list[ShortcutGroup] = []
+    for members in clusters.values():
+        ordered = tuple(sorted(members, key=_preference))
+        # Keyed by its preferred member, so saved choices keep matching.
+        result.append(ShortcutGroup(group_key(ordered[0]), ordered))
     return sorted(result, key=_display_order)
+
+
+def _match_keys(shortcut: Shortcut) -> list[str]:
+    keys = [group_key(shortcut)]
+    target = shortcut.info.target.strip()
+    if target:
+        keys.append(f"name:{_normal_target(target)}|{shortcut.name.casefold()}")
+    return keys
 
 
 def _display_order(target: ShortcutGroup) -> tuple[int, bool, str]:
@@ -285,8 +320,11 @@ def group_key(shortcut: Shortcut) -> str:
     target = shortcut.info.target.strip()
     if not target:
         return "lnk:" + normalize_path(str(shortcut.path))
-    expanded = normalize_path(os.path.expandvars(target))
-    return f"target:{expanded}|{shortcut.info.arguments.strip().casefold()}"
+    return f"target:{_normal_target(target)}|{shortcut.info.arguments.strip().casefold()}"
+
+
+def _normal_target(target: str) -> str:
+    return normalize_path(os.path.expandvars(target))
 
 
 def normalize_path(path: str) -> str:
@@ -298,8 +336,21 @@ def _preference(shortcut: Shortcut) -> tuple[int, int, str]:
     return (shortcut.shared, _SOURCE_ORDER.index(shortcut.source), str(shortcut.path))
 
 
-def _lnk_files(root: ScanRoot) -> list[Path]:
+_SHORTCUT_SUFFIXES = frozenset({".lnk", ".url"})
+
+
+def _items(root: ScanRoot) -> list[Path]:
     if not root.path.is_dir():
         return []
-    pattern = "**/*.lnk" if root.recursive else "*.lnk"
-    return sorted(p for p in root.path.glob(pattern, case_sensitive=False) if p.is_file())
+    candidates = root.path.rglob("*") if root.recursive else root.path.iterdir()
+    found: list[Path] = []
+    for path in candidates:
+        is_shortcut = path.is_file() and path.suffix.casefold() in _SHORTCUT_SUFFIXES
+        is_folder = root.folders and path.parent == root.path and _is_visible_folder(path)
+        if is_shortcut or is_folder:
+            found.append(path)
+    return sorted(found)
+
+
+def _is_visible_folder(path: Path) -> bool:
+    return path.is_dir() and not path.name.startswith((".", "$"))

@@ -4,8 +4,9 @@ from pathlib import Path
 
 from app.choices import Choice
 from app.service import IconService
+from platform_win.item_io import ShellLinkIO
 from platform_win.paths import AppPaths
-from platform_win.shortcuts import IconLocation, ScanRoot, ShellLinkIO, Source
+from platform_win.shortcuts import IconLocation, ScanRoot, Source
 from tests.win.conftest import NOTEPAD, SYSTEM32
 
 TARGETS = ["notepad.exe", "mspaint.exe", "calc.exe", "charmap.exe", "cmd.exe"]

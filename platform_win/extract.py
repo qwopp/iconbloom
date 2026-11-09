@@ -22,7 +22,8 @@ from pathlib import Path
 import numpy as np
 from PIL import IcoImagePlugin, Image, UnidentifiedImageError
 
-from platform_win.shortcuts import IconLocation, ensure_com
+from platform_win.item_io import ensure_com
+from platform_win.shortcuts import IconLocation
 
 log = logging.getLogger(__name__)
 # icoextract warns about every .mun redirect; we handle those ourselves.

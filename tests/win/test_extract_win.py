@@ -3,7 +3,8 @@
 from pathlib import Path
 
 from platform_win.extract import extract_icon, read_icon_file, shell_image
-from platform_win.shortcuts import IconLocation, ShellLinkIO
+from platform_win.item_io import ShellLinkIO
+from platform_win.shortcuts import IconLocation
 from tests.win.conftest import NOTEPAD
 
 
