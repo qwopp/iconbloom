@@ -31,6 +31,7 @@ from app import __version__, updates
 from app.choices import CUSTOM_RECIPE, Choice
 from app.service import IconService, Status
 from app.settings import Settings
+from app.ui import UI_DIR
 from app.ui.widgets import (
     KEY_ROLE,
     STATUS_COLORS,
@@ -51,7 +52,7 @@ from platform_win.shortcuts import ShortcutGroup
 
 log = logging.getLogger(__name__)
 
-APP_ICON = Path(__file__).resolve().parent / "iconbloom.png"
+APP_ICON = UI_DIR / "iconbloom.png"
 PREVIEW_COLUMNS = 4
 DEFAULT_THEME = "kawaii_pink"
 
