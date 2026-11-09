@@ -14,6 +14,8 @@ Reading icon resources straight from the file (via icoextract) gets the real
 import io
 import logging
 import os
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +25,8 @@ from PIL import IcoImagePlugin, Image, UnidentifiedImageError
 from platform_win.shortcuts import IconLocation
 
 log = logging.getLogger(__name__)
+# icoextract warns about every .mun redirect; we handle those ourselves.
+logging.getLogger("icoextract").setLevel(logging.ERROR)
 
 # Below this, the source is too small to style well; the UI warns that the
 # result may look soft.
@@ -43,30 +47,62 @@ class ExtractedIcon:
     source: str
 
 
-def extract_icon(icon: IconLocation, target: str, shortcut: Path) -> ExtractedIcon:
-    candidates: list[tuple[str, int]] = []
+def extract_icon(
+    icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
+) -> ExtractedIcon:
+    """Best available original icon for a shortcut.
+
+    ``use_shell`` must be False while the shortcut shows a themed icon, since
+    the shell would then hand back our own icon instead of the original.
+    """
+    attempts: list[tuple[str, Callable[[], ExtractedIcon | None]]] = []
     if icon.path:
-        candidates.append((icon.path, icon.index))
+        location = Path(os.path.expandvars(icon.path))
+        attempts.append((f"{location},{icon.index}", lambda: _from_file(location, icon.index)))
+        moved = _mun_location(location)
+        if moved is not None:
+            attempts.append((f"{moved},{icon.index}", lambda: _from_file(moved, icon.index)))
+        if use_shell:
+            # The shortcut names a specific icon; the shell resolves it more
+            # faithfully than falling back to the target program's icon.
+            attempts.append(("shell", lambda: _from_shell(shortcut)))
     if target:
-        candidates.append((target, 0))
+        program = Path(os.path.expandvars(target))
+        attempts.append((f"{program},0", lambda: _from_file(program, 0)))
+    if use_shell and not icon.path:
+        attempts.append(("shell", lambda: _from_shell(shortcut)))
+
     tried: list[str] = []
-    for raw_path, index in candidates:
-        path = Path(os.path.expandvars(raw_path))
+    for label, attempt in attempts:
         try:
-            image = read_icon_file(path, index)
+            result = attempt()
         except (OSError, ValueError, UnidentifiedImageError) as exc:
-            tried.append(f"{path},{index}: {exc}")
-            log.debug("icon read failed for %s,%d: %s", path, index, exc)
+            tried.append(f"{label}: {exc}")
+            log.debug("icon read failed for %s: %s", label, exc)
             continue
-        if image is not None:
-            return ExtractedIcon(image, max(image.size) < SHARP_MIN, f"{path},{index}")
-        tried.append(f"{path},{index}: not an icon source")
-    try:
-        image = shell_image(shortcut)
-    except OSError as exc:
-        tried.append(f"shell image: {exc}")
-        raise ExtractionError("; ".join(tried)) from exc
-    return ExtractedIcon(image, upscaled=False, source="shell")
+        if result is not None:
+            return result
+        tried.append(f"{label}: not an icon source")
+    raise ExtractionError("; ".join(tried) or "the shortcut names no icon and no target")
+
+
+def _from_file(path: Path, index: int) -> ExtractedIcon | None:
+    image = read_icon_file(path, index)
+    if image is None:
+        return None
+    return ExtractedIcon(image, max(image.size) < SHARP_MIN, f"{path},{index}")
+
+
+def _from_shell(shortcut: Path) -> ExtractedIcon:
+    return ExtractedIcon(shell_image(shortcut), upscaled=False, source="shell")
+
+
+def _mun_location(path: Path) -> Path | None:
+    r"""Since Windows 10 1903, many system DLLs keep their icons in SystemResources\*.mun."""
+    windir = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"))
+    if path.parent.parent.name.casefold() != windir.name.casefold():
+        return None
+    return windir / "SystemResources" / f"{path.name}.mun"
 
 
 def read_icon_file(path: Path, index: int = 0) -> Image.Image | None:
@@ -107,6 +143,8 @@ def _pe_icon(path: Path, index: int) -> bytes:
 
 def shell_image(path: Path, size: int = 256) -> Image.Image:
     """The icon Explorer draws for ``path``, via IShellItemImageFactory."""
+    if sys.platform != "win32":
+        raise OSError("shell icons are only available on Windows")
     import ctypes
     from ctypes import wintypes
 

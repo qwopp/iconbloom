@@ -64,7 +64,8 @@ def test_extract_prefers_icon_location_then_target(tmp_path: Path) -> None:
     assert from_location.upscaled
     assert from_location.source.startswith(str(small))
 
-    from_target = extract_icon(IconLocation(str(tmp_path / "gone.ico"), 0), str(big), shortcut)
+    gone = IconLocation(str(tmp_path / "gone.ico"), 0)
+    from_target = extract_icon(gone, str(big), shortcut, use_shell=False)
     assert not from_target.upscaled
     assert from_target.image.size == (256, 256)
 
@@ -76,6 +77,48 @@ def test_extract_expands_environment_variables(
     monkeypatch.setenv("ICONBLOOM_TEST_DIR", str(tmp_path))
     result = extract_icon(IconLocation("$ICONBLOOM_TEST_DIR/app.ico", 0), "", tmp_path / "a.lnk")
     assert result.image.size == (256, 256)
+
+
+def test_named_icon_that_fails_prefers_shell_over_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    big = tmp_path / "big.ico"
+    big.write_bytes(build_ico(load_sample("multicolor")))
+    shell_icon = Image.new("RGBA", (256, 256), (1, 2, 3, 255))
+    monkeypatch.setattr("platform_win.extract.shell_image", lambda path, size=256: shell_icon)
+    missing = IconLocation(str(tmp_path / "gone.dll"), -114)
+    assert extract_icon(missing, str(big), tmp_path / "a.lnk").source == "shell"
+    themed = extract_icon(missing, str(big), tmp_path / "a.lnk", use_shell=False)
+    assert themed.source == f"{big},0"
+
+
+def test_system_dll_icons_are_looked_up_in_mun_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    windir = tmp_path / "Windows"
+    (windir / "System32").mkdir(parents=True)
+    (windir / "SystemResources").mkdir()
+    monkeypatch.setenv("SYSTEMROOT", str(windir))
+    mun = windir / "SystemResources" / "imageres.dll.mun"
+    mun.write_bytes(b"pretend PE")
+    seen: list[Path] = []
+
+    def fake_pe(path: Path, index: int) -> bytes:
+        seen.append(path)
+        if path != mun:
+            raise ValueError("icons moved to .mun")
+        return build_ico(load_sample("dark"))
+
+    monkeypatch.setattr("platform_win.extract._pe_icon", fake_pe)
+    location = IconLocation(str(windir / "System32" / "imageres.dll"), -114)
+    result = extract_icon(location, "", tmp_path / "a.lnk", use_shell=False)
+    assert result.source == f"{mun},-114"
+    assert seen == [windir / "System32" / "imageres.dll", mun]
+
+
+def test_nothing_to_extract(tmp_path: Path) -> None:
+    with pytest.raises(ExtractionError, match="names no icon"):
+        extract_icon(IconLocation(), "", tmp_path / "a.lnk", use_shell=False)
 
 
 def test_extract_falls_back_to_shell_and_reports_failures(
