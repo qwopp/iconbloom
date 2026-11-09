@@ -15,6 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from engine import analyze, ops
+from engine.ico import SIMPLIFIED_MAX
 from engine.recipes import render
 from engine.themes import THEMES_DIR, Theme, load_theme
 
@@ -27,8 +28,6 @@ BACKGROUND = (255, 247, 250)
 DESKTOP = (74, 106, 150)
 TEXT = (120, 60, 90)
 SMALL_SIZES = (48, 32, 16)
-# Matches the .ico writer: frames this small come from the simplified render.
-SIMPLIFIED_MAX = 24
 
 
 def build_sheet(
