@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence, Sized
 from dataclasses import dataclass
 from pathlib import Path
 from typing import override
@@ -11,33 +11,38 @@ from PIL import Image
 from PySide6.QtCore import QModelIndex, QPoint, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from app import __version__, updates
 from app.choices import Choice
-from app.service import ChangeReport, IconService, Status
+from app.service import DECLINED_REASON, SHARED_REASON, ChangeReport, IconService, Status
 from app.settings import Settings
 from app.ui import UI_DIR
 from app.ui.widgets import (
     KEY_ROLE,
+    SHARED_ROLE,
     STATUS_COLORS,
     STATUS_ROLE,
-    WRITABLE_ROLE,
     Job,
     PreviewCard,
     SizePopup,
@@ -49,12 +54,14 @@ from app.updates import Release
 from engine import analyze, ops
 from engine.recipes import render
 from engine.themes import DEFAULT_THEME, Theme
-from platform_win.shortcuts import ShortcutGroup
+from platform_win.refresh import touches_taskbar
+from platform_win.shortcuts import Place, ShortcutGroup
 
 log = logging.getLogger(__name__)
 
 APP_ICON = UI_DIR / "iconbloom.png"
 PREVIEW_COLUMNS = 4
+SELECTION_ICON = 48
 # Wait this long after the selection moves before rendering, so holding an
 # arrow key doesn't queue a full render for every shortcut it passes.
 SELECT_DELAY_MS = 80
@@ -162,15 +169,51 @@ class MainWindow(QMainWindow):
             self.theme_box.addItem(name, theme_id)
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(self.theme.id)))
         self.theme_box.currentIndexChanged.connect(self._on_theme_changed)
+        self.theme_box.setToolTip("The look every style is drawn in")
         bar.addWidget(self.theme_box)
         bar.addStretch(1)
-        self.reapply_button = self._button("Reapply my icons", self.reapply_all, "secondary")
-        self.reapply_button.setToolTip("Re-theme shortcuts that an app update reset")
-        bar.addWidget(self.reapply_button)
-        bar.addWidget(self._button("Refresh icons", self.refresh_icons, "secondary"))
-        bar.addWidget(self._button("Clean up", self.clean_up, "secondary"))
-        bar.addWidget(self._button("Revert all", self.revert_all, "danger"))
+        bar.addWidget(self._build_more_menu())
+        bar.addWidget(
+            self._button(
+                "Revert all",
+                self.revert_all,
+                "danger",
+                "Put every icon Iconbloom changed back to the original",
+            )
+        )
         return bar
+
+    def _build_more_menu(self) -> QToolButton:
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        for text, slot, tip in (
+            (
+                "Reapply my icons",
+                self.reapply_all,
+                "Put your chosen styles back on shortcuts that an app update reset",
+            ),
+            (
+                "Refresh Windows icons\u2026",
+                self.refresh_icons,
+                "Rebuild Windows' icon cache and restart Explorer, for icons that look stale",
+            ),
+            (
+                "Delete unused icon files",
+                self.clean_up,
+                "Remove icons Iconbloom made earlier that no shortcut uses any more",
+            ),
+        ):
+            action = menu.addAction(text)
+            action.setToolTip(tip)
+            action.triggered.connect(slot)
+        more = QToolButton()
+        more.setObjectName("more")
+        more.setText("More")
+        more.setToolTip("Less common actions")
+        more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        more.setCursor(Qt.CursorShape.PointingHandCursor)
+        more.setMenu(menu)
+        return more
 
     def _build_grid(self) -> QWidget:
         panel = QWidget()
@@ -180,6 +223,13 @@ class MainWindow(QMainWindow):
         heading = QLabel("Your shortcuts")
         heading.setObjectName("heading")
         layout.addWidget(heading)
+        self.search = QLineEdit()
+        self.search.setObjectName("search")
+        self.search.setPlaceholderText("Search shortcuts")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._apply_filter)
+        layout.addWidget(self.search)
+        layout.addLayout(self._build_place_tabs())
         self.model = QStandardItemModel(self)
         self.grid = QListView()
         self.grid.setObjectName("grid")
@@ -192,8 +242,16 @@ class MainWindow(QMainWindow):
         self.grid.setMouseTracking(True)
         self.grid.setItemDelegate(TileDelegate(self.grid))
         self.grid.setModel(self.model)
+        self.grid.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
+        self.grid.setToolTip("")
         self.grid.selectionModel().currentChanged.connect(self._on_current_changed)
+        self.grid.selectionModel().selectionChanged.connect(self._update_buttons)
         layout.addWidget(self.grid, 1)
+        self.empty_label = QLabel("No shortcuts match.")
+        self.empty_label.setObjectName("detail")
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.hide()
+        layout.addWidget(self.empty_label)
         legend = QLabel(
             "   ".join(
                 f'<span style="color:{color.name()}">●</span> {STATUS_LABELS.get(status, status)}'
@@ -204,12 +262,32 @@ class MainWindow(QMainWindow):
         layout.addWidget(legend)
         return panel
 
+    def _build_place_tabs(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.place_tabs = QButtonGroup(self)
+        self.place_tabs.setExclusive(True)
+        self._place_buttons: dict[Place | None, QPushButton] = {}
+        for place in (None, *Place):
+            button = QPushButton(str(place) if place else "All")
+            button.setObjectName("tab")
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setChecked(place is None)
+            self.place_tabs.addButton(button)
+            self._place_buttons[place] = button
+            button.clicked.connect(self._apply_filter)
+            row.addWidget(button)
+        row.addStretch(1)
+        return row
+
     def _build_preview_pane(self) -> QWidget:
         panel = QWidget()
         panel.setObjectName("card")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(10)
+        layout.addWidget(self._build_notice())
 
         header = QHBoxLayout()
         self.original_label = QLabel()
@@ -224,9 +302,15 @@ class MainWindow(QMainWindow):
         names.addWidget(self.name_label)
         names.addWidget(self.detail_label)
         header.addLayout(names, 1)
-        self.shuffle_button = self._button("Shuffle", self.shuffle, "secondary")
-        self.shuffle_button.setToolTip("Re-roll accessories, blush and shades")
-        self.own_image_button = self._button("Use my own image…", self.use_own_image, "secondary")
+        self.shuffle_button = self._button(
+            "Shuffle", self.shuffle, "secondary", "Try different shades, positions and decorations"
+        )
+        self.own_image_button = self._button(
+            "Use my own image\u2026",
+            self.use_own_image,
+            "secondary",
+            "Use a picture of your own (PNG, ICO or BMP) as this shortcut's icon",
+        )
         header.addWidget(self.shuffle_button)
         header.addWidget(self.own_image_button)
         layout.addLayout(header)
@@ -241,12 +325,27 @@ class MainWindow(QMainWindow):
         scroll.setWidget(self.cards_host)
         layout.addWidget(scroll, 1)
 
+        layout.addWidget(self._build_selection_strip())
+
         actions = QHBoxLayout()
-        self.revert_button = self._button("Revert", self.revert_current, "secondary")
-        self.all_button = self._button("Apply style to all", self.apply_style_to_all, "secondary")
-        self.all_button.setToolTip("Use the selected style on every untouched shortcut")
-        self.skip_button = self._button("Skip", self.skip_current, "secondary")
-        self.apply_button = self._button("Apply", self.apply_chosen, "primary")
+        self.revert_button = self._button(
+            "Revert", self.revert_current, "secondary", "Put this shortcut's original icon back"
+        )
+        self.all_button = self._button(
+            "Apply style to all",
+            self.apply_style_to_all,
+            "secondary",
+            "Use the selected style on every shortcut you haven't styled or skipped yet",
+        )
+        self.skip_button = self._button(
+            "Skip", self.skip_current, "secondary", "Leave this one as it is and go to the next"
+        )
+        self.apply_button = self._button(
+            "Apply",
+            self.apply_chosen,
+            "primary",
+            "Use the selected style for this shortcut (or double-click a style)",
+        )
         actions.addWidget(self.revert_button)
         actions.addWidget(self.all_button)
         actions.addStretch(1)
@@ -271,9 +370,125 @@ class MainWindow(QMainWindow):
         bar.addPermanentWidget(self.update_box)
         bar.addPermanentWidget(QLabel(f"v{__version__}"))
 
-    def _button(self, text: str, slot: Callable[[], object], role: str) -> QPushButton:
+    def _build_selection_strip(self) -> QFrame:
+        """With several shortcuts selected, the chosen style drawn on each of them."""
+        self.selection_strip = QFrame()
+        self.selection_strip.setObjectName("selectionStrip")
+        column = QVBoxLayout(self.selection_strip)
+        column.setContentsMargins(12, 8, 12, 8)
+        self.selection_label = QLabel()
+        self.selection_label.setObjectName("detail")
+        column.addWidget(self.selection_label)
+        self.selection_icons = QHBoxLayout()
+        self.selection_icons.setSpacing(8)
+        self.selection_icons.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        host = QWidget()
+        host.setLayout(self.selection_icons)
+        scroll = QScrollArea()
+        scroll.setObjectName("previewScroll")
+        scroll.setWidget(host)
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(SELECTION_ICON + 22)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        column.addWidget(scroll)
+        self.selection_strip.hide()
+        self._strip_token = 0
+        return self.selection_strip
+
+    def _update_selection_strip(self) -> None:
+        selected = self.selected_groups()
+        card = self._chosen
+        if len(selected) < 2 or card is None:
+            self.selection_strip.hide()
+            return
+        self.selection_label.setText(
+            f"\u201c{card.label}\u201d on {_count(selected, 'selected shortcut')}:"
+        )
+        while self.selection_icons.count():
+            item = self.selection_icons.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
+        slots: dict[str, QLabel] = {}
+        for target in selected:
+            label = QLabel()
+            label.setFixedSize(SELECTION_ICON, SELECTION_ICON)
+            label.setToolTip(target.name)
+            self.selection_icons.addWidget(label)
+            slots[target.key] = label
+        self.selection_strip.show()
+
+        choice = card.choice
+        self._strip_token += 1
+        token = self._strip_token
+
+        def work(report: Callable[[object], None]) -> None:
+            for target in selected:
+                if token != self._strip_token:
+                    return  # the selection or style changed; stop drawing this one
+                try:
+                    if choice.is_custom:
+                        image, _ = self.service.render_choice(choice)
+                    else:
+                        icon, _ = ops.prepare(self.service.original_icon(target).image)
+                        theme = self.service.theme(choice.theme)
+                        image = render(theme.recipe(choice.recipe), icon, theme, seed=choice.seed)
+                except Exception:  # one unreadable icon leaves an empty slot, nothing more
+                    log.exception("could not preview %s", target.name)
+                    continue
+                report(Thumbnail(target.key, to_qimage(image)))
+
+        def on_icon(payload: object) -> None:
+            if token == self._strip_token and isinstance(payload, Thumbnail):
+                label = slots.get(payload.key)
+                if label is not None:
+                    label.setPixmap(
+                        pixmap_at(payload.image, SELECTION_ICON, self.devicePixelRatioF())
+                    )
+
+        self._start(work).signals.progress.connect(on_icon)
+
+    def _build_notice(self) -> QFrame:
+        """Banner for things worth knowing right after an action, like taskbar caching."""
+        self.notice = QFrame()
+        self.notice.setObjectName("notice")
+        row = QHBoxLayout(self.notice)
+        row.setContentsMargins(12, 8, 8, 8)
+        self.notice_label = QLabel()
+        self.notice_label.setWordWrap(True)
+        row.addWidget(self.notice_label, 1)
+        row.addWidget(
+            self._button(
+                "Refresh icons",
+                self.refresh_icons,
+                "secondary",
+                "Rebuild Windows' icon cache and restart Explorer",
+            )
+        )
+        close = QToolButton()
+        close.setObjectName("closeNotice")
+        close.setText("\u2715")
+        close.setToolTip("Dismiss")
+        close.clicked.connect(self.notice.hide)
+        row.addWidget(close)
+        self.notice.hide()
+        return self.notice
+
+    def _show_taskbar_notice(self, report: ChangeReport) -> None:
+        if any(touches_taskbar(p) for p in report.changed):
+            self.notice_label.setText(
+                "Windows keeps its own copy of taskbar icons, so they can take a moment to "
+                "update. If one still looks old, refresh Windows' icons."
+            )
+            self.notice.show()
+
+    def _button(
+        self, text: str, slot: Callable[[], object], role: str, tip: str = ""
+    ) -> QPushButton:
         button = QPushButton(text)
         button.setProperty("role", role)
+        button.setToolTip(tip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.clicked.connect(slot)
         return button
@@ -319,6 +534,7 @@ class MainWindow(QMainWindow):
                 stale.append(target)
             self.model.appendRow(item)
         self._load_thumbnails(stale)
+        self._apply_filter()
         if current is not None and current.key in self._items:
             self.grid.setCurrentIndex(self._items[current.key].index())
         elif groups:
@@ -326,10 +542,40 @@ class MainWindow(QMainWindow):
         else:
             self.detail_label.setText("No shortcuts found on your desktop or Start menu.")
 
+    def _apply_filter(self) -> None:
+        query = self.search.text().strip().casefold()
+        place = next((p for p, b in self._place_buttons.items() if b.isChecked()), None)
+        counts: dict[Place | None, int] = dict.fromkeys(self._place_buttons, 0)
+        visible = 0
+        for row in range(self.model.rowCount()):
+            target = self._groups[self.model.item(row).data(KEY_ROLE)]
+            matches = query in target.name.casefold()
+            if matches:
+                counts[None] += 1
+                for found in target.places:
+                    counts[found] += 1
+            shown = matches and (place is None or place in target.places)
+            self.grid.setRowHidden(row, not shown)
+            visible += shown
+        for key, button in self._place_buttons.items():
+            button.setText(f"{key or 'All'} ({counts[key]})")
+        self.empty_label.setVisible(visible == 0 and self.model.rowCount() > 0)
+        current = self.grid.currentIndex()
+        hidden = current.isValid() and self.grid.isRowHidden(current.row())
+        if hidden and not self.select_next_untouched(start=0):
+            self._select_first_visible()
+
+    def _select_first_visible(self) -> bool:
+        for row in range(self.model.rowCount()):
+            if not self.grid.isRowHidden(row):
+                self.grid.setCurrentIndex(self.model.index(row, 0))
+                return True
+        return False
+
     def _update_item(self, target: ShortcutGroup) -> None:
         item = self._items[target.key]
         item.setData(str(self.service.status(target)), STATUS_ROLE)
-        item.setData(target.writable, WRITABLE_ROLE)
+        item.setData(not target.own_shortcuts, SHARED_ROLE)
         item.setToolTip(self._tooltip(target))
 
     def _load_thumbnails(self, groups: Sequence[ShortcutGroup]) -> None:
@@ -363,12 +609,15 @@ class MainWindow(QMainWindow):
         return self._groups.get(str(index.data(KEY_ROLE)))
 
     def select_next_untouched(self, start: int | None = None) -> bool:
-        """Move to the next shortcut that is writable and not yet themed or skipped."""
+        """Move to the next visible shortcut that isn't themed or skipped yet."""
         rows = self.model.rowCount()
         begin = self.grid.currentIndex().row() + 1 if start is None else start
         for offset in range(rows):
-            item = self.model.item((begin + offset) % rows)
-            if item is not None and self.service.is_untouched(self._groups[item.data(KEY_ROLE)]):
+            row = (begin + offset) % rows
+            item = self.model.item(row)
+            if self.grid.isRowHidden(row) or item is None:
+                continue
+            if self.service.is_untouched(self._groups[item.data(KEY_ROLE)]):
                 self.grid.setCurrentIndex(item.index())
                 return True
         return False
@@ -396,8 +645,8 @@ class MainWindow(QMainWindow):
     def _tooltip(self, target: ShortcutGroup) -> str:
         lines = [target.name, target.primary.info.target or "(Store or advertised app)"]
         lines += [f"{s.source}: {s.path}" for s in target.shortcuts]
-        if not target.writable:
-            lines.append("Read-only: this shortcut is shared by all users and needs admin rights.")
+        if target.shared_shortcuts:
+            lines.append("Shared by every user: Windows asks for permission to change it.")
         return "\n".join(lines)
 
     # ---- previews -----------------------------------------------------------
@@ -410,8 +659,8 @@ class MainWindow(QMainWindow):
 
     def _set_detail(self, target: ShortcutGroup, *, upscaled: bool) -> None:
         notes = [f"{target.primary.source} · {self.service.status(target)}"]
-        if not target.writable:
-            notes.append("Shared by all users, so it can't be changed without admin rights.")
+        if target.shared_shortcuts:
+            notes.append("Shared by every user on this PC: Windows will ask for permission.")
         if upscaled:
             notes.append("This app only ships a small icon, so styles may look a little soft.")
         self.detail_label.setText("  ".join(notes))
@@ -504,34 +753,68 @@ class MainWindow(QMainWindow):
 
     def _update_buttons(self) -> None:
         target = self.current_group()
-        writable = target is not None and target.writable
+        selected = self.selected_groups()
         chosen = self._chosen
-        self.apply_button.setEnabled(writable and chosen is not None)
+        self.apply_button.setEnabled(bool(selected) and chosen is not None)
+        self.apply_button.setText(f"Apply to {len(selected)}" if len(selected) > 1 else "Apply")
         self.all_button.setEnabled(chosen is not None and not chosen.choice.is_custom)
-        self.skip_button.setEnabled(target is not None)
-        themed = target is not None and self.service.status(target) is Status.THEMED
+        self.skip_button.setEnabled(bool(selected))
+        themed = any(self.service.status(g) is Status.THEMED for g in selected)
         self.revert_button.setEnabled(themed)
         self.shuffle_button.setEnabled(target is not None)
-        self.own_image_button.setEnabled(writable)
+        self.own_image_button.setEnabled(target is not None)
+        self._update_selection_strip()
 
     # ---- actions ------------------------------------------------------------
 
+    def selected_groups(self) -> list[ShortcutGroup]:
+        """Every selected shortcut, in grid order; just the current one if none are."""
+        rows = sorted(i.row() for i in self.grid.selectionModel().selectedIndexes())
+        chosen = [self._groups[self.model.item(r).data(KEY_ROLE)] for r in rows]
+        current = self.current_group()
+        if not chosen and current is not None:
+            chosen = [current]
+        return chosen
+
     def apply_chosen(self) -> None:
-        target = self.current_group()
         card = self._chosen
-        if target is None or card is None or not target.writable:
+        targets = self.selected_groups()
+        if card is None or not targets:
             return
-        cached = self._previews_for(target)
-        prepared = cached.icon if cached else None
+        include_shared = self._ask_about_shared(targets)
+        if include_shared is None:
+            return
+        current = self.current_group()
+        cached = self._previews_for(current) if current else None
+        prepared = {cached.group_key: cached.icon} if cached else None
         choice = card.choice
-        report = self._guard(lambda: self.service.apply(target, choice, prepared=prepared))
-        if report is None:
-            return
-        self._show_skipped(report)
-        self._refresh_group(target)
-        if not self.select_next_untouched():
-            self._show_group(self._groups[target.key])
-        self.statusBar().showMessage(f"Applied “{card.label}” to {target.name}", 4000)
+        single = len(targets) == 1
+
+        def done(report: ChangeReport) -> None:
+            if single:
+                self._refresh_group(targets[0])
+                if report.changed and not self.select_next_untouched():
+                    self._show_group(self._groups[targets[0].key])
+            else:
+                self.reload_shortcuts()
+            if report.changed:
+                self.statusBar().showMessage(
+                    f"Applied \u201c{card.label}\u201d to {_count(report.changed, 'shortcut')}",
+                    4000,
+                )
+
+        self._run_action(
+            "Applying your style\u2026",
+            targets,
+            lambda progress: self.service.apply_many(
+                targets,
+                lambda _g: choice,
+                include_shared=include_shared,
+                prepared=prepared,
+                progress=progress,
+            ),
+            done,
+        )
 
     def _previews_for(self, target: ShortcutGroup) -> PreviewSet | None:
         """The rendered previews, if they belong to ``target``."""
@@ -539,21 +822,33 @@ class MainWindow(QMainWindow):
         return previews if previews is not None and previews.group_key == target.key else None
 
     def skip_current(self) -> None:
-        target = self.current_group()
-        if target is None:
-            return
-        self.service.skip(target)
-        self._refresh_group(target)
-        self.select_next_untouched()
+        targets = self.selected_groups()
+        for target in targets:
+            self.service.skip(target)
+            self._refresh_group(target)
+        if targets:
+            self.select_next_untouched()
 
     def revert_current(self) -> None:
-        target = self.current_group()
-        if target is None:
+        targets = [g for g in self.selected_groups() if self.service.status(g) is Status.THEMED]
+        if not targets:
             return
-        if self._guard(lambda: self.service.revert(target)) is None:
-            return
-        self._show_group(self._refresh_group(target))
-        self.statusBar().showMessage(f"{target.name} is back to its original icon", 4000)
+
+        def done(_report: ChangeReport) -> None:
+            for target in targets:
+                self._refresh_group(target)
+            current = self.current_group()
+            if current is not None:
+                self._show_group(current)
+            names = targets[0].name if len(targets) == 1 else _count(targets, "shortcut")
+            self.statusBar().showMessage(f"{names}: back to the original icon", 4000)
+
+        self._run_action(
+            "Putting the original back\u2026",
+            targets,
+            lambda _progress: _merge(self.service.revert(t) for t in targets),
+            done,
+        )
 
     def revert_all(self) -> None:
         answer = QMessageBox.question(
@@ -563,10 +858,15 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        report = self._guard(self.service.revert_all)
-        if report is not None:
-            self.reload_shortcuts()
-            self.statusBar().showMessage(f"Reverted {len(report.changed)} shortcuts", 5000)
+        self._run_action(
+            "Putting every original back\u2026",
+            [],
+            lambda _progress: self.service.revert_all(),
+            lambda report: self.statusBar().showMessage(
+                f"Reverted {_count(report.changed, 'shortcut')}", 5000
+            ),
+            reload=True,
+        )
 
     def shuffle(self) -> None:
         target = self.current_group()
@@ -576,8 +876,7 @@ class MainWindow(QMainWindow):
         self._show_group(target)
 
     def use_own_image(self, path: Path | None = None) -> None:
-        target = self.current_group()
-        if target is None or not target.writable:
+        if self.current_group() is None:
             return
         if path is None:
             chosen, _ = QFileDialog.getOpenFileName(
@@ -599,20 +898,27 @@ class MainWindow(QMainWindow):
         if card is None or card.choice.is_custom:
             return
         choice = card.choice
-        label = self.theme.recipe(choice.recipe).label
         targets = [g for g in self._groups.values() if self.service.is_untouched(g)]
         answer = QMessageBox.question(
             self,
             "Apply this style to all?",
-            f"Use “{label}” on {len(targets)} untouched shortcuts?",
+            f"Use \u201c{card.label}\u201d on {_count(targets, 'untouched shortcut')}?",
         )
         if answer != QMessageBox.StandardButton.Yes or not targets:
             return
-        self._run_batch(
-            "Theming shortcuts…",
+        include_shared = self._ask_about_shared(targets)
+        if include_shared is None:
+            return
+        self._run_action(
+            "Styling your shortcuts\u2026",
             targets,
-            lambda progress: self.service.apply_many(targets, lambda _g: choice, progress=progress),
-            lambda report: f"Applied “{label}” to {len(report.changed)} shortcuts",
+            lambda progress: self.service.apply_many(
+                targets, lambda _g: choice, include_shared=include_shared, progress=progress
+            ),
+            lambda report: self.statusBar().showMessage(
+                f"Applied \u201c{card.label}\u201d to {_count(report.changed, 'shortcut')}", 5000
+            ),
+            reload=True,
         )
 
     def reapply_all(self) -> None:
@@ -620,23 +926,70 @@ class MainWindow(QMainWindow):
         if not lost:
             self.statusBar().showMessage("Nothing needed reapplying", 5000)
             return
-        self._run_batch(
-            "Reapplying your icons…",
+        include_shared = self._ask_about_shared(lost)
+        if include_shared is None:
+            return
+        self._run_action(
+            "Reapplying your icons\u2026",
             lost,
-            lambda progress: self.service.reapply(lost, progress=progress),
-            lambda report: f"Reapplied {len(report.changed)} icons",
+            lambda progress: self.service.reapply(
+                lost, include_shared=include_shared, progress=progress
+            ),
+            lambda report: self.statusBar().showMessage(
+                f"Reapplied {_count(report.changed, 'icon')}", 5000
+            ),
+            reload=True,
         )
 
-    def _run_batch(
+    def _ask_about_shared(self, targets: Sequence[ShortcutGroup]) -> bool | None:
+        """Whether to include shortcuts every user shares; None means cancel."""
+        shared = [t for t in targets if t.shared_shortcuts]
+        if not shared:
+            return False
+        remembered = self.settings.shared_shortcuts
+        if remembered in ("include", "skip"):
+            return remembered == "include"
+        which = shared[0].name if len(shared) == 1 else f"{len(shared)} of these apps"
+        box = QMessageBox(self)
+        box.setWindowTitle("Shared shortcuts")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            f"{which} also {'has' if len(shared) == 1 else 'have'} a shortcut that every user "
+            "on this PC shares. Windows will ask for administrator permission to change it."
+        )
+        include = box.addButton("Change those too", QMessageBox.ButtonRole.AcceptRole)
+        mine = None
+        if any(t.own_shortcuts for t in targets):
+            mine = box.addButton("Only mine", QMessageBox.ButtonRole.RejectRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        remember = QCheckBox("Remember my answer")
+        box.setCheckBox(remember)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked not in (include, mine) or clicked is None:
+            return None
+        answer = clicked is include
+        if remember.isChecked():
+            self.settings.shared_shortcuts = "include" if answer else "skip"
+            self._guard(lambda: self.settings.save(self.service.paths.settings))
+        return answer
+
+    def _run_action(
         self,
         title: str,
         targets: Sequence[ShortcutGroup],
         run: Callable[[Callable[[int, ShortcutGroup], bool]], ChangeReport],
-        summary: Callable[[ChangeReport], str],
+        on_done: Callable[[ChangeReport], None],
+        *,
+        reload: bool = False,
     ) -> None:
-        """Run a batch on the thread pool behind a progress dialog with a Stop button."""
-        dialog = QProgressDialog(title, "Stop", 0, len(targets), self)
+        """Run a change on the thread pool, so a permission prompt never freezes the window.
+
+        A progress dialog with a Stop button appears if it takes more than a moment.
+        """
+        dialog = QProgressDialog(title, "Stop", 0, max(len(targets), 1), self)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(400)
         stop = threading.Event()
         dialog.canceled.connect(stop.set)
 
@@ -652,27 +1005,36 @@ class MainWindow(QMainWindow):
                 dialog.setValue(item.index)
                 dialog.setLabelText(f"{title}\n{item.name}")
 
-        def on_done(result: object) -> None:
+        def finished(result: object) -> None:
             dialog.reset()
             if isinstance(result, ChangeReport):
                 self._show_skipped(result)
-                self.statusBar().showMessage(summary(result), 5000)
-            self.reload_shortcuts()
+                self._show_taskbar_notice(result)
+                on_done(result)
+            if reload:
+                self.reload_shortcuts()
 
-        def on_failed(message: str) -> None:
+        def failed(message: str) -> None:
             dialog.reset()
             QMessageBox.warning(self, "That didn't work", message)
             self.reload_shortcuts()
 
         job = self._start(work)
         job.signals.progress.connect(on_progress)
-        job.signals.done.connect(on_done)
-        job.signals.failed.connect(on_failed)
-        dialog.show()
+        job.signals.done.connect(finished)
+        job.signals.failed.connect(failed)
 
     def _show_skipped(self, report: ChangeReport) -> None:
-        if report.skipped:
-            reasons = "\n".join(f"{p.stem}: {why}" for p, why in report.skipped[:20])
+        # Skipping shared shortcuts was the user's own choice; no need to repeat it.
+        problems = [(p, why) for p, why in report.skipped if why != SHARED_REASON]
+        declined = [p for p, why in problems if why == DECLINED_REASON]
+        problems = [(p, why) for p, why in problems if why != DECLINED_REASON]
+        if declined:
+            self.statusBar().showMessage(
+                f"Left {_count(declined, 'shared shortcut')} as they were", 5000
+            )
+        if problems:
+            reasons = "\n".join(f"{p.stem}: {why}" for p, why in problems[:20])
             QMessageBox.information(self, "Some shortcuts were left alone", reasons)
 
     def refresh_icons(self) -> None:
@@ -748,3 +1110,15 @@ class MainWindow(QMainWindow):
         self._pool.clear()
         self._pool.waitForDone(5_000)
         super().closeEvent(event)
+
+
+def _count(items: Sized, noun: str) -> str:
+    """'1 shortcut', '3 shortcuts'."""
+    return f"{len(items)} {noun}{'' if len(items) == 1 else 's'}"
+
+
+def _merge(reports: Iterable[ChangeReport]) -> ChangeReport:
+    merged = ChangeReport(dry_run=False)
+    for report in reports:
+        merged.extend(report)
+    return merged
