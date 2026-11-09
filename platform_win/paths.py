@@ -40,6 +40,10 @@ class AppPaths:
     def choices(self) -> Path:
         return self.root / "choices.json"
 
+    @property
+    def settings(self) -> Path:
+        return self.root / "settings.json"
+
     def ensure(self) -> "AppPaths":
         for folder in (self.icons, self.originals, self.custom_images, self.logs):
             folder.mkdir(parents=True, exist_ok=True)
