@@ -56,22 +56,38 @@ load and are tested on any OS.
 
 ## app/
 
-- `service.py`: `IconService`, used by both the UI and the CLI. `apply(group, choice)` renders
-  the choice itself, and `apply_many` runs batches (Apply style to all, Reapply) with
-  per-shortcut failures reported and one Explorer refresh at the end. Every change follows the
-  same order: write the `.ico`, save the backup entry, point the shortcut at the `.ico`, then
-  note the shortcut's new hash. Revert restores the original bytes if nothing else has touched
-  the shortcut since, and otherwise only its icon field.
+- `service.py`: `IconService`, used by both the UI and the CLI: scanning, status, apply,
+  revert and reapply. Every change follows the same order: write the `.ico`, save the backup
+  entry, point the item at the `.ico`, then note the item's new state. Revert restores the
+  saved state if nothing else has touched the item since, and otherwise only its icon.
+- `styles.py`: themes, rendering a choice, and the files that come out of it (generated
+  icons, variants such as the Recycle Bin's "full", and saved pictures of originals).
+- `changes.py`: `ChangeReport` (what a change did) and `Status` (original, themed, skipped,
+  needs reapply).
 - `elevation.py`: changes to shortcuts every user shares. The app writes a request file and
-  runs an elevated copy of itself, which validates every item on its own (only `.lnk` files
-  inside the shared folders, only the icon field, only Iconbloom's icons or the recorded
+  runs an elevated copy of itself, which validates every item on its own (only shortcut
+  files inside the shared folders, only the icon, only Iconbloom's icons or the recorded
   original) before touching anything.
-- `choices.py`: which style each app got, keyed by target so it survives app updates. This
-  is what powers **Reapply my icons**.
-- `ui/`: the picker window. Scanning, icon extraction, rendering and batches run on a thread
-  pool, so the window never freezes. Results for a selection the user has moved away from
-  are dropped.
+- `choices.py`, `settings.py`: which style each app got (powers **Reapply my icons**), and
+  the user's preferences.
+- `updates.py`: the update check and the checksum-verified download.
 - `cli.py`, `main.py`: entry points.
+
+### app/ui/
+
+One module per part of the window. Panels talk to `MainWindow` through signals, and every
+slow step runs on `JobRunner`'s thread pool, so the window never freezes.
+
+- `main_window.py`: assembles the panels, the top bar and the More menu, and turns button
+  presses into changes.
+- `shortcut_list.py`: the left panel: search, place tabs, tiles and selection.
+- `style_picker.py`: the right panel: previews, the hover comparison, the multi-select strip
+  and the action buttons.
+- `change_runner.py`: runs a change in the background with a progress dialog, asks about
+  shared shortcuts, and reports skipped items.
+- `update_flow.py`, `notice.py`: the update banner and the banner widget itself.
+- `jobs.py`, `controls.py`, `widgets.py`: background jobs, shared helpers, and the painted
+  tiles, cards and popup.
 
 ## Runtime data
 
