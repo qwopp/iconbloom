@@ -6,11 +6,13 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-09
+
 ### Fixed
 
 - Updating Iconbloom put its shortcut back on the desktop every time, even after you moved
   or deleted it, and reset a restyled Start menu shortcut. Updates now leave Iconbloom's own
-  shortcuts as you left them. (The update to this version is the first that does.)
+  shortcuts as you left them, starting with this update.
 - A styled folder could keep showing the plain yellow folder, even after **Refresh Windows
   icons**: Explorer kept an old thumbnail of it. Iconbloom now sets folder icons through
   Windows' own Change Icon call too, which replaces that thumbnail.
@@ -130,7 +132,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/qwopp/iconbloom/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/qwopp/iconbloom/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/qwopp/iconbloom/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/qwopp/iconbloom/compare/v0.2.0...v0.3.0
