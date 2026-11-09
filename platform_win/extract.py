@@ -59,9 +59,6 @@ def extract_icon(
     if icon.path:
         location = Path(os.path.expandvars(icon.path))
         attempts.append((f"{location},{icon.index}", lambda: _from_file(location, icon.index)))
-        moved = _mun_location(location)
-        if moved is not None:
-            attempts.append((f"{moved},{icon.index}", lambda: _from_file(moved, icon.index)))
         if use_shell:
             # The shortcut names a specific icon; the shell resolves it more
             # faithfully than falling back to the target program's icon.
@@ -114,7 +111,13 @@ def read_icon_file(path: Path, index: int = 0) -> Image.Image | None:
         with Image.open(path) as img:
             return img.convert("RGBA")
     if suffix in _PE_SUFFIXES:
-        return largest_frame(_pe_icon(path, index))
+        try:
+            return largest_frame(_pe_icon(path, index))
+        except (OSError, ValueError):
+            moved = _mun_location(path)
+            if moved is None or not moved.exists():
+                raise
+            return largest_frame(_pe_icon(moved, index))
     return None
 
 

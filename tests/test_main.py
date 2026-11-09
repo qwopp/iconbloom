@@ -10,15 +10,15 @@ from app.choices import Choice
 from app.service import IconService
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import AppPaths
-from tests.conftest import load_sample
-from tests.test_service import Env
+from tests.fakes import FakeDesktop
 
 
 @pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Env]:
-    env = Env(tmp_path)
-    monkeypatch.setattr(main, "default_app_paths", lambda: AppPaths(tmp_path / "Iconbloom"))
-    monkeypatch.setattr(main, "windows_service", env.service)
+def desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDesktop]:
+    """A fake desktop that app.main's Windows wiring is pointed at."""
+    env = FakeDesktop(tmp_path)
+    monkeypatch.setattr(main, "default_app_paths", lambda: env.paths)
+    monkeypatch.setattr(main, "windows_service", lambda paths: env.service())
     # setup_logging adds a file handler to the root logger; drop it after the test.
     root = logging.getLogger()
     handlers = list(root.handlers)
@@ -29,24 +29,22 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Env]:
     monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
 
 
-def test_revert_all_flag_restores_everything(env: Env) -> None:
-    lnk = env.make("Paint")
+def test_revert_all_flag_restores_everything(desktop: FakeDesktop) -> None:
+    lnk = desktop.make("Paint")
     original = lnk.read_bytes()
-    service: IconService = env.service()
-    target = service.scan()[0]
-    image = load_sample("dark")
-    service.apply(target, image, image, Choice("kawaii_pink", "sticker"))
+    service = desktop.service()
+    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
     assert lnk.read_bytes() != original
 
     assert main.main(["--revert-all"]) == 0
     assert lnk.read_bytes() == original
-    assert (env.paths.logs / logs.LOG_NAME).exists()
+    assert (desktop.paths.logs / logs.LOG_NAME).exists()
 
 
 def test_revert_all_flag_refuses_on_corrupt_backup(
-    env: Env, monkeypatch: pytest.MonkeyPatch
+    desktop: FakeDesktop, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def broken() -> IconService:
+    def broken(paths: AppPaths) -> IconService:
         raise BackupCorruptError("backup.json can't be read")
 
     monkeypatch.setattr(main, "windows_service", broken)

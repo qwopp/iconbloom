@@ -15,7 +15,7 @@ from pathlib import Path
 
 from app.choices import Choice
 from app.service import ChangeReport, IconService, windows_service
-from engine.themes import ThemeError, load_theme
+from engine.themes import DEFAULT_THEME, ThemeError
 from platform_win.backup import BackupCorruptError
 from platform_win.extract import ExtractionError
 from platform_win.shortcuts import ShortcutGroup
@@ -38,11 +38,9 @@ def _cmd_scan(args: argparse.Namespace, service: IconService) -> int:
 
 def _cmd_apply(args: argparse.Namespace, service: IconService) -> int:
     target = _find(service, args.name)
-    theme = load_theme(args.theme)
-    theme.recipe(args.recipe)  # fail early on a typo, before extracting anything
-    choice = Choice(theme.id, args.recipe, seed=args.seed)
-    full, simple = service.render_choice(choice, service.original_icon(target).image)
-    return _report(service.apply(target, full, simple, choice, dry_run=args.dry_run))
+    service.theme(args.theme).recipe(args.recipe)  # fail early on a typo
+    choice = Choice(args.theme, args.recipe, seed=args.seed)
+    return _report(service.apply(target, choice, dry_run=args.dry_run))
 
 
 def _cmd_revert(args: argparse.Namespace, service: IconService) -> int:
@@ -129,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd = add("apply", _cmd_apply, "theme one shortcut", changes=True)
     apply_cmd.add_argument("name", help="shortcut name as shown by 'scan'")
     apply_cmd.add_argument("--recipe", required=True, help="recipe id from the theme")
-    apply_cmd.add_argument("--theme", default="kawaii_pink")
+    apply_cmd.add_argument("--theme", default=DEFAULT_THEME)
     apply_cmd.add_argument("--seed", type=int, default=0, help="0 = default look, others shuffle")
 
     revert_cmd = add("revert", _cmd_revert, "restore one shortcut's original icon", changes=True)

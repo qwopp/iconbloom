@@ -17,7 +17,7 @@ from app.service import windows_service
 from app.ui import UI_DIR
 from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
-from platform_win.paths import default_app_paths
+from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import hard_refresh
 
 log = logging.getLogger("iconbloom")
@@ -29,12 +29,12 @@ def load_style(app: QApplication) -> None:
     app.setStyleSheet((UI_DIR / "style.qss").read_text(encoding="utf-8"))
 
 
-def run_window() -> int:
+def run_window(paths: AppPaths) -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Iconbloom")
     load_style(app)
     try:
-        service = windows_service()
+        service = windows_service(paths)
     except BackupCorruptError as exc:
         log.error("refusing to start: %s", exc)
         QMessageBox.critical(
@@ -50,9 +50,9 @@ def run_window() -> int:
     return app.exec()
 
 
-def revert_everything() -> int:
+def revert_everything(paths: AppPaths) -> int:
     try:
-        report = windows_service().revert_all()
+        report = windows_service(paths).revert_all()
     except BackupCorruptError as exc:
         log.error("revert-all refused: %s", exc)
         return 2
@@ -69,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths = default_app_paths().ensure()
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
-    return revert_everything() if args.revert_all else run_window()
+    return revert_everything(paths) if args.revert_all else run_window(paths)
 
 
 if __name__ == "__main__":

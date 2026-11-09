@@ -5,9 +5,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from engine.themes import Theme, load_theme
-
-SAMPLES_DIR = Path(__file__).parent / "samples"
+from engine.themes import DEFAULT_THEME, Theme, load_theme
+from tests.fakes import SAMPLES_DIR, FakeDesktop
 
 # UI tests never open real windows.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -31,7 +30,12 @@ def update_goldens(request: pytest.FixtureRequest) -> bool:
 
 @pytest.fixture(scope="session")
 def kawaii() -> Theme:
-    return load_theme("kawaii_pink")
+    return load_theme(DEFAULT_THEME)
+
+
+@pytest.fixture
+def env(tmp_path: Path) -> FakeDesktop:
+    return FakeDesktop(tmp_path)
 
 
 def sample_names() -> list[str]:

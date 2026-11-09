@@ -4,19 +4,16 @@ import pytest
 
 from app import cli
 from app.service import IconService
-from tests.test_service import Env
+from tests.fakes import FakeDesktop
 
 
-@pytest.fixture
-def env(tmp_path: Path) -> Env:
-    return Env(tmp_path)
-
-
-def _run(env: Env, *argv: str) -> int:
+def _run(env: FakeDesktop, *argv: str) -> int:
     return cli.main(list(argv), make_service=env.service)
 
 
-def test_scan_lists_and_dumps(env: Env, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_scan_lists_and_dumps(
+    env: FakeDesktop, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     env.make("Paint", icon=r"C:\Apps\paint.ico")
     env.make("Admin", folder=env.common)
     assert _run(env, "scan", "--dump-dir", str(tmp_path / "dump")) == 0
@@ -28,7 +25,9 @@ def test_scan_lists_and_dumps(env: Env, tmp_path: Path, capsys: pytest.CaptureFi
     assert len(list((tmp_path / "dump").glob("*.png"))) == 2
 
 
-def test_apply_dry_run_then_real_then_revert(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+def test_apply_dry_run_then_real_then_revert(
+    env: FakeDesktop, capsys: pytest.CaptureFixture[str]
+) -> None:
     lnk = env.make("Paint")
     original = lnk.read_bytes()
 
@@ -44,7 +43,9 @@ def test_apply_dry_run_then_real_then_revert(env: Env, capsys: pytest.CaptureFix
     assert lnk.read_bytes() == original
 
 
-def test_revert_all_cleanup_and_reapply(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+def test_revert_all_cleanup_and_reapply(
+    env: FakeDesktop, capsys: pytest.CaptureFixture[str]
+) -> None:
     env.make("Paint")
     assert _run(env, "apply", "Paint", "--recipe", "sticker") == 0
     assert _run(env, "reapply", "--dry-run") == 0
@@ -57,7 +58,7 @@ def test_revert_all_cleanup_and_reapply(env: Env, capsys: pytest.CaptureFixture[
     assert "nothing to do" in capsys.readouterr().out
 
 
-def test_errors_are_reported(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+def test_errors_are_reported(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) -> None:
     env.make("Paint")
     assert _run(env, "apply", "Nope", "--recipe", "sticker") == 1
     assert _run(env, "apply", "Paint", "--recipe", "nope") == 1
@@ -66,18 +67,18 @@ def test_errors_are_reported(env: Env, capsys: pytest.CaptureFixture[str]) -> No
     assert "no recipe 'nope'" in err
 
 
-def test_corrupt_backup_refuses(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+def test_corrupt_backup_refuses(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) -> None:
     env.paths.ensure()
     env.paths.manifest.write_text("{", encoding="utf-8")
     assert _run(env, "revert-all") == 2
     assert "Refusing to change anything" in capsys.readouterr().err
 
 
-def test_reported_skips(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+def test_reported_skips(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) -> None:
     env.make("Admin", folder=env.common)
     assert _run(env, "apply", "Admin", "--recipe", "sticker") == 0
     assert "read-only location" in capsys.readouterr().out
 
 
-def test_service_type_is_used(env: Env) -> None:
+def test_service_type_is_used(env: FakeDesktop) -> None:
     assert isinstance(env.service(), IconService)

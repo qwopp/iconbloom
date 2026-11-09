@@ -12,7 +12,6 @@ that size and keeps the file small.
 import io
 import struct
 from collections.abc import Sequence
-from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -40,8 +39,11 @@ def build_ico(
     simple = simple or full
     frames: list[tuple[int, bytes]] = []
     for size in sorted(set(sizes)):
-        source = simple if size <= SIMPLIFIED_MAX else full
-        frame = source.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+        frame = (
+            frame_source(size, full, simple)
+            .convert("RGBA")
+            .resize((size, size), Image.Resampling.LANCZOS)
+        )
         frames.append((size, _encode_png(frame) if size >= _PNG_MIN else _encode_dib(frame)))
 
     out = bytearray(_HEADER.pack(0, 1, len(frames)))
@@ -55,12 +57,9 @@ def build_ico(
     return bytes(out)
 
 
-def write_ico(path: Path, full: Image.Image, simple: Image.Image | None = None) -> None:
-    """Write the .ico next to a temporary name first, so a crash never leaves half a file."""
-    data = build_ico(full, simple)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
+def frame_source(size: int, full: Image.Image, simple: Image.Image) -> Image.Image:
+    """Which render a frame of this size is drawn from."""
+    return simple if size <= SIMPLIFIED_MAX else full
 
 
 def _encode_png(frame: Image.Image) -> bytes:

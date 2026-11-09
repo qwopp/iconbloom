@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.choices import Choice
 from app.service import Status
 
 log = logging.getLogger(__name__)
@@ -69,33 +70,31 @@ def pixmap_at(image: QImage, size: int, ratio: float) -> QPixmap:
 
 
 class JobSignals(QObject):
-    done = Signal(int, object)
-    failed = Signal(int, str)
-    progress = Signal(int, object)
+    done = Signal(object)
+    failed = Signal(str)
+    progress = Signal(object)
 
 
 class Job(QRunnable):
-    """Run ``work`` on the thread pool and report back with the request token.
+    """Run ``work`` on a thread pool and report back through Qt signals.
 
-    The token lets the window drop results for a selection the user has
-    already moved away from.
+    ``work`` gets a callback for reporting progress items as it goes.
     """
 
-    def __init__(self, token: int, work: Callable[[Callable[[object], None]], object]) -> None:
+    def __init__(self, work: Callable[[Callable[[object], None]], object]) -> None:
         super().__init__()
-        self.token = token
         self.signals = JobSignals()
         self._work = work
 
     @override
     def run(self) -> None:
         try:
-            result = self._work(lambda item: self.signals.progress.emit(self.token, item))
+            result = self._work(self.signals.progress.emit)
         except Exception as exc:  # reported to the UI; the worker thread must not die silently
             log.exception("background job failed")
-            self.signals.failed.emit(self.token, str(exc))
+            self.signals.failed.emit(str(exc))
             return
-        self.signals.done.emit(self.token, result)
+        self.signals.done.emit(result)
 
 
 class TileDelegate(QStyledItemDelegate):
@@ -213,9 +212,12 @@ class PreviewCard(QFrame):
     activated = Signal(object)
     hovered = Signal(object, bool)
 
-    def __init__(self, key: str, label: str, image: QImage, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, choice: Choice, label: str, image: QImage, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
-        self.key = key
+        self.choice = choice
+        self.label = label
         self.image = image
         self.setObjectName("previewCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)

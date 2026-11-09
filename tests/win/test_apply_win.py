@@ -34,12 +34,9 @@ def test_apply_and_revert_five_real_shortcuts(tmp_path: Path, shell_io: ShellLin
 
     groups = service.scan()
     assert len(groups) == len(TARGETS)
-    for group in groups:
-        original = service.original_icon(group).image
-        choice = Choice("kawaii_pink", "sticker_face")
-        full, simple = service.render_choice(choice, original)
-        report = service.apply(group, full, simple, choice)
-        assert report.changed == [group.primary.path]
+    report = service.apply_many(groups, lambda g: Choice("kawaii_pink", "sticker_face"))
+    assert sorted(report.changed) == sorted(links)
+    assert report.skipped == []
 
     for link in links:
         icon = shell_io.read(link).icon
@@ -57,9 +54,7 @@ def test_original_icon_comes_back_from_backup(tmp_path: Path, shell_io: ShellLin
     shell_io.create(desktop / "Notepad.lnk", str(NOTEPAD))
     service = _service(tmp_path, shell_io)
     (group,) = service.scan()
-    original = service.original_icon(group).image
-    choice = Choice("kawaii_pink", "mono_rose")
-    service.apply(group, *service.render_choice(choice, original), choice)
+    service.apply(group, Choice("kawaii_pink", "mono_rose"))
     (themed,) = service.scan()
     again = service.original_icon(themed)
     assert "notepad" in again.source.casefold()

@@ -15,13 +15,13 @@ Nothing here calls Windows APIs, so all of it is tested on every OS.
 
 import hashlib
 import json
-import os
 import shutil
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from platform_win.fileio import atomic_write, write_json
 from platform_win.shortcuts import IconLocation, normalize_path
 
 MANIFEST_VERSION = 1
@@ -124,7 +124,7 @@ class BackupManifest:
         digest = hashlib.sha256(data).hexdigest()
         copy_name = f"{hashlib.sha256(_key(shortcut).encode()).hexdigest()[:16]}_{digest[:8]}.lnk"
         self._originals.mkdir(parents=True, exist_ok=True)
-        _atomic_write(self._originals / copy_name, data)
+        atomic_write(self._originals / copy_name, data)
         entry = BackupEntry(
             shortcut=str(shortcut),
             original_icon_path=icon.path,
@@ -161,18 +161,15 @@ class BackupManifest:
             ) from exc
 
     def _save(self) -> None:
-        payload = {
-            "version": MANIFEST_VERSION,
-            "entries": [asdict(e) for e in self._entries.values()],
-        }
-        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         if self._path.exists():
             # Copy, not move: backup.json must exist at every instant.
             tmp_prev = self._prev.with_name(self._prev.name + ".tmp")
             shutil.copyfile(self._path, tmp_prev)
             tmp_prev.replace(self._prev)
-        _atomic_write(self._path, text.encode("utf-8"))
+        write_json(
+            self._path,
+            {"version": MANIFEST_VERSION, "entries": [asdict(e) for e in self._entries.values()]},
+        )
 
 
 def _parse(raw: object) -> dict[str, BackupEntry]:
@@ -209,12 +206,3 @@ def _parse_entry(item: object) -> BackupEntry:
 
 def _key(shortcut: Path) -> str:
     return normalize_path(str(shortcut))
-
-
-def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("wb") as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(path)

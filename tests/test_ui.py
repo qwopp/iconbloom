@@ -1,7 +1,7 @@
 """Smoke tests for the picker window, driven through pytest-qt against fake shortcuts."""
 
 from collections.abc import Iterator
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint
@@ -12,21 +12,27 @@ from app.main import load_style
 from app.service import IconService, Status
 from app.ui.main_window import MainWindow
 from app.updates import Release
-from platform_win.extract import ExtractedIcon
-from platform_win.shortcuts import IconLocation
 from tests.conftest import load_sample
-from tests.test_service import Env
+from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
 RECIPES = 10
 
 
 class Harness:
-    def __init__(self, env: Env, window: MainWindow, qtbot: QtBot) -> None:
-        self.env = env
-        self.window = window
+    def __init__(self, desktop: FakeDesktop, qtbot: QtBot) -> None:
+        self.desktop = desktop
         self.qtbot = qtbot
         self.refreshes = 0
+        # Text of every information/warning box the window tried to show.
+        self.messages: list[str] = []
+        self.release: Release | None = None
+        self.window = MainWindow(
+            desktop.service(), hard_refresh=self._hard_refresh, update_check=lambda: self.release
+        )
+
+    def _hard_refresh(self) -> None:
+        self.refreshes += 1
 
     @property
     def service(self) -> IconService:
@@ -39,38 +45,29 @@ class Harness:
         return self.service.status(next(g for g in self.service.scan() if g.name == name))
 
     def lnk(self, name: str) -> Path:
-        return self.env.desktop / f"{name}.lnk"
+        return self.desktop.desktop / f"{name}.lnk"
 
 
 @pytest.fixture
-def harness(tmp_path: Path, qtbot: QtBot, qapp: QApplication) -> Iterator[Harness]:
-    env = Env(tmp_path)
+def harness(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Harness]:
+    desktop = FakeDesktop(tmp_path, icons=APPS, default="dark")
     for name in APPS:
-        env.make(name)
-    env.make("Admin Tool", folder=env.common)
-    service = env.service()
-
-    def extractor(
-        icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
-    ) -> ExtractedIcon:
-        sample = APPS.get(PureWindowsPath(target).stem, "dark")
-        return ExtractedIcon(load_sample(sample), upscaled=False, source=target)
-
-    service._extract = extractor  # pyright: ignore[reportPrivateUsage]
+        desktop.make(name)
+    desktop.make("Admin Tool", folder=desktop.common)
     load_style(qapp)
-    window = MainWindow(service, hard_refresh=lambda: None)
-    qtbot.addWidget(window)
-    h = Harness(env, window, qtbot)
-
-    def hard_refresh() -> None:
-        h.refreshes += 1
-
-    window._hard_refresh = hard_refresh  # pyright: ignore[reportPrivateUsage]
-    window.show()
-    qtbot.waitUntil(lambda: window.model.rowCount() == len(APPS) + 1, timeout=10_000)
+    h = Harness(desktop, qtbot)
+    # Modal boxes would block a headless run forever; record them instead.
+    for kind in ("information", "warning"):
+        monkeypatch.setattr(QMessageBox, kind, lambda parent, title, text: h.messages.append(text))
+    qtbot.addWidget(h.window)
+    h.window.show()
+    qtbot.waitUntil(lambda: h.window.model.rowCount() == len(APPS) + 1, timeout=10_000)
     h.wait_for_previews()
     yield h
-    window.close()
+    h.window.close()
+    assert h.messages == [], f"unexpected dialogs: {h.messages}"
 
 
 @pytest.fixture
@@ -132,7 +129,9 @@ def test_shuffle_rerolls_previews(harness: Harness) -> None:
 def test_revert_all_after_applying_everything(harness: Harness, say_yes: None) -> None:
     originals = {name: harness.lnk(name).read_bytes() for name in APPS}
     harness.window.apply_style_to_all()
-    assert all(harness.status(name) is Status.THEMED for name in APPS)
+    harness.qtbot.waitUntil(
+        lambda: all(harness.status(name) is Status.THEMED for name in APPS), timeout=15_000
+    )
     harness.window.revert_all()
     assert {name: harness.lnk(name).read_bytes() for name in APPS} == originals
 
@@ -142,7 +141,7 @@ def test_use_own_image(harness: Harness, tmp_path: Path) -> None:
     load_sample("gradient_app").save(picture)
     harness.window.use_own_image(picture)
     harness.wait_for_previews(RECIPES + 1)
-    assert harness.window._cards[0].key == "custom"
+    assert harness.window._cards[0].choice.is_custom
     harness.window._choose(harness.window._cards[0])
     assert not harness.window.all_button.isEnabled()
     harness.window.apply_chosen()
@@ -167,6 +166,7 @@ def test_hover_shows_real_size_popup(harness: Harness) -> None:
 def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
     harness.window.apply_chosen()
     harness.window.reapply_all()
+    assert "Nothing needed reapplying" in harness.window.statusBar().currentMessage()
     harness.window.clean_up()
     harness.window.refresh_icons()
     assert harness.refreshes == 1
@@ -175,16 +175,14 @@ def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
 
 
 def test_errors_become_a_dialog(harness: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    shown: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda parent, title, text: shown.append(text))
 
     def broken(*args: object, **kwargs: object) -> None:
         raise OSError("disk is full")
 
     monkeypatch.setattr(harness.service, "apply", broken)
     harness.window.apply_chosen()
-    assert shown
-    assert "disk is full" in shown[0]
+    assert len(harness.messages) == 1
+    assert "disk is full" in harness.messages.pop()
     assert harness.status("Arcade") is Status.ORIGINAL
 
 
@@ -196,8 +194,7 @@ def test_popup_handles_point(harness: Harness) -> None:
 
 
 def test_update_check_is_opt_in(harness: Harness) -> None:
-    release = Release("9.9.9", "https://github.com/qwopp/iconbloom/releases/v9.9.9")
-    harness.window._update_check = lambda: release  # pyright: ignore[reportPrivateUsage]
+    harness.release = Release("9.9.9", "https://github.com/qwopp/iconbloom/releases/v9.9.9")
     assert not harness.window.update_box.isChecked()
     harness.window.update_box.setChecked(True)
     harness.qtbot.waitUntil(lambda: "9.9.9" in harness.window.update_label.text(), timeout=5_000)

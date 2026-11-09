@@ -15,9 +15,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from engine import analyze, ops
-from engine.ico import SIMPLIFIED_MAX
+from engine.ico import frame_source
 from engine.recipes import render
-from engine.themes import THEMES_DIR, Theme, load_theme
+from engine.themes import DEFAULT_THEME, THEMES_DIR, Theme, load_theme
 
 CELL = 128
 GAP = 14
@@ -70,8 +70,7 @@ def _paste_cell(sheet: Image.Image, full: Image.Image, simple: Image.Image, x: i
     strip = Image.new("RGBA", (CELL, SMALL_H - 6), (*DESKTOP, 255))
     cursor = 6
     for size in SMALL_SIZES:
-        source = simple if size <= SIMPLIFIED_MAX else full
-        small = source.resize((size, size), Image.Resampling.LANCZOS)
+        small = frame_source(size, full, simple).resize((size, size), Image.Resampling.LANCZOS)
         strip.alpha_composite(small, (cursor, (strip.height - size) // 2))
         cursor += size + 10
     sheet.alpha_composite(strip, (x, y + CELL + 4))
@@ -90,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python -m engine.sheet", description="Render a theme contact sheet."
     )
     parser.add_argument("icons", type=Path, help="folder of .png icons")
-    parser.add_argument("--theme", default="kawaii_pink", help="theme folder name")
+    parser.add_argument("--theme", default=DEFAULT_THEME, help="theme folder name")
     parser.add_argument("--themes-dir", type=Path, default=THEMES_DIR)
     parser.add_argument("--seed", type=int, default=0, help="0 = default look, others shuffle")
     parser.add_argument("-o", "--output", type=Path, default=Path("contact_sheet.png"))

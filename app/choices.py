@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from platform_win.fileio import write_json
+
 log = logging.getLogger(__name__)
 
 CHOICES_VERSION = 1
@@ -25,10 +27,19 @@ class Choice:
     # File name under AppPaths.custom_images when recipe is "custom".
     custom_image: str | None = None
 
+    @classmethod
+    def custom(cls, image_name: str) -> "Choice":
+        """A choice that uses the user's own image instead of a recipe."""
+        return cls(theme="", recipe=CUSTOM_RECIPE, custom_image=image_name)
+
+    @property
+    def is_custom(self) -> bool:
+        return self.custom_image is not None
+
     @property
     def file_tag(self) -> str:
         """Part of the generated .ico name; differs whenever the picture would."""
-        if self.custom_image:
+        if self.custom_image is not None:
             return f"{CUSTOM_RECIPE}_{Path(self.custom_image).stem}"
         return f"{self.theme}_{self.recipe}" + (f"_s{self.seed}" if self.seed else "")
 
@@ -91,7 +102,4 @@ class ChoiceStore:
             "choices": {k: asdict(v) for k, v in self._choices.items()},
             "skipped": sorted(self._skipped),
         }
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_name(self._path.name + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(self._path)
+        write_json(self._path, payload)
