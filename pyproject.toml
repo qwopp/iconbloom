@@ -1,6 +1,6 @@
 [project]
 name = "iconbloom"
-version = "0.2.0"
+version = "0.3.0"
 description = "Restyle Windows shortcut icons into a cute, cohesive theme."
 readme = "README.md"
 license = "MIT"

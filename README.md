@@ -63,7 +63,7 @@ Iconbloom collects no data. The only network request it can make is checking for
 ## FAQ
 
 **Windows says "Windows protected your PC" when I run the installer.**
-Releases aren't code-signed yet, so Windows SmartScreen doesn't recognize the publisher. Click **More info**, then **Run anyway**. To check that your download is the real one, compare its SHA-256 hash with `SHA256SUMS.txt` on the release page (in PowerShell: `Get-FileHash Iconbloom-Setup-0.2.0.exe`).
+Releases aren't code-signed yet, so Windows SmartScreen doesn't recognize the publisher. Click **More info**, then **Run anyway**. To check that your download is the real one, compare its SHA-256 hash with `SHA256SUMS.txt` on the release page (in PowerShell: `Get-FileHash Iconbloom-Setup-0.3.0.exe`).
 
 **My antivirus flagged it.**
 Apps packaged with PyInstaller sometimes trigger false positives. Iconbloom ships as a folder rather than a single self-extracting file, which helps. The full source is here, and you can build it yourself (see below).
@@ -104,7 +104,7 @@ To build the installer, also install [Inno Setup 6](https://jrsoftware.org/isinf
 ```powershell
 uv sync --group release
 uv run pyinstaller installer/iconbloom.spec --noconfirm
-iscc /DAppVersion=0.2.0 installer\iconbloom.iss
+iscc /DAppVersion=0.3.0 installer\iconbloom.iss
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how the project is checked and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together.
