@@ -9,27 +9,29 @@ same order, so a crash at any step leaves a recoverable state:
 4. note the shortcut's new hash in the manifest, and the choice in choices.json
 """
 
-import hashlib
-import io
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
 
+from app.changes import (
+    DECLINED_REASON,
+    SHARED_REASON,
+    ChangeReport,
+    Progress,
+    ShortcutStateError,
+    Status,
+)
 from app.choices import Choice, ChoiceStore
 from app.elevation import Action, ElevatedItem, ElevatedResult, Elevator, WindowsElevator
+from app.styles import Styles
 from engine import ops
-from engine.ico import build_ico
-from engine.recipes import render
-from engine.themes import THEMES_DIR, Theme, list_themes, load_theme, theme_name
+from engine.themes import THEMES_DIR
 from platform_win.backup import BackupManifest, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
-from platform_win.fileio import atomic_write
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import notify_icons_changed
@@ -45,53 +47,27 @@ from platform_win.shortcuts import (
     default_roots,
     normalize_path,
     scan,
-    variant_path,
 )
 
 log = logging.getLogger(__name__)
+
+# Re-exported so callers can import everything about a change from one place.
+__all__ = [
+    "DECLINED_REASON",
+    "SHARED_REASON",
+    "ChangeReport",
+    "IconService",
+    "Progress",
+    "ShortcutStateError",
+    "Status",
+    "windows_service",
+]
 
 
 class Extractor(Protocol):
     def __call__(
         self, icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
     ) -> ExtractedIcon: ...
-
-
-class Status(StrEnum):
-    ORIGINAL = "original"
-    THEMED = "themed"
-    SKIPPED = "skipped"
-    # A style was chosen, but the shortcut lost it (usually an app update).
-    NEEDS_REAPPLY = "needs reapply"
-
-
-SHARED_REASON = "shared by every user on this PC; needs administrator permission"
-DECLINED_REASON = "you declined Windows' permission prompt"
-
-
-class ShortcutStateError(Exception):
-    """A shortcut is in a state Iconbloom won't change without a person deciding."""
-
-
-@dataclass
-class ChangeReport:
-    """What a command changed, or with dry_run, what it would change."""
-
-    dry_run: bool
-    changed: list[Path] = field(default_factory=list[Path])
-    written: list[Path] = field(default_factory=list[Path])
-    removed: list[Path] = field(default_factory=list[Path])
-    skipped: list[tuple[Path, str]] = field(default_factory=list[tuple[Path, str]])
-
-    def extend(self, other: "ChangeReport") -> None:
-        self.changed += other.changed
-        self.written += other.written
-        self.removed += other.removed
-        self.skipped += other.skipped
-
-
-# Called before each shortcut group in a batch; returning False stops the batch.
-type Progress = Callable[[int, ShortcutGroup], bool]
 
 
 class IconService:
@@ -113,10 +89,9 @@ class IconService:
         self._windows_icons = windows_icons
         self._extract = extractor
         self._notify = notify
-        self._themes_dir = themes_dir
         self._elevator = elevator
         self._shared_folders = [r.path for r in roots if r.source in SHARED_SOURCES]
-        self._themes: dict[str, Theme] = {}
+        self.styles = Styles(self.paths, themes_dir)
         self._icons_prefix = normalize_path(str(self.paths.icons)).rstrip("\\") + "\\"
         # Raises BackupCorruptError on a damaged manifest, before anything can change.
         self.manifest = BackupManifest(paths.manifest, paths.originals)
@@ -124,16 +99,6 @@ class IconService:
 
     def scan(self) -> list[ShortcutGroup]:
         return scan(self._roots, self._io, self._windows_icons)
-
-    def theme_names(self) -> list[tuple[str, str]]:
-        """(id, display name) of every installed theme, without loading them."""
-        return [(t, theme_name(t, self._themes_dir)) for t in list_themes(self._themes_dir)]
-
-    def theme(self, theme_id: str) -> Theme:
-        """A loaded theme, read from disk once per session."""
-        if theme_id not in self._themes:
-            self._themes[theme_id] = load_theme(theme_id, self._themes_dir)
-        return self._themes[theme_id]
 
     def reload(self, target: ShortcutGroup) -> ShortcutGroup:
         """Re-read a group's shortcuts after they changed."""
@@ -176,10 +141,9 @@ class IconService:
         icon = primary.info.icon
         if not self.is_ours(icon):
             return self._extract(icon, primary.info.target, primary.path)
-        saved = self._saved_original_path(target)
-        if saved.is_file():
-            with Image.open(saved) as img:
-                return ExtractedIcon(img.convert("RGBA"), upscaled=False, source="saved original")
+        saved = self.styles.saved_original(target.slug)
+        if saved is not None:
+            return ExtractedIcon(saved, upscaled=False, source="saved original")
         entry = self.manifest.get(primary.path)
         icon = entry.original_icon if entry is not None else IconLocation()
         return self._extract(icon, primary.info.target, primary.path, use_shell=False)
@@ -261,30 +225,55 @@ class IconService:
                 report.skipped.append((target.primary.path, str(exc)))
                 continue
             report.written.append(icon_file)
-            for shortcut in target.own_shortcuts:
-                try:
-                    self._apply_one(shortcut.path, icon_file, dry_run=dry_run)
-                except ShortcutStateError as exc:
-                    report.skipped.append((shortcut.path, str(exc)))
-                    continue
-                report.changed.append(shortcut.path)
-                chosen[shortcut.path] = (target, choice)
-            for shortcut in target.shared_shortcuts:
-                if include_shared:
-                    shared.append(ElevatedItem(shortcut.path, icon_file))
-                    chosen[shortcut.path] = (target, choice)
-                else:
-                    report.skipped.append((shortcut.path, SHARED_REASON))
+            queue = shared if include_shared else None
+            touched = self._point_at(target, icon_file, report, queue, dry_run=dry_run)
+            chosen.update(dict.fromkeys(touched, (target, choice)))
         if shared:
             report.extend(self._elevated("apply", shared, dry_run=dry_run))
         if not dry_run:
-            for path in report.changed:
-                target, choice = chosen[path]
-                self.choices.set(target.key, choice)
-            if report.changed:
-                self._notify(report.changed)
-                log.info("applied styles to %d shortcuts", len(report.changed))
+            self._remember_choices(report, chosen)
         return report
+
+    def _point_at(
+        self,
+        target: ShortcutGroup,
+        icon_file: Path,
+        report: ChangeReport,
+        shared: list[ElevatedItem] | None,
+        *,
+        dry_run: bool,
+    ) -> list[Path]:
+        """Point a group's own items at ``icon_file`` now, and queue its shared ones.
+
+        ``shared`` is None when shared items should be left alone. Returns every
+        item that was changed or queued.
+        """
+        touched: list[Path] = []
+        for shortcut in target.own_shortcuts:
+            try:
+                self._apply_one(shortcut.path, icon_file, dry_run=dry_run)
+            except ShortcutStateError as exc:
+                report.skipped.append((shortcut.path, str(exc)))
+                continue
+            report.changed.append(shortcut.path)
+            touched.append(shortcut.path)
+        for shortcut in target.shared_shortcuts:
+            if shared is None:
+                report.skipped.append((shortcut.path, SHARED_REASON))
+            else:
+                shared.append(ElevatedItem(shortcut.path, icon_file))
+                touched.append(shortcut.path)
+        return touched
+
+    def _remember_choices(
+        self, report: ChangeReport, chosen: Mapping[Path, tuple[ShortcutGroup, Choice]]
+    ) -> None:
+        for path in report.changed:
+            target, choice = chosen[path]
+            self.choices.set(target.key, choice)
+        if report.changed:
+            self._notify(report.changed)
+            log.info("applied styles to %d shortcuts", len(report.changed))
 
     def reapply(
         self,
@@ -350,9 +339,7 @@ class IconService:
         try:
             result = self._elevator(action, items)
         except ElevationDeclinedError:
-            report.skipped += [
-                (i.shortcut, "you declined Windows' permission prompt") for i in items
-            ]
+            report.skipped += [(i.shortcut, DECLINED_REASON) for i in items]
             return report
         finally:
             # The elevated copy wrote to backup.json; pick up its entries.
@@ -401,46 +388,11 @@ class IconService:
         in_use = {
             normalize_path(e.applied_icon) for e in self.manifest if e.applied_icon is not None
         }
-        for path in sorted(self.paths.icons.glob("*.ico")):
-            # A variant ("x.full.ico") is in use when its main icon ("x.ico") is.
-            main = path.with_name(path.name.split(".", 1)[0] + path.suffix)
-            if normalize_path(str(main)) not in in_use:
-                report.removed.append(path)
-                if not dry_run:
-                    path.unlink(missing_ok=True)
+        for path in self.styles.unused_icons(in_use):
+            report.removed.append(path)
+            if not dry_run:
+                path.unlink(missing_ok=True)
         return report
-
-    def render_choice(
-        self, choice: Choice, prepared: Image.Image | None = None
-    ) -> tuple[Image.Image, Image.Image]:
-        """Full and simplified renders for a choice.
-
-        Theme choices need ``prepared``, the original icon after ``ops.prepare``;
-        a custom image is its own source.
-        """
-        if choice.custom_image is not None:
-            with Image.open(self.paths.custom_images / choice.custom_image) as img:
-                image, _ = ops.prepare(img)
-            return image, image
-        if prepared is None:
-            raise ValueError(f"rendering {choice.file_tag} needs the original icon")
-        theme = self.theme(choice.theme)
-        recipe = theme.recipe(choice.recipe)
-        return (
-            render(recipe, prepared, theme, seed=choice.seed),
-            render(recipe, prepared, theme, seed=choice.seed, simplified=True),
-        )
-
-    def store_custom_image(self, source: Path) -> Choice:
-        """Copy a user-picked image into app data and return the choice that uses it."""
-        with Image.open(source) as img:
-            ops.prepare(img)  # raises on an unusable image before anything is stored
-        data = source.read_bytes()
-        name = f"{hashlib.sha256(data).hexdigest()[:12]}{source.suffix.casefold()}"
-        destination = self.paths.custom_images / name
-        if not destination.exists():
-            atomic_write(destination, data)
-        return Choice.custom(name)
 
     def _apply_one(self, path: Path, icon_file: Path, *, dry_run: bool) -> None:
         current = self._io.read(path)
@@ -465,39 +417,29 @@ class IconService:
         self, target: ShortcutGroup, choice: Choice, prepared: Image.Image | None, *, dry_run: bool
     ) -> Path:
         """Render ``choice`` for a group and write its .ico (and any variants); returns the file."""
+        if dry_run:
+            return self.styles.icon_path(target.slug, choice)
         if not choice.is_custom and prepared is None:
             prepared, _ = ops.prepare(self.original_icon(target).image)
-        full, simple = self.render_choice(choice, prepared)
-        icon_file = self.paths.icons / f"{target.slug}_{choice.file_tag}.ico"
-        if dry_run:
-            return icon_file
         if self.status(target) is not Status.THEMED:
             self._save_original(target, prepared)
-        atomic_write(icon_file, build_ico(full, simple))
         primary = target.primary.path
+        variants: dict[str, Image.Image | None] = {}
         for name, location in self._io.variants(primary).items():
-            source = None
+            variants[name] = None
             if not choice.is_custom:
                 extracted = self._extract(location, "", primary, use_shell=False)
-                source, _ = ops.prepare(extracted.image)
-            variant_full, variant_simple = self.render_choice(choice, source)
-            atomic_write(variant_path(icon_file, name), build_ico(variant_full, variant_simple))
-        return icon_file
+                variants[name], _ = ops.prepare(extracted.image)
+        return self.styles.write_icon(target.slug, choice, prepared, variants)
 
     def _save_original(self, target: ShortcutGroup, prepared: Image.Image | None) -> None:
-        """Keep a picture of the item's own icon, since Windows reports ours once it's styled."""
         if prepared is None:
             try:
                 prepared, _ = ops.prepare(self.original_icon(target).image)
             except (ExtractionError, OSError, ValueError):
                 log.warning("could not save the original icon of %s", target.name)
                 return
-        buffer = io.BytesIO()
-        prepared.save(buffer, format="PNG")
-        atomic_write(self._saved_original_path(target), buffer.getvalue())
-
-    def _saved_original_path(self, target: ShortcutGroup) -> Path:
-        return self.paths.original_icons / f"{target.slug}.png"
+        self.styles.save_original(target.slug, prepared)
 
     def _revert_one(self, path: Path, *, dry_run: bool, whole_file: bool = True) -> bool:
         entry = self.manifest.get(path)

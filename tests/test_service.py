@@ -295,12 +295,12 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
     picture = tmp_path / "bunny.PNG"
     load_sample("gradient_app").save(picture)
     service = env.service()
-    choice = service.store_custom_image(picture)
+    choice = service.styles.store_custom_image(picture)
     assert choice.is_custom
     assert choice.custom_image is not None
     assert choice.custom_image.endswith(".png")
-    assert service.store_custom_image(picture) == choice
-    full, simple = service.render_choice(choice)
+    assert service.styles.store_custom_image(picture) == choice
+    full, simple = service.styles.render(choice)
     assert full.size == (256, 256)
     assert simple is full
 
@@ -311,13 +311,13 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
 
 def test_theme_choice_needs_the_original(env: FakeDesktop) -> None:
     with pytest.raises(ValueError, match="needs the original icon"):
-        env.service().render_choice(CHOICE)
+        env.service().styles.render(CHOICE)
 
 
 def test_themes_are_listed_and_cached(env: FakeDesktop) -> None:
     service = env.service()
-    assert ("kawaii_pink", "Kawaii Pink") in service.theme_names()
-    assert service.theme("kawaii_pink") is service.theme("kawaii_pink")
+    assert ("kawaii_pink", "Kawaii Pink") in service.styles.theme_names()
+    assert service.styles.theme("kawaii_pink") is service.styles.theme("kawaii_pink")
 
 
 def test_batch_records_failures_and_notifies_once(tmp_path: Path) -> None:
@@ -350,4 +350,4 @@ def test_custom_image_must_have_visible_pixels(env: FakeDesktop, tmp_path: Path)
     blank = tmp_path / "blank.png"
     Image.new("RGBA", (16, 16)).save(blank)
     with pytest.raises(ValueError, match="no visible pixels"):
-        env.service().store_custom_image(blank)
+        env.service().styles.store_custom_image(blank)

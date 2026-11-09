@@ -40,7 +40,7 @@ def _cmd_scan(args: argparse.Namespace, service: IconService) -> int:
 
 def _cmd_apply(args: argparse.Namespace, service: IconService) -> int:
     target = _find(service, args.name)
-    service.theme(args.theme).recipe(args.recipe)  # fail early on a typo
+    service.styles.theme(args.theme).recipe(args.recipe)  # fail early on a typo
     choice = Choice(args.theme, args.recipe, seed=args.seed)
     return _report(
         service.apply(target, choice, include_shared=args.include_shared, dry_run=args.dry_run)
