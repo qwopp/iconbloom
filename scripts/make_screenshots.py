@@ -128,6 +128,9 @@ def picker_media(app: QApplication) -> None:
         click(3)
         window.apply_chosen()
         frames.append(_grab(app, window))
+        browser = next(g for g in window.shortcuts.groups if g.name == "Browser")
+        window.shortcuts.select(browser.key)
+        frames.append(_grab(app, window))
         window.theme_box.setCurrentIndex(window.theme_box.findData(SECOND_THEME))
         frames.append(_grab(app, window))
         click(1)
@@ -145,7 +148,7 @@ def picker_media(app: QApplication) -> None:
             OUT / "picker.gif",
             save_all=True,
             append_images=palette[1:],
-            duration=[1400, 1000, 1000, 1400, 1400, 1000, 1400, 2200],
+            duration=[1400, 1000, 1000, 1400, 1000, 1400, 1000, 1400, 2200],
             loop=0,
             optimize=True,
         )
