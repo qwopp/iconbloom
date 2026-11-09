@@ -17,6 +17,7 @@ DOCS = [
     ROOT / "CONTRIBUTING.md",
     ROOT / "CHANGELOG.md",
     ROOT / "SECURITY.md",
+    ROOT / "CLAUDE.md",
     *ROOT.glob("docs/*.md"),
 ]
 LINK = re.compile(r"\]\(([^)#\s]+)")
@@ -30,6 +31,14 @@ def test_local_links_and_images_exist(doc: Path) -> None:
         if not target.startswith(("http://", "https://")) and not (doc.parent / target).exists()
     ]
     assert missing == []
+
+
+def test_claude_md_imports_exist() -> None:
+    """CLAUDE.md pulls in other docs with @path lines; a moved doc would silently drop out."""
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    imports = re.findall(r"^@(\S+)$", text, re.MULTILINE)
+    assert imports
+    assert [p for p in imports if not (ROOT / p).exists()] == []
 
 
 def test_readme_needs_no_edit_per_release() -> None:
