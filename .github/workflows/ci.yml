@@ -24,6 +24,8 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest --cov --cov-report=term
+      - name: Scan the runner's real shortcuts (read-only smoke test)
+        run: uv run python -m app.cli scan --dump-dir scan-dump
       - name: Coverage gate for the engine and backup manifest
         run: uv run coverage report --include="engine/*,platform_win/backup.py" --fail-under=90
 
