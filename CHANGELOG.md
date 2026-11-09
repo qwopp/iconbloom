@@ -6,6 +6,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- After **Apply**, Iconbloom stays on the icon you just styled, with that style still
+  picked, instead of jumping to the next one. **Skip** still moves on.
+
 ## [0.4.1] - 2026-11-09
 
 ### Fixed

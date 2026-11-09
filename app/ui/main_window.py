@@ -247,9 +247,9 @@ class MainWindow(QMainWindow):
 
         def done(report: ChangeReport) -> None:
             if len(targets) == 1:
-                updated = self.shortcuts.refresh_group(targets[0])
-                if report.changed and not self.shortcuts.select_next_untouched():
-                    self.picker.show_group(updated)
+                # Stay on the icon just styled, with its style still picked.
+                self.picker.update_group(self.shortcuts.refresh_group(targets[0]))
+                self._update_actions()
             else:
                 self.shortcuts.reload()
             if report.changed:
