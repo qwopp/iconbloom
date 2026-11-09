@@ -11,6 +11,24 @@ uv run pre-commit install
 
 The pre-commit hooks run the same checks as CI: `ruff check`, `ruff format` and `pyright`.
 
+## Handy commands
+
+```bash
+uv run python -m app.main                  # the app
+uv run python -m app.cli scan              # list what Iconbloom sees, changing nothing
+uv run python -m app.cli revert-all        # undo everything (every changing command takes --dry-run)
+uv run python -m engine.sheet tests/samples -o sheet.png   # preview a theme, any OS
+QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots   # refresh README images
+```
+
+To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then:
+
+```powershell
+uv sync --group release
+uv run pyinstaller installer/iconbloom.spec --noconfirm
+iscc /DAppVersion=0.0.0 installer\iconbloom.iss
+```
+
 ## Checks
 
 ```bash
