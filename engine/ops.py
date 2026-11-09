@@ -31,9 +31,14 @@ CONTENT_FILL = 0.78
 # Supersampling factor for drawn shapes, which Pillow does not anti-alias.
 _SUPERSAMPLE = 4
 _ALPHA_VISIBLE = 8
-# Two tones must differ this much in luminance before mono cuts one out.
+# Two tones must differ this much to count as two: in luminance for mono, in RGB
+# distance for duotone.
 _KNOCKOUT_CONTRAST = 0.25
 _KNOCKOUT_SOFTNESS = 0.08
+# Fewer solid pixels than this are too few to split into tones.
+_MIN_TONE_PIXELS = 32
+# duotone measures colors this many pixels inside the icon's outline.
+_TONE_EDGE = 2
 # recolor treats chroma below this as gray, and at this much above it as fully colored.
 _NEUTRAL_CHROMA = 0.05
 _FULL_CHROMA = 0.25
@@ -144,7 +149,7 @@ def mono(img: Image.Image, *, color: RGB, knockout: bool = True) -> Image.Image:
     arr = _to_array(img)
     if knockout:
         arr[..., 3] = _knockout_alpha(arr)
-    arr[..., :3] = np.asarray(color, dtype=np.float64) / 255
+    arr[..., :3] = _unit(color)
     return _finish(_from_array(arr))
 
 
@@ -159,6 +164,24 @@ def gradient_fill(
     gradient = np.asarray(linear_gradient(img.size, stops[0], stops[1], angle), dtype=np.float64)
     out = np.dstack([gradient / 255, alpha])
     return _finish(_from_array(out))
+
+
+def duotone(img: Image.Image, *, body: RGB | None = None, detail: RGB | None = None) -> Image.Image:
+    """Paint the icon's main tone and its contrasting details two flat colors.
+
+    A color left out takes the other part's own color, so with neither given the
+    two trade places: a white cat with pink whiskers becomes a pink cat with white
+    whiskers. One-tone icons get ``body`` all over, or stay as they are.
+    """
+    arr = _to_array(img)
+    split = _color_tones(arr)
+    if split is None:
+        return _finish(img.copy()) if body is None else mono(img, color=body, knockout=False)
+    share, own_body, own_detail = split
+    body_rgb = own_detail if body is None else _unit(body)
+    detail_rgb = own_body if detail is None else _unit(detail)
+    arr[..., :3] = body_rgb + (detail_rgb - body_rgb) * share[..., None]
+    return _finish(_from_array(arr))
 
 
 def tile(
@@ -601,18 +624,66 @@ def _knockout_alpha(arr: FloatArray) -> FloatArray:
     """
     alpha = arr[..., 3]
     opaque = alpha > 0.5
-    if opaque.sum() < 32:
+    if opaque.sum() < _MIN_TONE_PIXELS:
         return alpha
     lum = _luminance(arr)
     values = lum[opaque]
     threshold = _otsu(values)
-    dark, light = values[values <= threshold], values[values > threshold]
-    if len(dark) == 0 or len(light) == 0 or float(light.mean() - dark.mean()) < _KNOCKOUT_CONTRAST:
+    dark, light = values <= threshold, values > threshold
+    if not dark.any() or not light.any():
         return alpha
-    ramp = np.clip((lum - threshold) / _KNOCKOUT_SOFTNESS + 0.5, 0.0, 1.0)
-    detail = ramp if len(light) < len(dark) else 1.0 - ramp
+    if float(values[light].mean() - values[dark].mean()) < _KNOCKOUT_CONTRAST:
+        return alpha
+    detail = _detail_share(lum, threshold, bool(light.sum() < dark.sum()))
     # Keep the cutout from eating the whole icon when the "detail" touches the edge.
     return alpha * (1.0 - detail * 0.92)
+
+
+def _color_tones(arr: FloatArray) -> tuple[FloatArray, FloatArray, FloatArray] | None:
+    """How much each pixel belongs to the icon's detail, plus the body and detail colors.
+
+    Like mono's split, but along the line through color space the icon varies
+    most on rather than by brightness, so yellow on white counts as two tones.
+    None for one-tone icons.
+    """
+    opaque = arr[..., 3] > 0.5
+    # A cut-out's outermost pixels can keep specks of the old background, which
+    # would otherwise count as a third color.
+    core = _shrink(opaque, _TONE_EDGE)
+    sample = core if core.sum() >= _MIN_TONE_PIXELS else opaque
+    if sample.sum() < _MIN_TONE_PIXELS:
+        return None
+    rgb = arr[..., :3]
+    points = rgb[sample]
+    center = points.mean(axis=0)
+    centered = points - center
+    _, vectors = np.linalg.eigh(centered.T @ centered)
+    axis = vectors[:, -1]
+    along = rgb @ axis - float(center @ axis)
+    lowest, highest = (float(v) for v in np.percentile(along[sample], [1, 99]))
+    if highest - lowest < 1e-6:
+        return None
+    level = np.clip((along - lowest) / (highest - lowest), 0.0, 1.0)
+    values = level[sample]
+    threshold = _otsu(values)
+    high = values > threshold
+    high_count = int(high.sum())
+    if high_count in (0, len(values)):
+        return None
+    low_rgb, high_rgb = np.median(points[~high], axis=0), np.median(points[high], axis=0)
+    if float(np.linalg.norm(high_rgb - low_rgb)) < _KNOCKOUT_CONTRAST:
+        return None
+    detail_is_high = high_count < len(values) - high_count
+    share = _detail_share(level, threshold, detail_is_high)
+    if detail_is_high:
+        return share, low_rgb, high_rgb
+    return share, high_rgb, low_rgb
+
+
+def _detail_share(level: FloatArray, threshold: float, detail_is_high: bool) -> FloatArray:
+    """How much each pixel belongs to the detail, softened around ``threshold``."""
+    ramp = np.clip((level - threshold) / _KNOCKOUT_SOFTNESS + 0.5, 0.0, 1.0)
+    return ramp if detail_is_high else 1.0 - ramp
 
 
 def _otsu(values: FloatArray) -> float:
@@ -624,7 +695,9 @@ def _otsu(values: FloatArray) -> float:
     m0 = np.cumsum(weights * centers) / np.maximum(w0, 1e-9)
     m1 = (np.sum(weights * centers) - np.cumsum(weights * centers)) / np.maximum(w1, 1e-9)
     between = w0 * w1 * (m0 - m1) ** 2
-    return float(edges[int(np.argmax(between)) + 1])
+    # Every cut across an empty gap between the groups scores the same; take the middle.
+    best = np.flatnonzero(between == between.max())
+    return float(edges[best[0] + 1] + edges[best[-1] + 1]) / 2
 
 
 def _hue_positions(hue: FloatArray, weight: FloatArray) -> FloatArray:
@@ -685,6 +758,10 @@ def _gradient_map(t: FloatArray, stops: Sequence[RGB]) -> FloatArray:
     positions = np.linspace(0.0, 1.0, len(stops), dtype=np.float64)
     channels = [np.interp(t, positions, colors[:, c]).astype(np.float64) for c in range(3)]
     return np.stack(channels, axis=-1)
+
+
+def _unit(color: RGB) -> FloatArray:
+    return np.asarray(color, dtype=np.float64) / 255
 
 
 def _to_array(img: Image.Image) -> FloatArray:

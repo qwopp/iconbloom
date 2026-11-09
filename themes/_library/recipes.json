@@ -62,6 +62,19 @@
              {"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
     {"id": "cutout_tile", "label": "Cut out on a tile", "family": "cutout",
      "ops": [{"op": "remove_background"},
-             {"op": "tile", "fill": [["main", "deep"], ["accent", "main"]], "angle": 45, "shape": ["squircle", "circle"]}]}
+             {"op": "tile", "fill": [["main", "deep"], ["accent", "main"]], "angle": 45, "shape": ["squircle", "circle"]}]},
+    {"id": "cutout_swap", "label": "Cut out, colors swapped", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "duotone"}]},
+    {"id": "cutout_duotone", "label": "Cut out, two-tone", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "duotone", "body": ["main", "deep"], "detail": "#FFFFFF"},
+             {"op": "sticker_outline", "thickness": 8, "color": "#FFFFFF"}]},
+    {"id": "cutout_tint", "label": "Cut out + tint", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "tint", "stops": [["ink", "deep", "main"], ["ink", "accent", "main"]]}]},
+    {"id": "cutout_sticker", "label": "Cut out sticker", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "sticker_outline", "thickness": 12, "color": ["main", "accent"]}]}
   ]
 }

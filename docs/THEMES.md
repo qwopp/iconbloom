@@ -109,6 +109,7 @@ Wherever a color is expected, you can write:
 | `recolor` | Gives each of the icon's hues its own shade from the stops: separate color blocks stay separate, smooth gradients stay smooth, and grays stay neutral | `stops` (required, 2+ colors), `strength` (1.0) |
 | `soft_tint` | Pulls the icon toward one color but keeps a hint of its own hues | `color` (required), `amount` (0.45) |
 | `mono` | Fills the icon with one color; contrasting inner details become see-through | `color` (required), `knockout` (true) |
+| `duotone` | Paints the icon's main tone and its contrasting details two flat colors. A color left out takes the other part's own color, so with neither the two swap (a white logo with pink lines becomes pink with white lines) | `body`, `detail` (both optional) |
 | `gradient_fill` | Like `mono`, with a two-color gradient | `stops` (required, 2 colors), `angle` (90, top to bottom), `knockout` (true) |
 | `tile` | Shrinks the icon onto a filled shape | `fill` (required, 1 color or 2 for a gradient), `shape` (`squircle`, `circle` or `rounded`), `angle` (90), `scale` (0.7), `shadow` (true), `outline` (none), `pattern` (none, or `dots`, `stripes`, `gingham`, `hearts`), `pattern_color` (`#FFFFFF`) |
 | `sticker_outline` | Die-cut sticker border behind the icon | `thickness` (10 px), `color` (`#FFFFFF`), `shadow` (true) |

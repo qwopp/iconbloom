@@ -58,7 +58,7 @@ Also look at a contact sheet: `uv run python -m engine.sheet tests/samples`.
 
 [docs/THEMES.md](docs/THEMES.md) explains the format. A theme that ships with Iconbloom also
 follows the house rules, which a test checks: 20 styles with a `recolor` first and never two
-of the same family side by side, then the library's four `cutout` styles as the last row. Then:
+of the same family side by side, then the library's eight `cutout` styles as the last row. Then:
 
 1. Render its decorations: `uv run python -m scripts.render_assets my_theme`.
 2. Look at contact sheets of the samples and some real app icons, at full and taskbar size.

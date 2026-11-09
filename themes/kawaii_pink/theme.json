@@ -55,6 +55,10 @@
     "cutout",
     "cutout_recolor",
     "cutout_mono",
-    "cutout_tile"
+    "cutout_tile",
+    "cutout_swap",
+    "cutout_duotone",
+    "cutout_tint",
+    "cutout_sticker"
   ]
 }
