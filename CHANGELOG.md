@@ -6,6 +6,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-09
+
 ### Fixed
 
 - **Refresh icons** no longer puts the old icon back on taskbar pins. Windows saves each
@@ -161,7 +163,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/qwopp/iconbloom/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/qwopp/iconbloom/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/qwopp/iconbloom/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/qwopp/iconbloom/compare/v0.4.0...v0.4.1
