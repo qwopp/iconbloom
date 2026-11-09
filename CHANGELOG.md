@@ -6,6 +6,29 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-09
+
+### Added
+
+- Four new themes: **Mint Matcha**, **Lavender Dream**, **Peach Sunset** and
+  **Midnight Neon**.
+- 20 styles per theme (up from 12), including polka-dot, gingham and striped tiles and new
+  hand-drawn stars, flowers, clouds, moons, leaves and suns.
+- **More → Dark mode**. Until you choose, Iconbloom follows Windows' app mode.
+- Shortcuts inside folders on your desktop (up to three folders deep). A copy of an app
+  that's already on your desktop joins its tile and is styled with it.
+
+### Changed
+
+- Styles appear in a curated order: the biggest color changes first, and never two of the
+  same kind side by side. Colorful icons still get their tints last.
+
+### Fixed
+
+- One corrupt or locked shortcut could stop the whole scan; it is now skipped like any
+  unreadable file.
+- The scan never opens OneDrive online-only files, which would download them.
+
 ## [0.3.2] - 2026-11-09
 
 ### Fixed
@@ -98,7 +121,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/qwopp/iconbloom/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/qwopp/iconbloom/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/qwopp/iconbloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qwopp/iconbloom/compare/v0.1.0...v0.2.0

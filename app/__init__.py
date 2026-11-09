@@ -2,4 +2,4 @@
 
 # Kept in step with pyproject.toml (a test checks), since the frozen app has no
 # package metadata to read it from.
-__version__ = "0.3.2"
+__version__ = "0.4.0"

@@ -20,11 +20,17 @@ future macOS port.
 - `recipes.py`: the op registry, parameter checking, and `render()`. Theme-level values (palette
   names, asset names, shuffle choices) are turned into concrete values here, so ops stay pure.
   Seed 0 always renders the default look.
-- `themes.py`: loads `themes/<id>/theme.json` and its PNG assets.
+- `themes.py`: loads `themes/<id>/theme.json` and its PNG assets, resolving recipes listed
+  by id from the shared `themes/_library/recipes.json`.
+- `families.py`: the kinds of recipe (recolor, tile, sticker, tint...). Themes keep two of a
+  kind apart, and color-flattening ones move last for colorful icons.
 - `analyze.py`: colorfulness (Hasler-Suesstrunk) for recipe order, and dominant hue for
   `"auto"` colors.
 - `ico.py`: multi-size `.ico` writer. The 16 and 24 px frames come from a simplified render.
 - `sheet.py`: the contact sheet CLI.
+
+Decorations are SVG templates in `themes/_library/decorations/`, colored per theme by
+`scripts/render_assets.py` into committed PNGs; the app never renders SVG.
 
 ## platform_win/
 
@@ -33,7 +39,8 @@ load and are tested on any OS.
 
 - `shortcuts.py`: the data model and scanning. An item ("shortcut") is a `.lnk` or `.url`
   file, a desktop folder, or a Windows icon such as the Recycle Bin (`::{CLSID}`). Scanning
-  uses the shell's known folders, filters out uninstallers and readmes, and groups items
+  uses the shell's known folders (and up to three folders deep on the desktop), never
+  reads OneDrive online-only files, filters out uninstallers and readmes, and groups items
   that run the same program with the same arguments or the same name.
 - `item_io.py`: one `ItemIO` per kind of item. Each reads and sets the icon, and saves or
   restores the full state that decides it, so backups work the same way for all of them:
@@ -88,6 +95,8 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 - `update_flow.py`, `notice.py`: the update banner and the banner widget itself.
 - `jobs.py`, `controls.py`, `widgets.py`: background jobs, shared helpers, and the painted
   tiles, cards and popup.
+- `palette.py`: every UI color by name, light and dark. `style.qss` is a template that
+  uses those names, so switching modes is one restyle.
 
 ## Runtime data
 
@@ -97,7 +106,9 @@ Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` file
 
 ## Testing
 
-- The `tests/goldens/` images pin every recipe's output on every sample icon.
+- The `tests/goldens/` images pin every recipe's output: Kawaii Pink on every sample icon,
+  the other themes on four representative ones. A rules test checks every bundled theme
+  (20 styles, a recolor first, no two neighbors of the same family).
 - Hypothesis property tests check the op invariants.
 - `tests/fakes.py` stands in for the user's shortcut folders (`FakeDesktop`) and for
   `IShellLink` (JSON files), so apply/revert, crash and corruption scenarios run on every OS.
