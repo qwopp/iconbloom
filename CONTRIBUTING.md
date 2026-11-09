@@ -17,7 +17,8 @@ The pre-commit hooks run the same checks as CI: `ruff check`, `ruff format` and 
 uv run python -m app.main                  # the app
 uv run python -m app.cli scan              # list what Iconbloom sees, changing nothing
 uv run python -m app.cli revert-all        # undo everything (every changing command takes --dry-run)
-uv run python -m engine.sheet tests/samples -o sheet.png   # preview a theme, any OS
+uv run python -m engine.sheet tests/samples --theme mint_matcha -o sheet.png   # preview a theme, any OS
+uv run python -m scripts.render_assets     # re-render decorations after editing an SVG or decor colors
 QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots   # refresh README images
 ```
 
@@ -39,6 +40,8 @@ uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run 
 - `engine/` and `platform_win/backup.py` must keep at least 90% test coverage.
 - Tests that need real Windows shortcuts go in `tests/win/`. They only run on Windows and must
   only create shortcuts inside a temp folder, never on a real desktop.
+- The installer build runs only on pull requests that touch packaging. A file the app reads
+  at runtime must be in `installer/iconbloom.spec` (theme files come from `scripts/bundle.py`).
 
 ## Changing how a recipe looks
 
@@ -51,6 +54,16 @@ uv run pytest tests/test_goldens.py --update-goldens
 
 Also look at a contact sheet: `uv run python -m engine.sheet tests/samples`.
 
+## Adding a bundled theme
+
+[docs/THEMES.md](docs/THEMES.md) explains the format. A theme that ships with Iconbloom also
+follows the house rules, which a test checks: exactly 20 styles, a `recolor` first, and never
+two of the same family side by side. Then:
+
+1. Render its decorations: `uv run python -m scripts.render_assets my_theme`.
+2. Look at contact sheets of the samples and some real app icons, at full and taskbar size.
+3. Add its goldens: `uv run pytest tests/test_goldens.py --update-goldens`.
+
 ## Pull requests
 
 - Keep commits small, with messages that explain why.
@@ -62,8 +75,10 @@ Also look at a contact sheet: `uv run python -m engine.sheet tests/samples`.
 
 ## Releasing
 
-1. Update the version in `pyproject.toml` and `app/__init__.py`, and move the Unreleased
-   notes into a new section in `CHANGELOG.md`.
-2. Merge, then tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The release workflow builds the installer, portable zip and checksums, and publishes the
-   GitHub release using that version's CHANGELOG notes.
+1. Update the version in `pyproject.toml` and `app/__init__.py` (a test checks they match),
+   and move the Unreleased notes into a new section in `CHANGELOG.md`.
+2. Run every check again after the bump, then merge only once CI passes.
+3. Tag the merge: `git tag -a vX.Y.Z -m "Iconbloom X.Y.Z" && git push origin vX.Y.Z`.
+4. The release workflow builds and smoke-tests the installer and portable zip, writes
+   checksums, and publishes the GitHub release with that version's CHANGELOG notes. Check it
+   finished: `gh run watch --exit-status`.

@@ -15,6 +15,7 @@ labels: bug
 **Details**
 
 - Iconbloom version (bottom right of the window):
+- Theme, and light or dark mode:
 - Windows version (Settings > System > About):
 - Display scaling (100%, 150%, ...):
 

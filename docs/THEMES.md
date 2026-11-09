@@ -18,8 +18,11 @@ themes/
 ```json
 {
   "name": "Mint Cream",
-  "palette": {"light": "#E6FFF5", "main": "#8FE3C3", "ink": "#2F7A63", "cream": "#FFFDF7"},
-  "decor": {"fill": "#8FE3C3", "outline": "#2F7A63", "shine": "#E6FFF5", "eye": "#2E3B33"},
+  "palette": {
+    "light": "#E6FFF5", "main": "#8FE3C3", "deep": "#4FB58E", "ink": "#2F7A63",
+    "accent": "#F6C3D5", "peach": "#F2D47A", "cream": "#FFFDF7"
+  },
+  "decor": {"fill": "#8FE3C3", "outline": "#2F7A63", "eye": "#2E3B33", "blush": "#F59AB0"},
   "assets": {"star": "star.png"},
   "recipes": [
     "pastel_tint",
@@ -47,8 +50,26 @@ A recipe is one of:
 - a full recipe object
 
 A full recipe has an `id` (unique, used in file names), a `label` (shown under the preview), a
-`family` and `ops`, a list of steps applied in order to the icon at 256 px. Library recipes
-name palette colors (`main`, `ink`, `light`...), so a theme using them needs those names.
+`family` and `ops`, a list of steps applied in order to the icon at 256 px. Keep a recipe's
+`id` once the theme has shipped: people's saved choices refer to it.
+
+## The library
+
+`_library/recipes.json` holds the shared recipes; read it for the ids. They are written in
+seven palette names, so a theme that uses them defines all seven:
+
+| Name | Role |
+|---|---|
+| `light` | palest tint, for tiles and highlights |
+| `main` | the theme's signature color |
+| `deep` | a stronger shade of `main` |
+| `ink` | darkest shade, for outlines and the dark end of tints |
+| `accent` | a second hue |
+| `peach` | a third hue |
+| `cream` | the plain tile color (dark in a dark theme) |
+
+Some library recipes also add decorations, so their themes list these `assets`: `bow`,
+`heart`, `sparkle`, `star` and `face`.
 
 ## Order and families
 
@@ -119,8 +140,10 @@ from the theme's `decor` colors, so one bow drawing becomes a pink bow or a mint
 | `fill`, `fill_dark`, `fill_deep` | main body, darker parts (bow tails, knot, sun rays) |
 | `outline` | outlines and leaf veins |
 | `shine` | soft highlights, flower and sparkle centers |
-| `deep`, `accent` | the two sparkle outlines |
+| `deep`, `accent` | the two sparkle outlines, and the moon's star |
 | `blush`, `eye` | cheeks and eyes on the faces |
+
+Set the tokens your decorations use; rendering names any that are missing.
 
 List the decorations a theme uses under `assets`, then render them:
 
@@ -140,7 +163,8 @@ Mistakes are reported when the theme loads, with the recipe, step and parameter 
 themes/my_theme/theme.json: recipe 'star_tile', step 2 (badge), 'asset': unknown asset 'starr'
 ```
 
-Then render every recipe on the sample icons and look at the result at full and small sizes:
+Then render every recipe on the sample icons, and on a few real app icons if you have them,
+and look at the result at full and small sizes:
 
 ```bash
 uv run python -m engine.sheet tests/samples --theme my_theme -o sheet.png
