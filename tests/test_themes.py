@@ -23,10 +23,10 @@ def _valid() -> dict[str, object]:
     }
 
 
-def test_kawaii_pink_loads_with_ten_recipes() -> None:
+def test_kawaii_pink_loads_with_twelve_recipes() -> None:
     theme = load_theme("kawaii_pink")
     assert theme.name == "Kawaii Pink"
-    assert len(theme.recipes) == 10
+    assert len(theme.recipes) == 12
     assert set(theme.assets) == {"bow", "heart", "face", "sparkle"}
 
 

@@ -12,12 +12,12 @@ First release.
 
 ### Added
 
-- Picker window: your shortcuts on the left; ten styled versions of the selected one
+- Picker window: your shortcuts on the left; twelve styled versions of the selected one
   on the right, with the best fits for that icon first; hover to compare at 32 and
   48 px; Apply, Skip and Revert.
-- Kawaii Pink theme: pastel tint, soft tint, pink and cream bubble tiles, sticker,
-  sticker with blush face, tile with bow, mono rose, pink-to-lavender tile, and tint
-  with sparkle.
+- Kawaii Pink theme with 12 styles: pastel tint, soft tint, pastel recolor (on its own
+  and on a cream tile), pink and cream bubble tiles, sticker, sticker with blush face,
+  tile with bow, mono rose, pink-to-lavender tile, and tint with sparkle.
 - Shuffle, Use my own image, Apply style to all, and Reapply my icons after app
   updates.
 - Backups of every shortcut before its first change, Revert all, and an uninstaller

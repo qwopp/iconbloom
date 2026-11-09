@@ -32,6 +32,11 @@ _ALPHA_VISIBLE = 8
 # Two tones must differ this much in luminance before mono cuts one out.
 _KNOCKOUT_CONTRAST = 0.25
 _KNOCKOUT_SOFTNESS = 0.08
+# recolor treats chroma below this as gray, and at this much above it as fully colored.
+_NEUTRAL_CHROMA = 0.05
+_FULL_CHROMA = 0.25
+_RECOLOR_SATURATION = 1.35
+_RECOLOR_LIFT = 0.4
 
 
 def prepare(icon: Image.Image, size: int = CANVAS) -> tuple[Image.Image, bool]:
@@ -79,6 +84,33 @@ def soft_tint(img: Image.Image, *, color: RGB, amount: float = 0.45) -> Image.Im
     """Pull the icon toward one color while keeping a hint of its own hues."""
     stops = [mix(color, (40, 20, 30), 0.55), color, mix(color, (255, 255, 255), 0.75)]
     return tint(img, stops=stops, strength=amount)
+
+
+def recolor(img: Image.Image, *, stops: Sequence[RGB], strength: float = 1.0) -> Image.Image:
+    """Repaint each of the icon's hues with a palette shade.
+
+    The icon's hues are laid out in order around the color wheel, starting
+    after its widest unused stretch, and spread across ``stops``. Nearby hues
+    get nearby shades, so a smooth gradient stays smooth, while separate color
+    blocks get clearly different shades. Grays, whites and blacks keep their
+    brightness and stay neutral.
+    """
+    if len(stops) < 2:
+        raise ValueError("recolor needs at least two color stops")
+    arr = _to_array(img)
+    hue, sat, val = _rgb_to_hsv(arr[..., :3])
+    # Chroma, unlike saturation, is near zero for near-black pixels, so dark
+    # parts count as neutral instead of turning into a muddy brown.
+    chroma = sat * val * (arr[..., 3] > _ALPHA_VISIBLE / 255)
+    target_h, target_s, target_v = _rgb_to_hsv(_gradient_map(_hue_positions(hue, chroma), stops))
+    color = np.clip((chroma - _NEUTRAL_CHROMA) / _FULL_CHROMA, 0.0, 1.0)
+    # Pastel stops are pale; a little extra saturation keeps colored parts from washing out.
+    out_s = np.clip(target_s * _RECOLOR_SATURATION, 0.0, 1.0) * color
+    # Keep most of the icon's own light and shade so shapes stay readable.
+    out_v = val * (1.0 - _RECOLOR_LIFT * color) + target_v * _RECOLOR_LIFT * color
+    painted = _hsv_to_rgb(target_h, out_s, out_v)
+    arr[..., :3] = arr[..., :3] * (1 - strength) + painted * strength
+    return _finish(_from_array(arr))
 
 
 def mono(img: Image.Image, *, color: RGB, knockout: bool = True) -> Image.Image:
@@ -402,6 +434,59 @@ def _otsu(values: FloatArray) -> float:
     m1 = (np.sum(weights * centers) - np.cumsum(weights * centers)) / np.maximum(w1, 1e-9)
     between = w0 * w1 * (m0 - m1) ** 2
     return float(edges[int(np.argmax(between)) + 1])
+
+
+def _hue_positions(hue: FloatArray, weight: FloatArray) -> FloatArray:
+    """Each pixel's place (0 to 1) along the icon's own run of hues.
+
+    The run starts just after the widest stretch of the color wheel the icon
+    doesn't use, so hues that sit together on the wheel stay together.
+    """
+    bins = 72
+    histogram, _ = np.histogram(hue, bins=bins, range=(0.0, 360.0), weights=weight)
+    if histogram.sum() <= 0:
+        return np.zeros_like(hue)
+    used = histogram > histogram.max() * 0.01
+    # Longest circular run of unused bins.
+    best_len, best_end, run = 0, 0, 0
+    for i in range(bins * 2):
+        if used[i % bins]:
+            run = 0
+            continue
+        run += 1
+        if run > best_len and run <= bins:
+            best_len, best_end = run, i % bins
+    start = (best_end + 1) * 360.0 / bins if best_len else 0.0
+    span = max(360.0 - best_len * 360.0 / bins, 1e-6)
+    return np.clip(((hue - start) % 360.0) / span, 0.0, 1.0)
+
+
+def _rgb_to_hsv(rgb: FloatArray) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Hue in degrees, saturation and value in 0..1, for float RGB in 0..1."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    high = rgb.max(axis=-1)
+    span = high - rgb.min(axis=-1)
+    safe = np.maximum(span, 1e-9)
+    hue = np.where(
+        high == r, ((g - b) / safe) % 6, np.where(high == g, (b - r) / safe + 2, (r - g) / safe + 4)
+    )
+    hue = np.where(span > 0, hue * 60.0, 0.0)
+    sat = np.where(high > 0, span / np.maximum(high, 1e-9), 0.0)
+    return hue, sat, high
+
+
+def _hsv_to_rgb(hue: FloatArray, sat: FloatArray, val: FloatArray) -> FloatArray:
+    sector = (hue / 60.0) % 6
+    chroma = val * sat
+    x = chroma * (1 - np.abs(sector % 2 - 1))
+    zero = np.zeros_like(hue)
+    index = np.floor(sector).astype(int)
+    choices_r = [chroma, x, zero, zero, x, chroma]
+    choices_g = [x, chroma, chroma, x, zero, zero]
+    choices_b = [zero, zero, x, chroma, chroma, x]
+    m = val - chroma
+    channels = [np.choose(index, options) + m for options in (choices_r, choices_g, choices_b)]
+    return np.stack(channels, axis=-1)
 
 
 def _gradient_map(t: FloatArray, stops: Sequence[RGB]) -> FloatArray:

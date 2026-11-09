@@ -37,8 +37,9 @@ themes/
 
 Each recipe has an `id` (unique, used in file names), a `label` (shown under the preview) and
 `ops`, a list of steps applied in order to the icon at 256 px. Set `keeps_color` to `true`
-when the recipe shows the icon's own colors. Busy, colorful icons get those recipes first,
-and simple glyphs get the others first.
+when the recipe keeps the icon's color structure: its own colors, or a `recolor` that keeps
+regions apart. Busy, colorful icons get those recipes first, and simple glyphs get the
+others first.
 
 ## Colors
 
@@ -54,6 +55,7 @@ Wherever a color is expected, you can write:
 | Op | What it does | Parameters (defaults) |
 |---|---|---|
 | `tint` | Maps the icon's dark-to-light range onto color stops, darkest first | `stops` (required, 2+ colors), `strength` (1.0) |
+| `recolor` | Gives each of the icon's hues its own shade from the stops: separate color blocks stay separate, smooth gradients stay smooth, and grays stay neutral | `stops` (required, 2+ colors), `strength` (1.0) |
 | `soft_tint` | Pulls the icon toward one color but keeps a hint of its own hues | `color` (required), `amount` (0.45) |
 | `mono` | Fills the icon with one color; contrasting inner details become see-through | `color` (required), `knockout` (true) |
 | `gradient_fill` | Like `mono`, with a two-color gradient | `stops` (required, 2 colors), `angle` (90, top to bottom), `knockout` (true) |

@@ -6,6 +6,7 @@
     "deep": "#E8689A",
     "ink": "#A8436F",
     "accent": "#C9B6FF",
+    "peach": "#FFC2A6",
     "cream": "#FFF7F0"
   },
   "assets": {
@@ -19,6 +20,11 @@
      "ops": [{"op": "tint", "stops": [["ink", "main", "light"], ["ink", "accent", "light"]]}]},
     {"id": "soft_tint", "label": "Soft tint",
      "ops": [{"op": "soft_tint", "color": "auto", "amount": 0.5}]},
+    {"id": "pastel_recolor", "label": "Pastel recolor", "keeps_color": true,
+     "ops": [{"op": "recolor", "stops": [["main", "accent", "peach"], ["accent", "main", "peach"], ["peach", "main", "accent"]]}]},
+    {"id": "recolor_tile", "label": "Recolor on cream tile", "keeps_color": true,
+     "ops": [{"op": "recolor", "stops": [["main", "accent", "peach"], ["accent", "main", "peach"], ["peach", "main", "accent"]]},
+             {"op": "tile", "fill": "cream", "outline": "main"}]},
     {"id": "bubble_pink", "label": "Bubble tile, pink",
      "ops": [{"op": "tint", "stops": ["ink", "deep", "#FFFFFF"]},
              {"op": "tile", "fill": [["light", "main"], ["light", "accent"]]}]},

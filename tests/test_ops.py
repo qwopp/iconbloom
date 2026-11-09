@@ -1,3 +1,5 @@
+import colorsys
+import itertools
 from collections.abc import Callable
 
 import numpy as np
@@ -11,6 +13,8 @@ from engine import ops
 PINK = (255, 158, 196)
 CREAM = (255, 247, 240)
 INK = (168, 67, 111)
+LAVENDER = (201, 182, 255)
+PEACH = (255, 194, 166)
 DECORATION = Image.new("RGBA", (40, 30), (*INK, 255))
 
 
@@ -43,6 +47,11 @@ OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
     ),
     "soft_tint": lambda img, d: ops.soft_tint(
         img, color=d.draw(_rgb()), amount=d.draw(st.floats(0, 1))
+    ),
+    "recolor": lambda img, d: ops.recolor(
+        img,
+        stops=d.draw(st.lists(_rgb(), min_size=2, max_size=4)),
+        strength=d.draw(st.floats(0, 1)),
     ),
     "mono": lambda img, d: ops.mono(img, color=d.draw(_rgb()), knockout=d.draw(st.booleans())),
     "gradient_fill": lambda img, d: ops.gradient_fill(
@@ -150,6 +159,43 @@ def test_tint_needs_two_stops() -> None:
 def test_tint_strength_zero_keeps_original() -> None:
     icon, _ = ops.prepare(Image.new("RGBA", (8, 8), (10, 200, 30, 255)))
     assert ops.tint(icon, stops=[INK, CREAM], strength=0).getpixel((128, 128)) == (10, 200, 30, 255)
+
+
+def _hue_of(pixel: tuple[int, ...]) -> float:
+    return colorsys.rgb_to_hsv(*(c / 255 for c in pixel[:3]))[0] * 360
+
+
+def test_recolor_keeps_separate_color_blocks_apart() -> None:
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    for i, color in enumerate([(230, 40, 40), (40, 180, 60), (50, 90, 230), (250, 200, 20)]):
+        draw.rectangle((i * 16, 0, i * 16 + 15, 63), fill=(*color, 255))
+    icon, _ = ops.prepare(img)
+    out = ops.recolor(icon, stops=[PINK, LAVENDER, PEACH])
+    shades = [_px(out, (x, 128)) for x in (45, 95, 160, 210)]
+    # Four distinct inputs stay four distinguishable outputs.
+    assert len({tuple(round(c / 24) for c in shade[:3]) for shade in shades}) == 4
+
+
+def test_recolor_keeps_a_gradient_smooth() -> None:
+    gradient = ops.linear_gradient((64, 64), (255, 140, 0), (150, 40, 220), 0).convert("RGBA")
+    icon, _ = ops.prepare(gradient)
+    out = ops.recolor(icon, stops=[PINK, LAVENDER, PEACH])
+    row = [_px(out, (x, 128)) for x in range(40, 216)]
+    steps = [max(abs(a - b) for a, b in zip(p, q, strict=True)) for p, q in itertools.pairwise(row)]
+    assert max(steps) <= 12
+
+
+def test_recolor_leaves_grays_neutral() -> None:
+    icon, _ = ops.prepare(Image.new("RGBA", (32, 32), (90, 90, 90, 255)))
+    r, g, b, _ = _px(ops.recolor(icon, stops=[PINK, LAVENDER]), (128, 128))
+    assert max(r, g, b) - min(r, g, b) <= 2
+
+
+def test_recolor_needs_two_stops() -> None:
+    icon, _ = ops.prepare(Image.new("RGBA", (8, 8), (*PINK, 255)))
+    with pytest.raises(ValueError, match="at least two"):
+        ops.recolor(icon, stops=[PINK])
 
 
 def test_mono_knocks_out_contrasting_detail() -> None:
