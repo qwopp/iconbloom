@@ -19,6 +19,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -77,13 +78,16 @@ jobs:
 
       - name: Test install, update and uninstall
         shell: pwsh
+        timeout-minutes: 10
         run: |
           $setup = "dist\Iconbloom-Setup-${{ steps.version.outputs.version }}.exe"
           $desktop = [Environment]::GetFolderPath("Desktop")
           $deskLink = Join-Path $desktop "Iconbloom.lnk"
           $startLink = Join-Path ([Environment]::GetFolderPath("Programs")) "Iconbloom.lnk"
           function Run-Setup([string[]] $arguments) {
-            $p = Start-Process $setup -ArgumentList $arguments -Wait -PassThru
+            # Wait for setup alone: -Wait would also wait for the Iconbloom it reopens.
+            $p = Start-Process $setup -ArgumentList $arguments -PassThru
+            if (-not $p.WaitForExit(300000)) { throw "setup $arguments took over 5 minutes" }
             if ($p.ExitCode -ne 0) { throw "setup $arguments exited with $($p.ExitCode)" }
             # A silent install reopens Iconbloom; close it before the next step.
             Start-Sleep -Seconds 3
@@ -112,7 +116,7 @@ jobs:
 
           # Uninstall removes the shortcuts it made. The uninstaller hands off to a temp copy
           # and returns at once, so wait for the result.
-          Start-Process "$env:LOCALAPPDATA\Programs\Iconbloom\unins000.exe" -Wait `
+          Start-Process "$env:LOCALAPPDATA\Programs\Iconbloom\unins000.exe" `
             -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
           $deadline = (Get-Date).AddSeconds(60)
           while (Test-Path $startLink) {
