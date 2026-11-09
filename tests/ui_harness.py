@@ -14,6 +14,7 @@ from pytestqt.qtbot import QtBot
 
 from app.main import load_style
 from app.service import IconService, Status
+from app.ui import palette
 from app.ui.main_window import MainWindow
 from app.updates import Release, Updater
 from engine.themes import DEFAULT_THEME, load_theme
@@ -119,6 +120,8 @@ class Harness:
 def harness(
     tmp_path: Path, qtbot: QtBot, qapp: QApplication, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Harness]:
+    # Tests start in light mode whatever the machine running them prefers.
+    monkeypatch.setattr(palette, "windows_prefers_dark", lambda: False)
     desktop = FakeDesktop(tmp_path, icons=APPS, default="dark")
     for name in APPS:
         desktop.make(name)

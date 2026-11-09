@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from app.changes import Status
 from app.choices import Choice
+from app.ui import palette
 
 log = logging.getLogger(__name__)
 
@@ -100,9 +101,10 @@ class TileDelegate(QStyledItemDelegate):
         rect = option.rect.adjusted(4, 4, -4, -4)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        background = QColor("#FFD3E4") if selected else QColor("#FFF0F6" if hovered else "#FFFFFF")
-        painter.setPen(QColor("#FF9EC4") if selected else QColor("#F6DCE8"))
-        painter.setBrush(background)
+        colors = palette.current()
+        background = "tile_selected" if selected else "hover" if hovered else "card"
+        painter.setPen(colors.color("accent" if selected else "tile_border"))
+        painter.setBrush(colors.color(background))
         painter.drawRoundedRect(rect, 14, 14)
 
         pixmap = index.data(Qt.ItemDataRole.DecorationRole)
@@ -111,7 +113,7 @@ class TileDelegate(QStyledItemDelegate):
             icon_rect.moveCenter(QPoint(rect.center().x(), rect.top() + 10 + self.ICON // 2))
             painter.drawPixmap(icon_rect, pixmap)
 
-        painter.setPen(QColor("#7A3E5D"))
+        painter.setPen(colors.color("text"))
         text_rect = QRect(rect.left() + 6, rect.top() + self.ICON + 16, rect.width() - 12, 34)
         name = str(index.data(Qt.ItemDataRole.DisplayRole))
         elided = painter.fontMetrics().elidedText(
@@ -124,7 +126,7 @@ class TileDelegate(QStyledItemDelegate):
         # Qt hands StrEnum values back as plain strings, so look the color up by value.
         status = index.data(STATUS_ROLE)
         if status in STATUS_COLORS:
-            painter.setPen(QColor("#FFFFFF"))
+            painter.setPen(colors.color("card"))
             painter.setBrush(STATUS_COLORS[Status(status)])
             painter.drawEllipse(QPoint(rect.right() - 12, rect.top() + 12), 6, 6)
         if index.data(SHARED_ROLE):
@@ -144,8 +146,9 @@ def _draw_shield(painter: QPainter, center: QPoint) -> None:
             QPoint(x - 6, y),
         ]
     )
-    painter.setPen(QPen(QColor("#B58AA2"), 1.4))
-    painter.setBrush(QColor("#F3E6FF"))
+    colors = palette.current()
+    painter.setPen(QPen(colors.color("icon_muted"), 1.4))
+    painter.setBrush(colors.color("shield"))
     painter.drawPolygon(shield)
 
 

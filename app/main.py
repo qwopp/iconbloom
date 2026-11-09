@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from app.elevation import ELEVATED_FLAG, handle_request
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
-from app.ui import UI_DIR
+from app.ui import UI_DIR, palette
 from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
@@ -27,10 +27,11 @@ from platform_win.refresh import hard_refresh
 log = logging.getLogger("iconbloom")
 
 
-def load_style(app: QApplication) -> None:
+def load_style(app: QApplication, dark: bool = False) -> None:
+    """Fonts and stylesheet. The window switches modes later from the user's setting."""
     for font in (UI_DIR / "fonts").glob("*.ttf"):
         QFontDatabase.addApplicationFont(str(font))
-    app.setStyleSheet((UI_DIR / "style.qss").read_text(encoding="utf-8"))
+    palette.apply(app, palette.DARK if dark else palette.LIGHT)
 
 
 def run_window(paths: AppPaths) -> int:

@@ -19,6 +19,8 @@ class Settings:
     update_check_chosen: bool = False
     # Shortcuts every user shares need a permission prompt: "ask", "include" or "skip".
     shared_shortcuts: str = "ask"
+    # True or False once chosen in More > Dark mode; until then, follow Windows.
+    dark_mode: bool | None = None
 
     @classmethod
     def load(cls, path: Path) -> "Settings":
