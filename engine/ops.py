@@ -42,6 +42,9 @@ _RECOLOR_LIFT = 0.4
 # remove_background: a plain plate behind a logo (a colored square or circle) is found
 # from a ring just inside the icon's outline, which must be mostly one color.
 _PLATE_RING = 4
+# Too few solid pixels to tell a plate from noise, and the faintest alpha still counted.
+_PLATE_MIN_PIXELS = 64
+_PLATE_VISIBLE = 0.02
 _PLATE_SHARE = 0.85
 # Color distance (RGB, 0..1 per channel) still counted as the plate.
 _PLATE_TOLERANCE = 0.12
@@ -303,8 +306,9 @@ def remove_background(img: Image.Image) -> Image.Image:
     # The logo's anti-aliased edge mixes logo and plate colors. Compare each edge pixel
     # with the plate color and the nearest pure logo color to tell how much of it is
     # logo, then keep only that part (no colored fringe).
-    edge = _grow(plate, _PLATE_EDGE) & ~plate & (alpha > 0)
-    logo = _nearest_color(arr[..., :3], (alpha > 0) & ~_grow(plate, _PLATE_EDGE), _PLATE_EDGE)
+    near_plate = _grow(plate, _PLATE_EDGE)
+    edge = near_plate & ~plate & (alpha > 0)
+    logo = _nearest_color(arr[..., :3], (alpha > 0) & ~near_plate, _PLATE_EDGE)
     rgb = arr[..., :3][edge]
     toward_logo = logo[edge] - plate_color
     reach = np.maximum((toward_logo**2).sum(axis=-1), 1e-6)
@@ -440,14 +444,14 @@ def _find_plate(img: Image.Image) -> tuple[FloatArray, npt.NDArray[np.bool_]] | 
     arr = _to_array(img)
     alpha = arr[..., 3]
     opaque = alpha > 0.5
-    if opaque.sum() < 64:
+    if opaque.sum() < _PLATE_MIN_PIXELS:
         return None
     ring = opaque & ~_shrink(opaque, _PLATE_RING)
     plate_color = np.median(arr[..., :3][ring], axis=0)
     distance = np.linalg.norm(arr[..., :3] - plate_color, axis=-1)
     if (distance[ring] < _PLATE_TOLERANCE).mean() < _PLATE_SHARE:
         return None
-    visible = alpha > 0.02
+    visible = alpha > _PLATE_VISIBLE
     rim = visible & ~_shrink(visible, _PLATE_RIM)
     similar = visible & ((distance < _PLATE_TOLERANCE) | (rim & (distance < _PLATE_RIM_TOLERANCE)))
     plate = ring & similar
@@ -470,14 +474,9 @@ def _nearest_color(rgb: FloatArray, known: npt.NDArray[np.bool_], steps: int) ->
         if not missing.any():
             break
         step = filled.copy()
-        for shifted, target in (
-            (filled[:-1], step[1:]),
-            (filled[1:], step[:-1]),
-            (filled[:, :-1], step[:, 1:]),
-            (filled[:, 1:], step[:, :-1]),
-        ):
-            take = np.isnan(target[..., 0]) & ~np.isnan(shifted[..., 0])
-            target[take] = shifted[take]
+        for neighbor, target in _neighbor_pairs(filled, step):
+            take = np.isnan(target[..., 0]) & ~np.isnan(neighbor[..., 0])
+            target[take] = neighbor[take]
         filled = step
     return np.where(np.isnan(filled), rgb, filled)
 
@@ -487,12 +486,23 @@ def _grow(mask: npt.NDArray[np.bool_], steps: int) -> npt.NDArray[np.bool_]:
     grown = mask.copy()
     for _ in range(steps):
         step = grown.copy()
-        step[1:] |= grown[:-1]
-        step[:-1] |= grown[1:]
-        step[:, 1:] |= grown[:, :-1]
-        step[:, :-1] |= grown[:, 1:]
+        for neighbor, target in _neighbor_pairs(grown, step):
+            target |= neighbor
         grown = step
     return grown
+
+
+def _neighbor_pairs[T: np.generic](
+    source: npt.NDArray[T], target: npt.NDArray[T]
+) -> tuple[tuple[npt.NDArray[T], npt.NDArray[T]], ...]:
+    """(neighbor, pixel) views of two same-shaped arrays, for each of the 4 directions:
+    writing to the pixel view updates each pixel from its neighbor in ``source``."""
+    return (
+        (source[:-1], target[1:]),
+        (source[1:], target[:-1]),
+        (source[:, :-1], target[:, 1:]),
+        (source[:, 1:], target[:, :-1]),
+    )
 
 
 def _shrink(mask: npt.NDArray[np.bool_], steps: int) -> npt.NDArray[np.bool_]:

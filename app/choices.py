@@ -33,13 +33,15 @@ class Choice:
         """A choice that uses the user's own image as it is."""
         return cls(theme="", recipe=CUSTOM_RECIPE, custom_image=image_name)
 
-    def with_image(self, image_name: str) -> "Choice":
-        """This style, drawn from the user's own image instead of the app's icon."""
-        return Choice(self.theme, self.recipe, self.seed, custom_image=image_name)
+    @property
+    def uses_own_image(self) -> bool:
+        """Drawn from the user's own image rather than the app's icon."""
+        return self.custom_image is not None
 
     @property
-    def is_custom(self) -> bool:
-        return self.custom_image is not None
+    def as_is(self) -> bool:
+        """The user's own image exactly as it is, no style."""
+        return self.recipe == CUSTOM_RECIPE
 
     @property
     def file_tag(self) -> str:
@@ -48,7 +50,7 @@ class Choice:
         if self.custom_image is None:
             return style
         image = f"{CUSTOM_RECIPE}_{Path(self.custom_image).stem}"
-        return image if self.recipe == CUSTOM_RECIPE else f"{image}_{style}"
+        return image if self.as_is else f"{image}_{style}"
 
 
 class ChoiceStore:

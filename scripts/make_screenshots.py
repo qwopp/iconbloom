@@ -99,7 +99,7 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
 
 
 def _previews_ready(window: MainWindow) -> bool:
-    return not window.picker.rendering and bool(window.picker.cards)
+    return bool(window.picker.cards)
 
 
 def picker_media(app: QApplication) -> None:

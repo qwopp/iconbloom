@@ -21,3 +21,5 @@ class Family(StrEnum):
 
 # Recipes that flatten an icon's colors into one ramp; busy icons show them last.
 FLATTENING = frozenset({Family.TINT, Family.GLOW})
+# Recipes shown last, in a row of their own.
+OWN_ROW = frozenset({Family.CUTOUT})

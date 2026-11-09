@@ -337,7 +337,7 @@ class MainWindow(QMainWindow):
 
     def apply_style_to_all(self) -> None:
         card = self.picker.chosen
-        if card is None or card.choice.is_custom:
+        if card is None or card.choice.uses_own_image:
             return
         choice = card.choice
         targets = [g for g in self.shortcuts.groups if self.service.is_untouched(g)]

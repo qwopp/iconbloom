@@ -35,9 +35,10 @@ def test_file_tags_differ_per_look() -> None:
     assert Choice("t", "r").file_tag == "t_r"
     assert Choice("t", "r", seed=2).file_tag == "t_r_s2"
     assert Choice("", "custom", custom_image="abc.png").file_tag == "custom_abc"
-    styled = Choice("t", "r", seed=2).with_image("abc.png")
-    assert styled == Choice("t", "r", 2, custom_image="abc.png")
-    assert styled.is_custom
+    styled = Choice("t", "r", 2, custom_image="abc.png")
+    assert styled.uses_own_image
+    assert not styled.as_is
+    assert Choice.custom("abc.png").as_is
     assert styled.file_tag == "custom_abc_t_r_s2"
 
 

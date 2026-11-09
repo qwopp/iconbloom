@@ -142,7 +142,7 @@ def test_switching_back_to_the_apps_icon(
     picker.own_image_button.click()
     harness.wait_for_previews()
     assert picker.custom_image is None
-    assert not any(c.choice.is_custom for c in picker.cards)
+    assert not any(c.choice.uses_own_image for c in picker.cards)
     assert picker.own_image_button.text() == "Use my own image…"
 
 

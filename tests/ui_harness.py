@@ -103,7 +103,7 @@ class Harness:
     def wait_for_previews(self) -> None:
         picker = self.window.picker
         self.qtbot.waitUntil(
-            lambda: not picker.rendering and not self.window.jobs.busy and bool(picker.cards),
+            lambda: not self.window.jobs.busy and bool(picker.cards),
             timeout=15_000,
         )
 

@@ -39,12 +39,3 @@ def test_taskbar_change_offers_a_refresh(harness: Harness) -> None:
     report = ChangeReport(dry_run=False, changed=[Path("C:/Users/x/User Pinned/TaskBar/A.lnk")])
     harness.window.changes.show_taskbar_notice(report)
     assert harness.window.notice.isVisibleTo(harness.window)
-
-
-def test_picker_says_when_previews_are_still_drawing(harness: Harness) -> None:
-    picker = harness.window.picker
-    assert not picker.rendering
-    picker.shuffle()
-    assert picker.rendering
-    harness.wait_for_previews()
-    assert not picker.rendering

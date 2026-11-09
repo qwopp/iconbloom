@@ -10,7 +10,7 @@ import numpy.typing as npt
 from PIL import Image
 
 from engine import ops
-from engine.families import FLATTENING, Family
+from engine.families import FLATTENING, OWN_ROW, Family
 from engine.ops import RGB
 
 # Hasler-Suesstrunk scores at or above this count as colorful. On the sample
@@ -88,9 +88,7 @@ def order_recipes[R: Orderable](recipes: Iterable[R], icon: Image.Image) -> list
     if not ops.has_plate(icon):
         ordered = [r for r in ordered if r.family is not Family.CUTOUT]
     colorful = is_colorful(icon)
-    return sorted(
-        ordered, key=lambda r: (r.family is Family.CUTOUT, colorful and r.family in FLATTENING)
-    )
+    return sorted(ordered, key=lambda r: (r.family in OWN_ROW, colorful and r.family in FLATTENING))
 
 
 def _hues(
