@@ -223,32 +223,33 @@ def test_mono_keeps_flat_glyph_whole() -> None:
     assert ops.mono(icon, color=PINK).getpixel((128, 128)) == (*PINK, 255)
 
 
-def _cat() -> Image.Image:
-    """A white body with a thin pink bar across it, like a white cat's whiskers."""
-    img = Image.new("RGBA", (64, 64), (255, 255, 255, 255))
-    ImageDraw.Draw(img).rectangle((8, 30, 56, 34), fill=(*PINK, 255))
+WHITE = (255, 255, 255)
+YELLOW = (255, 204, 40)
+
+
+def _two_tone(body: tuple[int, int, int], detail: tuple[int, int, int]) -> Image.Image:
+    """A body color with a thin bar of detail across the middle, like a cat's whiskers."""
+    img = Image.new("RGBA", (64, 64), (*body, 255))
+    ImageDraw.Draw(img).rectangle((8, 30, 56, 34), fill=(*detail, 255))
     return ops.prepare(img)[0]
 
 
-def test_duotone_swaps_the_two_tones() -> None:
-    out = ops.duotone(_cat())
-    assert _px(out, (128, 60))[:3] == PINK
-    assert _px(out, (128, 128))[:3] == (255, 255, 255)
-
-
-def test_duotone_paints_body_and_detail() -> None:
-    out = ops.duotone(_cat(), body=LAVENDER, detail=INK)
-    assert _px(out, (128, 60)) == (*LAVENDER, 255)
-    assert _px(out, (128, 128)) == (*INK, 255)
-
-
-def test_duotone_tells_yellow_from_white() -> None:
-    """Close in brightness, so mono would see one tone; duotone goes by color."""
-    img = Image.new("RGBA", (64, 64), (255, 255, 255, 255))
-    ImageDraw.Draw(img).rectangle((24, 8, 40, 56), fill=(255, 204, 40, 255))
-    out = ops.duotone(ops.prepare(img)[0])
-    assert _px(out, (128, 128))[:3] == (255, 255, 255)  # the bar
-    assert _px(out, (60, 128))[:3] == (255, 204, 40)  # the body
+@pytest.mark.parametrize(
+    ("icon", "kwargs", "body", "detail"),
+    [
+        ((WHITE, PINK), {}, PINK, WHITE),
+        ((WHITE, PINK), {"body": LAVENDER, "detail": INK}, LAVENDER, INK),
+        # Close in brightness, so mono sees one tone; duotone goes by color.
+        ((WHITE, YELLOW), {}, YELLOW, WHITE),
+    ],
+)
+def test_duotone_paints_body_and_detail(
+    icon: tuple[ops.RGB, ops.RGB], kwargs: dict[str, ops.RGB], body: ops.RGB, detail: ops.RGB
+) -> None:
+    """Colors left out swap: the body takes the detail's color and the detail the body's."""
+    out = ops.duotone(_two_tone(*icon), **kwargs)
+    assert _px(out, (128, 60)) == (*body, 255)
+    assert _px(out, (128, 128)) == (*detail, 255)
 
 
 def test_duotone_on_a_flat_glyph() -> None:

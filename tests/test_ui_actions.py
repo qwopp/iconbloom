@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QFileDialog, QGridLayout
 
 from app.service import Status
 from engine.families import Family
-from engine.themes import DEFAULT_THEME, load_theme
+from engine.themes import Theme
 from tests.conftest import load_sample
 from tests.ui_harness import APPS, Harness
 
@@ -98,14 +98,14 @@ def test_use_own_image_as_it_is(
 
 
 def test_own_image_gets_every_style_and_reverts_exactly(
-    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kawaii: Theme
 ) -> None:
     before = harness.lnk("Arcade").read_bytes()
     _pick_own_image(harness, tmp_path, monkeypatch)
     picker = harness.window.picker
     labels = [c.label for c in picker.cards]
     assert labels[0] == "Your image"
-    cut_outs = [r.label for r in load_theme(DEFAULT_THEME).recipes if r.family is Family.CUTOUT]
+    cut_outs = [r.label for r in kawaii.recipes if r.family is Family.CUTOUT]
     assert labels[-len(cut_outs) :] == cut_outs
     assert all(c.choice.custom_image == picker.custom_image for c in picker.cards)
     cut_out = picker.cards[-len(cut_outs)]
