@@ -1,10 +1,17 @@
+import itertools
 import json
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from engine import ops
+from engine.families import Family
+from engine.recipes import render
 from engine.themes import ThemeError, list_themes, load_theme
+from tests.conftest import load_sample, sample_names
+
+STYLES_PER_THEME = 20
 
 _RECIPE = {"id": "a", "label": "A", "family": "mono", "ops": [{"op": "mono", "color": "main"}]}
 
@@ -31,11 +38,32 @@ def _valid() -> dict[str, object]:
     }
 
 
-def test_kawaii_pink_loads_with_twelve_recipes() -> None:
+def test_kawaii_pink_loads() -> None:
     theme = load_theme("kawaii_pink")
     assert theme.name == "Kawaii Pink"
-    assert len(theme.recipes) == 12
-    assert set(theme.assets) == {"bow", "heart", "face", "sparkle"}
+    assert theme.recipes[0].id == "pastel_recolor"
+    assert {"bow", "heart", "face", "sparkle", "star", "cloud"} <= set(theme.assets)
+
+
+@pytest.mark.parametrize("theme_id", list_themes())
+def test_bundled_themes_follow_the_style_rules(theme_id: str) -> None:
+    """20 styles, a recolor first, and never two of a kind side by side."""
+    recipes = load_theme(theme_id).recipes
+    assert len(recipes) == STYLES_PER_THEME
+    assert recipes[0].family is Family.RECOLOR
+    for before, after in itertools.pairwise(recipes):
+        assert before.family is not after.family, (
+            f"{before.id} and {after.id} are both {after.family}"
+        )
+
+
+@pytest.mark.parametrize("theme_id", list_themes())
+def test_bundled_themes_render_every_style_on_every_sample(theme_id: str) -> None:
+    theme = load_theme(theme_id)
+    for name in sample_names():
+        icon, _ = ops.prepare(load_sample(name))
+        for recipe in theme.recipes:
+            assert render(recipe, icon, theme, seed=7).size == icon.size
 
 
 def test_list_themes_finds_bundled_theme() -> None:

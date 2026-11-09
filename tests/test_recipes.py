@@ -48,6 +48,7 @@ def test_parse_recipe_keeps_steps_and_family() -> None:
         (_recipe([{"op": "mono", "color": "chartreuse"}]), "not a palette name"),
         (_recipe([{"op": "mono", "color": 7}]), "palette names or #RRGGBB"),
         (_recipe([{"op": "mono", "color": []}]), "list of choices is empty"),
+        (_recipe([{"op": "mono", "color": [["ink"]]}]), "single values, not lists"),
         (_recipe([{"op": "tint", "stops": 5}]), "color or a list of colors"),
         (_recipe([{"op": "tint", "stops": [["ink", "nope"]]}]), "'nope'"),
         (_recipe([{"op": "badge", "asset": "crown"}]), "unknown asset 'crown'"),

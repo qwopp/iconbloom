@@ -16,13 +16,11 @@ from app.main import load_style
 from app.service import IconService, Status
 from app.ui.main_window import MainWindow
 from app.updates import Release, Updater
+from engine.themes import DEFAULT_THEME, load_theme
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
-RECIPES = 12
-
-
-RECIPES = 12
+RECIPES = len(load_theme(DEFAULT_THEME).recipes)
 
 
 class FakeUpdater(Updater):

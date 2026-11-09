@@ -250,6 +250,8 @@ def _check_value(
         if not value:
             raise RecipeError(f"{where}: list of choices is empty")
         for choice in value:
+            if isinstance(choice, list):
+                raise RecipeError(f"{where}: choices are single values, not lists")
             _check_value(spec, choice, where, palette, assets)
         return
     if spec.kind == "color":

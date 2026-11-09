@@ -1,12 +1,15 @@
-"""Every Kawaii Pink recipe on every sample icon, compared with checked-in renders.
+"""Every recipe of every theme on sample icons, compared with checked-in renders.
 
-When a styling change is intended, regenerate with:
+Kawaii Pink, the default, is checked on every sample; the other themes on a
+few that cover the main kinds of icon. When a styling change is intended,
+regenerate with:
 
     uv run pytest tests/test_goldens.py --update-goldens
 
 and review the changed PNGs in the diff before committing them.
 """
 
+from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -15,28 +18,45 @@ from PIL import Image
 
 from engine import ops
 from engine.recipes import render
-from engine.themes import DEFAULT_THEME, Theme, load_theme
+from engine.themes import DEFAULT_THEME, Theme, list_themes, load_theme
 from tests.conftest import load_sample, sample_names
 
 GOLDENS_DIR = Path(__file__).parent / "goldens"
 # Allows for tiny rounding differences between platforms, nothing visible.
 MAX_CHANNEL_DIFF = 2
 MIN_MATCHING_SHARE = 0.995
+# Colorful, a plain glyph, a gradient and a tiny icon.
+REPRESENTATIVE_SAMPLES = ("multicolor", "simple_glyph", "gradient_app", "tiny")
 
-_THEME = load_theme(DEFAULT_THEME)
-CASES = [(s, r.id) for s in sample_names() for r in _THEME.recipes]
+
+@cache
+def _theme(theme_id: str) -> Theme:
+    return load_theme(theme_id)
 
 
-@pytest.mark.parametrize(("sample", "recipe_id"), CASES)
+def _cases() -> list[tuple[str, str, str]]:
+    cases: list[tuple[str, str, str]] = []
+    for theme_id in list_themes():
+        samples = sample_names() if theme_id == DEFAULT_THEME else REPRESENTATIVE_SAMPLES
+        cases += [(theme_id, s, r.id) for s in samples for r in _theme(theme_id).recipes]
+    return cases
+
+
+def test_representative_samples_exist() -> None:
+    assert set(REPRESENTATIVE_SAMPLES) <= set(sample_names())
+
+
+@pytest.mark.parametrize(("theme_id", "sample", "recipe_id"), _cases())
 def test_recipe_matches_golden(
-    sample: str, recipe_id: str, kawaii: Theme, update_goldens: bool
+    theme_id: str, sample: str, recipe_id: str, update_goldens: bool
 ) -> None:
+    theme = _theme(theme_id)
     icon, _ = ops.prepare(load_sample(sample))
-    result = render(kawaii.recipe(recipe_id), icon, kawaii)
-    golden_path = GOLDENS_DIR / f"{sample}__{recipe_id}.png"
+    result = render(theme.recipe(recipe_id), icon, theme)
+    golden_path = GOLDENS_DIR / theme_id / f"{sample}__{recipe_id}.png"
 
     if update_goldens:
-        GOLDENS_DIR.mkdir(exist_ok=True)
+        golden_path.parent.mkdir(parents=True, exist_ok=True)
         result.save(golden_path, optimize=True)
         return
 
@@ -47,5 +67,11 @@ def test_recipe_matches_golden(
     assert actual.shape == expected.shape
     close = (np.abs(actual - expected) <= MAX_CHANNEL_DIFF).all(axis=-1)
     assert close.mean() >= MIN_MATCHING_SHARE, (
-        f"{golden_path.name}: only {close.mean():.2%} of pixels match"
+        f"{theme_id}/{golden_path.name}: only {close.mean():.2%} of pixels match"
     )
+
+
+def test_no_stale_goldens() -> None:
+    """A renamed or removed recipe must take its golden with it."""
+    expected = {GOLDENS_DIR / t / f"{s}__{r}.png" for t, s, r in _cases()}
+    assert set(GOLDENS_DIR.rglob("*.png")) == expected

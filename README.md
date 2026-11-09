@@ -13,7 +13,7 @@ Restyle your Windows desktop into one cute, matching theme, one icon at a time. 
 
 ## How it works
 
-Pick an icon, choose one of 12 styled versions of its real icon, and click **Apply**. Nothing is AI-generated: every style is the app's own icon run through filters, frames and hand-drawn decorations.
+Pick an icon, choose one of 20 styled versions of its real icon, and click **Apply**. Nothing is AI-generated: every style is the app's own icon run through filters, frames and hand-drawn decorations.
 
 - **Works on** shortcuts (including Steam and Epic games), desktop folders, taskbar pins, the Start menu, and the Recycle Bin, This PC, Network and your user folder.
 - An app with shortcuts in several places is one tile, styled everywhere at once.
