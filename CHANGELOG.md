@@ -6,6 +6,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
 ### Added
 
 - Search box and Desktop / Taskbar / Start menu tabs above the shortcut list.
@@ -53,5 +55,6 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/qwopp/iconbloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qwopp/iconbloom/releases/tag/v0.1.0
