@@ -5,19 +5,20 @@
 # One-folder (not one-file) starts faster and trips fewer antivirus heuristics.
 # SPECPATH, Analysis, PYZ, EXE and COLLECT are provided by PyInstaller.
 
+import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent
+sys.path.insert(0, str(ROOT))
+
+from scripts.bundle import theme_files
 
 datas = [
     (str(ROOT / "app" / "ui" / "style.qss"), "app/ui"),
     (str(ROOT / "app" / "ui" / "iconbloom.png"), "app/ui"),
     (str(ROOT / "app" / "ui" / "fonts"), "app/ui/fonts"),
 ]
-for theme in sorted((ROOT / "themes").iterdir()):
-    if (theme / "theme.json").is_file():
-        datas.append((str(theme / "theme.json"), f"themes/{theme.name}"))
-        datas += [(str(png), f"themes/{theme.name}") for png in theme.glob("*.png")]
+datas += [(str(source), dest) for source, dest in theme_files(ROOT)]
 
 # Only QtCore, QtGui and QtWidgets are used; keep the rest of Qt out of the build.
 QT_EXCLUDES = [
