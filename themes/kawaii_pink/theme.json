@@ -1,0 +1,46 @@
+{
+  "name": "Kawaii Pink",
+  "palette": {
+    "light": "#FFE4EE",
+    "main": "#FF9EC4",
+    "deep": "#E8689A",
+    "ink": "#A8436F",
+    "accent": "#C9B6FF",
+    "cream": "#FFF7F0"
+  },
+  "assets": {
+    "bow": "bow.png",
+    "heart": "heart.png",
+    "face": "face_blush.png",
+    "sparkle": "sparkle.png"
+  },
+  "recipes": [
+    {"id": "pastel_tint", "label": "Pastel tint",
+     "ops": [{"op": "tint", "stops": [["ink", "main", "light"], ["ink", "accent", "light"]]}]},
+    {"id": "soft_tint", "label": "Soft tint",
+     "ops": [{"op": "soft_tint", "color": "auto", "amount": 0.5}]},
+    {"id": "bubble_pink", "label": "Bubble tile, pink",
+     "ops": [{"op": "tint", "stops": ["ink", "deep", "#FFFFFF"]},
+             {"op": "tile", "fill": [["light", "main"], ["light", "accent"]]}]},
+    {"id": "bubble_cream", "label": "Bubble tile, cream", "keeps_color": true,
+     "ops": [{"op": "tile", "fill": "cream", "outline": "main"}]},
+    {"id": "sticker", "label": "Sticker", "keeps_color": true,
+     "ops": [{"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
+    {"id": "sticker_face", "label": "Sticker + blush", "keeps_color": true,
+     "ops": [{"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"},
+             {"op": "overlay_face", "face": "face"}]},
+    {"id": "tile_bow", "label": "Tile + bow", "keeps_color": true,
+     "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "shape": "squircle", "scale": 0.66},
+             {"op": "badge", "asset": ["bow", "heart"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
+    {"id": "mono_rose", "label": "Mono rose on cream",
+     "ops": [{"op": "mono", "color": ["deep", "ink"]},
+             {"op": "tile", "fill": "cream", "shape": ["circle", "squircle"], "outline": "main"}]},
+    {"id": "gradient_white", "label": "Pink to lavender",
+     "ops": [{"op": "mono", "color": "#FFFFFF"},
+             {"op": "tile", "fill": ["main", "accent"], "angle": 45}]},
+    {"id": "tint_sparkle", "label": "Tint + sparkle",
+     "ops": [{"op": "tint", "stops": ["ink", "main", "light"]},
+             {"op": "glow", "color": "#FFFFFF", "radius": 6, "strength": 0.9},
+             {"op": "badge", "asset": ["sparkle", "heart"], "corner": "top-right", "scale": 0.36}]}
+  ]
+}
