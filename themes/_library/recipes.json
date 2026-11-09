@@ -31,6 +31,25 @@
     {"id": "tint_sparkle", "label": "Tint + sparkle", "family": "glow",
      "ops": [{"op": "tint", "stops": ["ink", "main", "light"]},
              {"op": "glow", "color": "#FFFFFF", "radius": 6, "strength": 0.9},
-             {"op": "badge", "asset": ["sparkle", "heart"], "corner": "top-right", "scale": 0.36}]}
+             {"op": "badge", "asset": ["sparkle", "heart"], "corner": "top-right", "scale": 0.36}]},
+    {"id": "lavender_recolor", "label": "Lavender recolor", "family": "recolor",
+     "ops": [{"op": "recolor", "stops": [["accent", "main", "light"], ["accent", "peach", "main"]]},
+             {"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
+    {"id": "polka_tile", "label": "Polka-dot tile", "family": "pattern",
+     "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "pattern": "dots", "pattern_color": ["main", "accent"], "outline": "main"}]},
+    {"id": "gingham_bow", "label": "Gingham tile + bow", "family": "pattern",
+     "ops": [{"op": "tile", "fill": "cream", "pattern": "gingham", "pattern_color": ["main", "accent"], "shape": "squircle", "scale": 0.66},
+             {"op": "badge", "asset": ["bow", "heart"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
+    {"id": "pink_sticker", "label": "Pink sticker", "family": "sticker",
+     "ops": [{"op": "sticker_outline", "thickness": 12, "color": "main"}]},
+    {"id": "peach_recolor_heart", "label": "Peach recolor + heart", "family": "recolor",
+     "ops": [{"op": "recolor", "stops": [["peach", "main", "light"], ["peach", "accent", "main"]]},
+             {"op": "badge", "asset": ["heart", "sparkle"], "corner": "bottom-right", "scale": 0.36, "rotation": -10}]},
+    {"id": "rose_glow", "label": "Rose glow", "family": "glow",
+     "ops": [{"op": "tint", "stops": ["ink", "deep", "light"]},
+             {"op": "glow", "color": "main", "radius": 12, "strength": 0.9}]},
+    {"id": "striped_star", "label": "Striped tile + star", "family": "pattern",
+     "ops": [{"op": "tile", "fill": "light", "pattern": "stripes", "pattern_color": ["main", "accent"], "shape": "circle", "scale": 0.66},
+             {"op": "badge", "asset": ["star", "sparkle"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": -12}]}
   ]
 }
