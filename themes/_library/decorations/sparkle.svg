@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <path d="M112 20 C120 84 132 96 196 104 C132 112 120 124 112 188 C104 124 92 112 28 104 C92 96 104 84 112 20 Z"
-        fill="#FFFFFF" stroke="#E8689A" stroke-width="9" stroke-linejoin="round"/>
+        fill="#FFFFFF" stroke="{deep}" stroke-width="9" stroke-linejoin="round"/>
   <path d="M196 158 C200 186 206 192 232 196 C206 200 200 206 196 234 C192 206 186 200 160 196 C186 192 192 186 196 158 Z"
-        fill="#FFFFFF" stroke="#C9B6FF" stroke-width="8" stroke-linejoin="round"/>
-  <circle cx="112" cy="104" r="12" fill="#FFE4EE"/>
+        fill="#FFFFFF" stroke="{accent}" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="112" cy="104" r="12" fill="{shine}"/>
 </svg>

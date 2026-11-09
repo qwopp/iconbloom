@@ -4,6 +4,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from engine import analyze, ops
+from engine.families import Family
 from tests.conftest import load_sample
 
 PALETTE = {
@@ -16,10 +17,16 @@ PALETTE = {
 @dataclass(frozen=True)
 class FakeRecipe:
     id: str
-    keeps_color: bool
+    family: Family
 
 
-RECIPES = [FakeRecipe("tint", False), FakeRecipe("tile", True), FakeRecipe("mono", False)]
+RECIPES = [
+    FakeRecipe("tint", Family.TINT),
+    FakeRecipe("recolor", Family.RECOLOR),
+    FakeRecipe("glow", Family.GLOW),
+    FakeRecipe("tile", Family.TILE),
+    FakeRecipe("mono", Family.MONO),
+]
 
 
 @pytest.mark.parametrize("name", ["simple_glyph", "thin_line", "dark"])
@@ -36,14 +43,14 @@ def test_colorfulness_of_transparent_image_is_zero() -> None:
     assert analyze.colorfulness(Image.new("RGBA", (8, 8))) == 0.0
 
 
-def test_colorful_icons_get_color_keeping_recipes_first() -> None:
+def test_colorful_icons_get_flattening_recipes_last() -> None:
     ordered = analyze.order_recipes(RECIPES, load_sample("multicolor"))
-    assert [r.id for r in ordered] == ["tile", "tint", "mono"]
+    assert [r.id for r in ordered] == ["recolor", "tile", "mono", "tint", "glow"]
 
 
-def test_plain_icons_get_tints_first() -> None:
+def test_plain_icons_keep_the_theme_order() -> None:
     ordered = analyze.order_recipes(RECIPES, load_sample("simple_glyph"))
-    assert [r.id for r in ordered] == ["tint", "mono", "tile"]
+    assert [r.id for r in ordered] == ["tint", "recolor", "glow", "tile", "mono"]
 
 
 def test_dominant_hue_of_red_icon() -> None:

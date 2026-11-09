@@ -6,6 +6,14 @@ from PIL import Image
 
 from engine.themes import ThemeError, list_themes, load_theme
 
+_RECIPE = {"id": "a", "label": "A", "family": "mono", "ops": [{"op": "mono", "color": "main"}]}
+
+
+def _write_library(root: Path, recipes: object) -> None:
+    folder = root / "_library"
+    folder.mkdir()
+    (folder / "recipes.json").write_text(json.dumps({"recipes": recipes}), encoding="utf-8")
+
 
 def _write_theme(root: Path, theme: object, assets: dict[str, bytes] | None = None) -> None:
     folder = root / "t"
@@ -19,7 +27,7 @@ def _valid() -> dict[str, object]:
     return {
         "name": "Test",
         "palette": {"main": "#FF9EC4"},
-        "recipes": [{"id": "a", "label": "A", "ops": [{"op": "mono", "color": "main"}]}],
+        "recipes": [_RECIPE],
     }
 
 
@@ -36,6 +44,8 @@ def test_list_themes_finds_bundled_theme() -> None:
 
 def test_list_themes_ignores_folders_without_theme_file(tmp_path: Path) -> None:
     (tmp_path / "empty").mkdir()
+    (tmp_path / "_library").mkdir()
+    (tmp_path / "_library" / "theme.json").write_text("{}", encoding="utf-8")
     _write_theme(tmp_path, _valid())
     assert list_themes(tmp_path) == ["t"]
     assert list_themes(tmp_path / "missing") == []
@@ -69,7 +79,11 @@ def test_asset_loading(tmp_path: Path) -> None:
         ({"assets": {"bow": "bow.png"}}, "bow.png not found"),
         ({"assets": {"bow": "theme.json"}}, "is not an image"),
         ({"recipes": []}, "'recipes' must be a non-empty list"),
-        ({"recipes": [{"id": "a", "ops": [{"op": "nope"}]}]}, "unknown op"),
+        ({"recipes": [_RECIPE | {"ops": [{"op": "nope"}]}]}, "unknown op"),
+        ({"recipes": ["nope"]}, "no library recipe called 'nope'"),
+        ({"recipes": [{"use": "nope"}]}, "no library recipe called 'nope'"),
+        ({"colors": {}}, "unknown field"),
+        ({"decor": {"fill": "pink"}}, "decor color 'fill'"),
     ],
 )
 def test_bad_theme_is_reported(tmp_path: Path, change: dict[str, object], message: str) -> None:
@@ -80,8 +94,7 @@ def test_bad_theme_is_reported(tmp_path: Path, change: dict[str, object], messag
 
 def test_duplicate_recipe_ids_are_rejected(tmp_path: Path) -> None:
     theme = _valid()
-    recipe = {"id": "a", "label": "A", "ops": [{"op": "mono", "color": "main"}]}
-    theme["recipes"] = [recipe, recipe]
+    theme["recipes"] = [_RECIPE, _RECIPE]
     _write_theme(tmp_path, theme)
     with pytest.raises(ThemeError, match="duplicate recipe id"):
         load_theme("t", tmp_path)
@@ -100,3 +113,48 @@ def test_missing_and_invalid_json(tmp_path: Path) -> None:
     (tmp_path / "broken" / "theme.json").write_text("{", encoding="utf-8")
     with pytest.raises(ThemeError, match="invalid JSON"):
         load_theme("broken", tmp_path)
+
+
+def test_recipes_come_from_the_library(tmp_path: Path) -> None:
+    _write_library(tmp_path, [_RECIPE | {"id": "shared", "label": "Shared"}])
+    theme = _valid() | {
+        "recipes": ["shared", {"use": "shared", "id": "again", "label": "Again"}, _RECIPE]
+    }
+    _write_theme(tmp_path, theme)
+    loaded = load_theme("t", tmp_path)
+    assert [(r.id, r.label) for r in loaded.recipes] == [
+        ("shared", "Shared"),
+        ("again", "Again"),
+        ("a", "A"),
+    ]
+    assert loaded.recipe("again").steps == loaded.recipe("shared").steps
+
+
+def test_library_recipes_use_the_theme_palette(tmp_path: Path) -> None:
+    _write_library(tmp_path, [_RECIPE | {"id": "inky", "ops": [{"op": "mono", "color": "ink"}]}])
+    _write_theme(tmp_path, _valid() | {"recipes": ["inky"]})
+    with pytest.raises(ThemeError, match=r"recipe 'inky'.*'ink'"):
+        load_theme("t", tmp_path)
+
+
+def test_use_entries_may_only_rename(tmp_path: Path) -> None:
+    _write_library(tmp_path, [_RECIPE])
+    _write_theme(tmp_path, _valid() | {"recipes": [{"use": "a", "ops": []}]})
+    with pytest.raises(ThemeError, match="may only change 'id' and 'label'"):
+        load_theme("t", tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("library", "message"),
+    [
+        ("{", "invalid JSON"),
+        ('{"recipes": {}}', "'recipes' must be a list"),
+        ('{"recipes": [{"label": "x"}]}', "string 'id'"),
+    ],
+)
+def test_bad_library_is_reported(tmp_path: Path, library: str, message: str) -> None:
+    (tmp_path / "_library").mkdir()
+    (tmp_path / "_library" / "recipes.json").write_text(library, encoding="utf-8")
+    _write_theme(tmp_path, _valid())
+    with pytest.raises(ThemeError, match=message):
+        load_theme("t", tmp_path)

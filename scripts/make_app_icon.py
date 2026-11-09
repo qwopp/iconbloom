@@ -16,7 +16,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:
-    image = render_svg(ROOT / "installer" / "iconbloom.svg", width=256)
+    image = render_svg(
+        (ROOT / "installer" / "iconbloom.svg").read_text(encoding="utf-8"), width=256
+    )
     (ROOT / "installer" / "iconbloom.ico").write_bytes(build_ico(image))
     image.save(ROOT / "app" / "ui" / "iconbloom.png", optimize=True)
     print("installer/iconbloom.ico, app/ui/iconbloom.png")
