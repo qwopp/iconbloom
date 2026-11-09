@@ -9,6 +9,8 @@
 #endif
 
 [Setup]
+; Close a running Iconbloom before replacing its files (the updater has usually closed it).
+CloseApplications=yes
 AppId={{6F1C6B0E-2F7A-4C59-9B8E-6A3E2B1F9C41}
 AppName=Iconbloom
 AppVersion={#AppVersion}
@@ -43,6 +45,8 @@ Name: "{userdesktop}\Iconbloom"; Filename: "{app}\Iconbloom.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\Iconbloom.exe"; Description: "Open Iconbloom"; Flags: nowait postinstall skipifsilent
+; In-app updates install silently; reopen Iconbloom when they finish.
+Filename: "{app}\Iconbloom.exe"; Flags: nowait; Check: WizardSilent
 
 [Code]
 // Shortcuts themed by Iconbloom point at icon files in its data folder. Offer
