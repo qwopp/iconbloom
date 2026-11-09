@@ -24,6 +24,8 @@ class Harness:
         self.desktop = desktop
         self.qtbot = qtbot
         self.refreshes = 0
+        # Text of every information/warning box the window tried to show.
+        self.messages: list[str] = []
         self.release: Release | None = None
         self.window = MainWindow(
             desktop.service(), hard_refresh=self._hard_refresh, update_check=lambda: self.release
@@ -47,19 +49,25 @@ class Harness:
 
 
 @pytest.fixture
-def harness(tmp_path: Path, qtbot: QtBot, qapp: QApplication) -> Iterator[Harness]:
+def harness(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Harness]:
     desktop = FakeDesktop(tmp_path, icons=APPS, default="dark")
     for name in APPS:
         desktop.make(name)
     desktop.make("Admin Tool", folder=desktop.common)
     load_style(qapp)
     h = Harness(desktop, qtbot)
+    # Modal boxes would block a headless run forever; record them instead.
+    for kind in ("information", "warning"):
+        monkeypatch.setattr(QMessageBox, kind, lambda parent, title, text: h.messages.append(text))
     qtbot.addWidget(h.window)
     h.window.show()
     qtbot.waitUntil(lambda: h.window.model.rowCount() == len(APPS) + 1, timeout=10_000)
     h.wait_for_previews()
     yield h
     h.window.close()
+    assert h.messages == [], f"unexpected dialogs: {h.messages}"
 
 
 @pytest.fixture
@@ -167,16 +175,14 @@ def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
 
 
 def test_errors_become_a_dialog(harness: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    shown: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda parent, title, text: shown.append(text))
 
     def broken(*args: object, **kwargs: object) -> None:
         raise OSError("disk is full")
 
     monkeypatch.setattr(harness.service, "apply", broken)
     harness.window.apply_chosen()
-    assert shown
-    assert "disk is full" in shown[0]
+    assert len(harness.messages) == 1
+    assert "disk is full" in harness.messages.pop()
     assert harness.status("Arcade") is Status.ORIGINAL
 
 
