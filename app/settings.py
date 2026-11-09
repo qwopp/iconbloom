@@ -5,6 +5,8 @@ import logging
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
+from platform_win.fileio import write_json
+
 log = logging.getLogger(__name__)
 
 
@@ -27,7 +29,4 @@ class Settings:
         return cls(**values)
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(asdict(self), indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        write_json(path, asdict(self))
