@@ -113,12 +113,12 @@ def read_icon_file(path: Path, index: int = 0) -> Image.Image | None:
             return img.convert("RGBA")
     if suffix in _PE_SUFFIXES:
         try:
-            return largest_frame(_pe_icon(path, index))
+            return largest_frame(pe_icon_data(path, index))
         except (OSError, ValueError):
             moved = _mun_location(path)
             if moved is None or not moved.exists():
                 raise
-            return largest_frame(_pe_icon(moved, index))
+            return largest_frame(pe_icon_data(moved, index))
     return None
 
 
@@ -130,7 +130,8 @@ def largest_frame(ico_data: bytes) -> Image.Image:
         return img.ico.getimage(biggest).convert("RGBA")
 
 
-def _pe_icon(path: Path, index: int) -> bytes:
+def pe_icon_data(path: Path, index: int) -> bytes:
+    """The .ico bytes of one icon resource in a program or library file."""
     from icoextract import IconExtractor, IconExtractorError
 
     try:

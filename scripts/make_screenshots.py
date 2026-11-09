@@ -70,7 +70,7 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
     deadline = time.monotonic() + 0.5
     while time.monotonic() < deadline:
         app.processEvents()
-        window.wait_for_jobs()
+        window.jobs.wait()
         time.sleep(0.02)
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)

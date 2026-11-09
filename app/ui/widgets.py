@@ -1,18 +1,15 @@
-"""Small building blocks: image conversion, background jobs, tiles and preview cards."""
+"""Small building blocks: image conversion, shortcut tiles, preview cards and the size popup."""
 
 import logging
-from collections.abc import Callable
 from typing import override
 
 from PIL import Image
 from PySide6.QtCore import (
     QEvent,
     QModelIndex,
-    QObject,
     QPersistentModelIndex,
     QPoint,
     QRect,
-    QRunnable,
     QSize,
     Qt,
     Signal,
@@ -38,8 +35,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.changes import Status
 from app.choices import Choice
-from app.service import Status
 
 log = logging.getLogger(__name__)
 
@@ -77,34 +74,6 @@ def pixmap_at(image: QImage, size: int, ratio: float) -> QPixmap:
     pixmap = QPixmap.fromImage(scaled)
     pixmap.setDevicePixelRatio(ratio)
     return pixmap
-
-
-class JobSignals(QObject):
-    done = Signal(object)
-    failed = Signal(str)
-    progress = Signal(object)
-
-
-class Job(QRunnable):
-    """Run ``work`` on a thread pool and report back through Qt signals.
-
-    ``work`` gets a callback for reporting progress items as it goes.
-    """
-
-    def __init__(self, work: Callable[[Callable[[object], None]], object]) -> None:
-        super().__init__()
-        self.signals = JobSignals()
-        self._work = work
-
-    @override
-    def run(self) -> None:
-        try:
-            result = self._work(self.signals.progress.emit)
-        except Exception as exc:  # reported to the UI; the worker thread must not die silently
-            log.exception("background job failed")
-            self.signals.failed.emit(str(exc))
-            return
-        self.signals.done.emit(result)
 
 
 class TileDelegate(QStyledItemDelegate):
