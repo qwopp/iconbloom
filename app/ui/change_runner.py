@@ -149,7 +149,7 @@ class ChangeRunner:
                     (
                         "Refresh icons",
                         self._refresh_icons,
-                        "Rebuild Windows' icon cache and restart Explorer",
+                        "Clear Windows' icon cache and restart Explorer",
                     )
                 ],
             )
