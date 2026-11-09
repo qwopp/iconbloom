@@ -15,7 +15,8 @@ from pathlib import Path
 import resvg_py
 from PIL import Image
 
-THEMES_DIR = Path(__file__).resolve().parent.parent / "themes"
+from engine.themes import THEMES_DIR
+
 # Rendered larger than any badge will be drawn, so downscaling stays crisp.
 RENDER_WIDTH = 512
 

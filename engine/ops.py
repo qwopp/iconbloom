@@ -6,6 +6,7 @@ random values; the recipe runner resolves palette names, assets and shuffle
 choices before calling them, so the same inputs always give the same pixels.
 """
 
+import functools
 import math
 from collections.abc import Sequence
 from typing import Literal
@@ -253,6 +254,14 @@ def linear_gradient(size: tuple[int, int], start: RGB, end: RGB, angle: float) -
 
 def shape_mask(size: tuple[int, int], box: tuple[int, int, int, int], shape: Shape) -> Image.Image:
     """Anti-aliased L-mode mask of a squircle, circle or rounded square."""
+    # Every tile recipe asks for the same few masks; drawing one costs ~5 ms.
+    return _cached_shape_mask(size, box, shape).copy()
+
+
+@functools.lru_cache(maxsize=16)
+def _cached_shape_mask(
+    size: tuple[int, int], box: tuple[int, int, int, int], shape: Shape
+) -> Image.Image:
     s = _SUPERSAMPLE
     big = Image.new("L", (size[0] * s, size[1] * s), 0)
     draw = ImageDraw.Draw(big)

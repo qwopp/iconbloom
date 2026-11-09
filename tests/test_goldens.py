@@ -15,7 +15,7 @@ from PIL import Image
 
 from engine import ops
 from engine.recipes import render
-from engine.themes import Theme, load_theme
+from engine.themes import DEFAULT_THEME, Theme, load_theme
 from tests.conftest import load_sample, sample_names
 
 GOLDENS_DIR = Path(__file__).parent / "goldens"
@@ -23,7 +23,7 @@ GOLDENS_DIR = Path(__file__).parent / "goldens"
 MAX_CHANNEL_DIFF = 2
 MIN_MATCHING_SHARE = 0.995
 
-_THEME = load_theme("kawaii_pink")
+_THEME = load_theme(DEFAULT_THEME)
 CASES = [(s, r.id) for s in sample_names() for r in _THEME.recipes]
 
 

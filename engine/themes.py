@@ -16,6 +16,7 @@ from engine.recipes import Json, Recipe, RecipeError, parse_hex, parse_recipe
 
 THEMES_DIR = Path(__file__).resolve().parent.parent / "themes"
 THEME_FILE = "theme.json"
+DEFAULT_THEME = "kawaii_pink"
 
 
 class ThemeError(ValueError):
@@ -42,6 +43,16 @@ def list_themes(themes_dir: Path = THEMES_DIR) -> list[str]:
     if not themes_dir.is_dir():
         return []
     return sorted(p.name for p in themes_dir.iterdir() if (p / THEME_FILE).is_file())
+
+
+def theme_name(theme_id: str, themes_dir: Path = THEMES_DIR) -> str:
+    """Display name without loading assets or recipes, for menus."""
+    try:
+        raw: Json = json.loads((themes_dir / theme_id / THEME_FILE).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return theme_id
+    name = raw.get("name") if isinstance(raw, dict) else None
+    return name if isinstance(name, str) else theme_id
 
 
 def load_theme(theme_id: str, themes_dir: Path = THEMES_DIR) -> Theme:
