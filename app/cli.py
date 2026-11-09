@@ -1,36 +1,92 @@
 """Command-line access to the same scan, apply and revert logic as the app.
 
     uv run python -m app.cli scan --dump-dir originals/
+    uv run python -m app.cli apply "Firefox" --recipe tile_bow --dry-run
+    uv run python -m app.cli revert-all
 
 Every command that changes shortcuts accepts --dry-run.
 """
 
 import argparse
+import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from platform_win.extract import ExtractionError, extract_icon
-from platform_win.shortcuts import ShellLinkIO, ShortcutGroup, default_roots, scan
+from app.choices import Choice
+from app.service import ChangeReport, IconService, windows_service
+from engine.themes import ThemeError, load_theme
+from platform_win.backup import BackupCorruptError
+from platform_win.extract import ExtractionError
+from platform_win.shortcuts import ShortcutGroup
+
+type Command = Callable[[argparse.Namespace, IconService], int]
 
 
-def _cmd_scan(args: argparse.Namespace) -> int:
-    groups = scan(default_roots(), ShellLinkIO())
+def _cmd_scan(args: argparse.Namespace, service: IconService) -> int:
+    groups = service.scan()
     dump_dir: Path | None = args.dump_dir
     if dump_dir is not None:
         dump_dir.mkdir(parents=True, exist_ok=True)
     for group in groups:
-        _print_group(group)
+        _print_group(service, group)
         if dump_dir is not None:
-            _dump_original(group, dump_dir)
+            _dump_original(service, group, dump_dir)
     print(f"\n{len(groups)} shortcut groups")
     return 0
 
 
-def _print_group(group: ShortcutGroup) -> None:
+def _cmd_apply(args: argparse.Namespace, service: IconService) -> int:
+    target = _find(service, args.name)
+    theme = load_theme(args.theme)
+    theme.recipe(args.recipe)  # fail early on a typo, before extracting anything
+    choice = Choice(theme.id, args.recipe, seed=args.seed)
+    full, simple = service.render_choice(choice, service.original_icon(target).image)
+    return _report(service.apply(target, full, simple, choice, dry_run=args.dry_run))
+
+
+def _cmd_revert(args: argparse.Namespace, service: IconService) -> int:
+    return _report(service.revert(_find(service, args.name), dry_run=args.dry_run))
+
+
+def _cmd_revert_all(args: argparse.Namespace, service: IconService) -> int:
+    return _report(service.revert_all(dry_run=args.dry_run))
+
+
+def _cmd_cleanup(args: argparse.Namespace, service: IconService) -> int:
+    return _report(service.cleanup(dry_run=args.dry_run))
+
+
+def _cmd_reapply(args: argparse.Namespace, service: IconService) -> int:
+    return _report(service.reapply(service.scan(), dry_run=args.dry_run))
+
+
+def _find(service: IconService, name: str) -> ShortcutGroup:
+    matches = [g for g in service.scan() if g.name.casefold() == name.casefold()]
+    if not matches:
+        raise LookupError(f"no shortcut named {name!r}; run 'scan' to list them")
+    return matches[0]
+
+
+def _report(report: ChangeReport) -> int:
+    verb = "would" if report.dry_run else "did"
+    for path in report.written:
+        print(f"{verb} write  {path}")
+    for path in report.changed:
+        print(f"{verb} change {path}")
+    for path in report.removed:
+        print(f"{verb} delete {path}")
+    for path, reason in report.skipped:
+        print(f"skipped     {path}: {reason}")
+    if not (report.written or report.changed or report.removed or report.skipped):
+        print("nothing to do")
+    return 0
+
+
+def _print_group(service: IconService, group: ShortcutGroup) -> None:
     primary = group.primary
     lock = "" if group.writable else "  [read-only]"
-    print(f"{group.name}{lock}")
+    print(f"{group.name}  ({service.status(group)}){lock}")
     print(f"    target: {primary.info.target or '(none: Store or advertised app)'}")
     icon = primary.info.icon
     print(f"    icon:   {icon.path},{icon.index}" if icon.path else "    icon:   (target's icon)")
@@ -38,10 +94,9 @@ def _print_group(group: ShortcutGroup) -> None:
         print(f"    - {shortcut.source}: {shortcut.path}")
 
 
-def _dump_original(group: ShortcutGroup, dump_dir: Path) -> None:
-    primary = group.primary
+def _dump_original(service: IconService, group: ShortcutGroup, dump_dir: Path) -> None:
     try:
-        extracted = extract_icon(primary.info.icon, primary.info.target, primary.path)
+        extracted = service.original_icon(group)
     except ExtractionError as exc:
         print(f"    ! no icon: {exc}")
         return
@@ -56,20 +111,50 @@ def _safe(name: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="iconbloom-cli", description=__doc__)
+    parser = argparse.ArgumentParser(prog="iconbloom-cli", description="Theme shortcut icons.")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    scan_cmd = commands.add_parser("scan", help="list shortcuts and where their icons come from")
-    scan_cmd.add_argument(
-        "--dump-dir", type=Path, help="also save each original icon as a PNG in this folder"
-    )
-    scan_cmd.set_defaults(func=_cmd_scan)
+    def add(name: str, func: Command, help_text: str, *, changes: bool) -> argparse.ArgumentParser:
+        sub = commands.add_parser(name, help=help_text)
+        sub.set_defaults(func=func)
+        if changes:
+            sub.add_argument(
+                "--dry-run", action="store_true", help="show what would change, change nothing"
+            )
+        return sub
+
+    scan_cmd = add("scan", _cmd_scan, "list shortcuts and their icon sources", changes=False)
+    scan_cmd.add_argument("--dump-dir", type=Path, help="save each original icon as a PNG here")
+
+    apply_cmd = add("apply", _cmd_apply, "theme one shortcut", changes=True)
+    apply_cmd.add_argument("name", help="shortcut name as shown by 'scan'")
+    apply_cmd.add_argument("--recipe", required=True, help="recipe id from the theme")
+    apply_cmd.add_argument("--theme", default="kawaii_pink")
+    apply_cmd.add_argument("--seed", type=int, default=0, help="0 = default look, others shuffle")
+
+    revert_cmd = add("revert", _cmd_revert, "restore one shortcut's original icon", changes=True)
+    revert_cmd.add_argument("name")
+    add("revert-all", _cmd_revert_all, "restore every changed shortcut", changes=True)
+    add("cleanup", _cmd_cleanup, "delete generated icons nothing uses", changes=True)
+    add("reapply", _cmd_reapply, "re-theme shortcuts that lost their icon", changes=True)
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    make_service: Callable[[], IconService] = windows_service,
+) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    try:
+        service = make_service()
+        return args.func(args, service)
+    except BackupCorruptError as exc:
+        print(f"Refusing to change anything: {exc}", file=sys.stderr)
+        return 2
+    except (LookupError, ThemeError, ExtractionError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
