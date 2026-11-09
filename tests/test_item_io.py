@@ -117,6 +117,18 @@ class TestFolder:
             r"C:\icons\box.ico", 2
         )
 
+    def test_windows_is_told_only_about_new_icons(self, tmp_path: Path) -> None:
+        """Windows' own call clears Explorer's stale folder thumbnail. Clearing or
+        restoring writes desktop.ini back exactly, which Explorer already notices."""
+        told: list[tuple[Path, IconLocation]] = []
+        io = FolderIO(FakeAttributes(), lambda path, icon: told.append((path, icon)))
+        saved = io.snapshot(tmp_path)
+        io.set_icon(tmp_path, PINK)
+        assert told == [(tmp_path, PINK)]
+        io.set_icon(tmp_path, IconLocation())
+        io.restore(tmp_path, saved)
+        assert told == [(tmp_path, PINK)]
+
     def test_clearing_the_only_entry_removes_the_file(self, tmp_path: Path) -> None:
         io = FolderIO(FakeAttributes())
         io.set_icon(tmp_path, PINK)

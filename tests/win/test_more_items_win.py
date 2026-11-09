@@ -8,9 +8,17 @@ from pathlib import Path
 import pytest
 
 from platform_win.extract import extract_icon, shell_image
-from platform_win.item_io import HIDDEN, READ_ONLY, SYSTEM, FolderIO, WindowsAttributes
+from platform_win.item_io import (
+    HIDDEN,
+    READ_ONLY,
+    SYSTEM,
+    FolderIO,
+    WindowsAttributes,
+    shell_set_folder_icon,
+)
 from platform_win.shell_icons import RECYCLE_BIN, WindowsIconIO, WindowsRegistry
 from platform_win.shortcuts import IconLocation
+from tests.win.conftest import SYSTEM32
 
 PINK = IconLocation(r"C:\Iconbloom-test\pink.ico", 0)
 
@@ -55,18 +63,21 @@ def test_shell_draws_the_recycle_bin() -> None:
     assert image.getchannel("A").getbbox() is not None
 
 
-def test_folder_icon_and_exact_restore(tmp_path: Path) -> None:
+def test_folder_icon_and_exact_restore(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Through Windows' own folder-icon call too, as the app does."""
     attributes = WindowsAttributes()
     folder = tmp_path / "Games"
     folder.mkdir()
-    io = FolderIO(attributes)
+    io = FolderIO(attributes, shell_set_folder_icon)
+    icon = IconLocation(str(SYSTEM32 / "shell32.dll"), 4)
     saved = io.snapshot(folder)
-    io.set_icon(folder, PINK)
+    io.set_icon(folder, icon)
+    assert "didn't take the icon" not in caplog.text
     ini = folder / "desktop.ini"
-    assert io.read(folder).icon == PINK
+    assert io.read(folder).icon == icon
     assert (attributes.get(ini) or 0) & (HIDDEN | SYSTEM) == HIDDEN | SYSTEM
     assert (attributes.get(folder) or 0) & READ_ONLY
-    io.set_icon(folder, IconLocation(r"C:\Iconbloom-test\blue.ico", 0))  # rewrite a hidden file
+    io.set_icon(folder, PINK)  # rewrite a hidden file
     io.restore(folder, saved)
     assert not ini.exists()
     assert not (attributes.get(folder) or 0) & READ_ONLY
