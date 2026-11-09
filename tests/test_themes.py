@@ -12,6 +12,7 @@ from engine.themes import DEFAULT_THEME, ThemeError, list_themes, load_theme
 from tests.conftest import REPRESENTATIVE_SAMPLES, load_sample, sample_names
 
 STYLES_PER_THEME = 20
+CUTOUT_ROW = ["cutout", "cutout_recolor", "cutout_mono", "cutout_tile"]
 
 _RECIPE = {"id": "a", "label": "A", "family": "mono", "ops": [{"op": "mono", "color": "main"}]}
 
@@ -47,11 +48,13 @@ def test_kawaii_pink_loads() -> None:
 
 @pytest.mark.parametrize("theme_id", list_themes())
 def test_bundled_themes_follow_the_style_rules(theme_id: str) -> None:
-    """20 styles, a recolor first, and never two of a kind side by side."""
+    """20 styles, a recolor first, never two of a kind side by side, then the cut-out row."""
     recipes = load_theme(theme_id).recipes
-    assert len(recipes) == STYLES_PER_THEME
-    assert recipes[0].family is Family.RECOLOR
-    for before, after in itertools.pairwise(recipes):
+    styles, cutouts = recipes[:STYLES_PER_THEME], recipes[STYLES_PER_THEME:]
+    assert [r.id for r in cutouts] == CUTOUT_ROW
+    assert all(r.family is Family.CUTOUT for r in cutouts)
+    assert styles[0].family is Family.RECOLOR
+    for before, after in itertools.pairwise(styles):
         assert before.family is not after.family, (
             f"{before.id} and {after.id} are both {after.family}"
         )

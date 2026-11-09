@@ -119,8 +119,8 @@ Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` file
 ## Testing
 
 - The `tests/goldens/` images pin every recipe's output: Kawaii Pink on every sample icon,
-  the other themes on four representative ones. A rules test checks every bundled theme
-  (20 styles, a recolor first, no two neighbors of the same family).
+  the other themes on five representative ones. A rules test checks every bundled theme
+  (20 styles, a recolor first, no two neighbors of the same family, then the cut-out row).
 - Hypothesis property tests check the op invariants.
 - `tests/fakes.py` stands in for the user's shortcut folders (`FakeDesktop`) and for
   `IShellLink` (JSON files), so apply/revert, crash and corruption scenarios run on every OS.

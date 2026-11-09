@@ -99,8 +99,7 @@ def _grab(app: QApplication, window: MainWindow) -> Image.Image:
 
 
 def _previews_ready(window: MainWindow) -> bool:
-    theme = window.service.styles.theme(str(window.theme_box.currentData()))
-    return len(window.picker.cards) == len(theme.recipes)
+    return not window.picker.rendering and bool(window.picker.cards)
 
 
 def picker_media(app: QApplication) -> None:

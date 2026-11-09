@@ -50,6 +50,18 @@
              {"op": "glow", "color": "main", "radius": 12, "strength": 0.9}]},
     {"id": "striped_star", "label": "Striped tile + star", "family": "pattern",
      "ops": [{"op": "tile", "fill": "light", "pattern": "stripes", "pattern_color": ["main", "accent"], "shape": "circle", "scale": 0.66},
-             {"op": "badge", "asset": ["star", "sparkle"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": -12}]}
+             {"op": "badge", "asset": ["star", "sparkle"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": -12}]},
+    {"id": "cutout", "label": "Cut out", "family": "cutout",
+     "ops": [{"op": "remove_background"}]},
+    {"id": "cutout_recolor", "label": "Cut out + recolor", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "recolor", "stops": [["main", "accent", "peach"], ["accent", "main", "peach"]]}]},
+    {"id": "cutout_mono", "label": "Cut out + mono", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "mono", "color": ["deep", "ink"]},
+             {"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
+    {"id": "cutout_tile", "label": "Cut out on a tile", "family": "cutout",
+     "ops": [{"op": "remove_background"},
+             {"op": "tile", "fill": [["main", "deep"], ["accent", "main"]], "angle": 45, "shape": ["squircle", "circle"]}]}
   ]
 }

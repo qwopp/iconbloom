@@ -65,6 +65,10 @@
     {"id": "tile_dream", "label": "Tile + star", "family": "tile",
      "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "shape": "squircle", "scale": 0.66},
              {"op": "badge", "asset": ["star", "moon"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
-    {"use": "pastel_tint", "id": "tint_dream", "label": "Lavender tint"}
+    {"use": "pastel_tint", "id": "tint_dream", "label": "Lavender tint"},
+    "cutout",
+    "cutout_recolor",
+    "cutout_mono",
+    "cutout_tile"
   ]
 }

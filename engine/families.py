@@ -14,6 +14,9 @@ class Family(StrEnum):
     STICKER = "sticker"
     TINT = "tint"
     GLOW = "glow"
+    # Cut a logo out of its plain background; only offered for icons that have one,
+    # always as the last row.
+    CUTOUT = "cutout"
 
 
 # Recipes that flatten an icon's colors into one ramp; busy icons show them last.

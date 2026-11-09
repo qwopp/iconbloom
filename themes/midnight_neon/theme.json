@@ -68,6 +68,10 @@
      "ops": [{"op": "tile", "fill": "cream", "shape": "squircle", "scale": 0.66},
              {"op": "badge", "asset": ["star", "moon"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
     {"id": "tint_neon", "label": "Neon tint", "family": "tint",
-     "ops": [{"op": "tint", "stops": [["accent", "main", "light"], ["accent", "deep", "light"]]}]}
+     "ops": [{"op": "tint", "stops": [["accent", "main", "light"], ["accent", "deep", "light"]]}]},
+    "cutout",
+    "cutout_recolor",
+    "cutout_mono",
+    "cutout_tile"
   ]
 }

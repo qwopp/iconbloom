@@ -35,6 +35,17 @@ def test_file_tags_differ_per_look() -> None:
     assert Choice("t", "r").file_tag == "t_r"
     assert Choice("t", "r", seed=2).file_tag == "t_r_s2"
     assert Choice("", "custom", custom_image="abc.png").file_tag == "custom_abc"
+    styled = Choice("t", "r", seed=2).with_image("abc.png")
+    assert styled == Choice("t", "r", 2, custom_image="abc.png")
+    assert styled.is_custom
+    assert styled.file_tag == "custom_abc_t_r_s2"
+
+
+def test_styled_own_image_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "choices.json"
+    choice = Choice("kawaii_pink", "cutout", custom_image="abc.png")
+    ChoiceStore(path).set("app", choice)
+    assert ChoiceStore(path).get("app") == choice
 
 
 def test_unreadable_file_is_set_aside(tmp_path: Path) -> None:

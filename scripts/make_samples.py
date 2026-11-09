@@ -127,6 +127,19 @@ def gradient_app() -> Image.Image:
     return img
 
 
+def plate_glyph() -> Image.Image:
+    """A two-color logo on a plain rounded square, like many app and downloaded icons.
+    The case remove_background cuts out."""
+    img, draw = _canvas()
+    draw.rounded_rectangle((16, 16, 240, 240), radius=52, fill=(255, 170, 200, 255))
+    draw.ellipse((64, 64, 192, 192), fill=(255, 255, 255, 255))
+    draw.polygon(
+        [(136, 78), (96, 136), (124, 136), (112, 180), (160, 116), (130, 116)],
+        fill=(250, 200, 40, 255),
+    )
+    return img
+
+
 SAMPLES = {
     "simple_glyph": simple_glyph,
     "multicolor": multicolor,
@@ -136,6 +149,7 @@ SAMPLES = {
     "dark": dark,
     "thin_line": thin_line,
     "gradient_app": gradient_app,
+    "plate_glyph": plate_glyph,
 }
 
 

@@ -53,6 +53,14 @@ def test_plain_icons_keep_the_theme_order() -> None:
     assert [r.id for r in ordered] == ["tint", "recolor", "glow", "tile", "mono"]
 
 
+def test_cutout_recipes_only_for_plated_icons_and_always_last() -> None:
+    recipes = [FakeRecipe("cut", Family.CUTOUT), *RECIPES]
+    plated, _ = ops.prepare(load_sample("plate_glyph"))
+    assert [r.id for r in analyze.order_recipes(recipes, plated)][-1] == "cut"
+    plain = analyze.order_recipes(recipes, load_sample("multicolor"))
+    assert "cut" not in [r.id for r in plain]
+
+
 def test_dominant_hue_of_red_icon() -> None:
     hue = analyze.dominant_hue(Image.new("RGBA", (32, 32), (230, 20, 20, 255)))
     assert hue is not None

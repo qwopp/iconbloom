@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from PIL import Image
 
+from engine import ops
 from engine.families import FLATTENING, Family
 from engine.ops import RGB
 
@@ -77,15 +78,19 @@ def nearest_shade(img: Image.Image, palette: Mapping[str, RGB]) -> RGB:
 
 
 def order_recipes[R: Orderable](recipes: Iterable[R], icon: Image.Image) -> list[R]:
-    """The theme's own order, except that busy icons see color-flattening recipes last.
+    """The theme's own order, adjusted to the icon.
 
     A tint turns a multicolor logo into one muddy ramp, so for those icons the
-    tints and glows move to the end; everything else keeps its place.
+    tints and glows move toward the end. Cut-out recipes stay last, and are left
+    out for icons with no plain background to cut, where they'd change nothing.
     """
     ordered = list(recipes)
-    if not is_colorful(icon):
-        return ordered
-    return sorted(ordered, key=lambda r: r.family in FLATTENING)
+    if not ops.has_plate(icon):
+        ordered = [r for r in ordered if r.family is not Family.CUTOUT]
+    colorful = is_colorful(icon)
+    return sorted(
+        ordered, key=lambda r: (r.family is Family.CUTOUT, colorful and r.family in FLATTENING)
+    )
 
 
 def _hues(

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from app.choices import Choice
+from app.choices import CUSTOM_RECIPE, Choice
 from engine import ops
 from engine.ico import build_ico
 from engine.recipes import render
@@ -43,12 +43,12 @@ class Styles:
         """Full and simplified renders for a choice.
 
         Theme choices need ``prepared``, the original icon after ``ops.prepare``;
-        a custom image is its own source.
+        a choice with the user's own image draws from that image instead.
         """
         if choice.custom_image is not None:
-            with Image.open(self._paths.custom_images / choice.custom_image) as img:
-                image, _ = ops.prepare(img)
-            return image, image
+            prepared = self.custom_source(choice.custom_image)
+            if choice.recipe == CUSTOM_RECIPE:
+                return prepared, prepared
         if prepared is None:
             raise ValueError(f"rendering {choice.file_tag} needs the original icon")
         theme = self.theme(choice.theme)
@@ -57,6 +57,12 @@ class Styles:
             render(recipe, prepared, theme, seed=choice.seed),
             render(recipe, prepared, theme, seed=choice.seed, simplified=True),
         )
+
+    def custom_source(self, image_name: str) -> Image.Image:
+        """The user's stored image, prepared like an app's icon so any style applies."""
+        with Image.open(self._paths.custom_images / image_name) as img:
+            prepared, _ = ops.prepare(img)
+        return prepared
 
     def store_custom_image(self, source: Path) -> Choice:
         """Copy a user-picked image into app data and return the choice that uses it."""

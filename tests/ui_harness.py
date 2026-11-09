@@ -17,11 +17,9 @@ from app.service import IconService, Status
 from app.ui import palette
 from app.ui.main_window import MainWindow
 from app.updates import Release, Updater
-from engine.themes import DEFAULT_THEME, load_theme
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
-RECIPES = len(load_theme(DEFAULT_THEME).recipes)
 
 
 class FakeUpdater(Updater):
@@ -102,8 +100,12 @@ class Harness:
             drawn.append(isinstance(label, QLabel) and not label.pixmap().isNull())
         return drawn
 
-    def wait_for_previews(self, count: int = RECIPES) -> None:
-        self.qtbot.waitUntil(lambda: len(self.window.picker.cards) == count, timeout=15_000)
+    def wait_for_previews(self) -> None:
+        picker = self.window.picker
+        self.qtbot.waitUntil(
+            lambda: not picker.rendering and not self.window.jobs.busy and bool(picker.cards),
+            timeout=15_000,
+        )
 
     def status(self, name: str) -> Status:
         return self.service.status(next(g for g in self.service.scan() if g.name == name))

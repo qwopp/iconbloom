@@ -24,13 +24,18 @@ class Choice:
     theme: str
     recipe: str
     seed: int = 0
-    # File name under AppPaths.custom_images when recipe is "custom".
+    # The user's own image, a file name under AppPaths.custom_images, styled in place
+    # of the app's icon. With the "custom" recipe it's used exactly as it is.
     custom_image: str | None = None
 
     @classmethod
     def custom(cls, image_name: str) -> "Choice":
-        """A choice that uses the user's own image instead of a recipe."""
+        """A choice that uses the user's own image as it is."""
         return cls(theme="", recipe=CUSTOM_RECIPE, custom_image=image_name)
+
+    def with_image(self, image_name: str) -> "Choice":
+        """This style, drawn from the user's own image instead of the app's icon."""
+        return Choice(self.theme, self.recipe, self.seed, custom_image=image_name)
 
     @property
     def is_custom(self) -> bool:
@@ -39,9 +44,11 @@ class Choice:
     @property
     def file_tag(self) -> str:
         """Part of the generated .ico name; differs whenever the picture would."""
-        if self.custom_image is not None:
-            return f"{CUSTOM_RECIPE}_{Path(self.custom_image).stem}"
-        return f"{self.theme}_{self.recipe}" + (f"_s{self.seed}" if self.seed else "")
+        style = f"{self.theme}_{self.recipe}" + (f"_s{self.seed}" if self.seed else "")
+        if self.custom_image is None:
+            return style
+        image = f"{CUSTOM_RECIPE}_{Path(self.custom_image).stem}"
+        return image if self.recipe == CUSTOM_RECIPE else f"{image}_{style}"
 
 
 class ChoiceStore:

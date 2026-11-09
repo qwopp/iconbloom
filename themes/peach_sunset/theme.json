@@ -65,6 +65,10 @@
     {"id": "tile_sunset", "label": "Tile + flower", "family": "tile",
      "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "shape": "squircle", "scale": 0.66},
              {"op": "badge", "asset": ["flower", "heart"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
-    {"use": "pastel_tint", "id": "tint_sunset", "label": "Peach tint"}
+    {"use": "pastel_tint", "id": "tint_sunset", "label": "Peach tint"},
+    "cutout",
+    "cutout_recolor",
+    "cutout_mono",
+    "cutout_tile"
   ]
 }

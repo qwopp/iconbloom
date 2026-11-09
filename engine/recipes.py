@@ -109,6 +109,7 @@ OPS: Mapping[str, OpDef] = {
             "pattern_color": Param("color", "#FFFFFF"),
         },
     ),
+    "remove_background": OpDef(ops.remove_background, {}),
     "sticker_outline": OpDef(
         ops.sticker_outline,
         {

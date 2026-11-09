@@ -6,6 +6,14 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Use my own image…** now shows every style of the theme on your picture, not just the
+  picture as it is. **Use the app's icon** goes back.
+- A **Cut out** row of four styles that removes a plain background (like a colored square
+  behind a logo) and keeps the logo, as it is, recolored, in one color or on a new theme
+  tile. It shows up for icons and images that have such a background.
+
 ### Changed
 
 - After **Apply**, Iconbloom stays on the icon you just styled, with that style still
