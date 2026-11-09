@@ -6,6 +6,15 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-09
+
+### Changed
+
+- Update checks are on by default, with no first-run question. Iconbloom asks GitHub for
+  the latest version when it opens, and still installs nothing unless you click
+  **Update now**. Anyone who already said no keeps it off; untick **Check for updates** to
+  turn it off.
+
 ## [0.3.0] - 2026-11-09
 
 ### Added
@@ -84,7 +93,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/qwopp/iconbloom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/qwopp/iconbloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qwopp/iconbloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qwopp/iconbloom/releases/tag/v0.1.0

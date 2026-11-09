@@ -43,7 +43,7 @@ Before changing anything, Iconbloom saves an exact copy of it in `%LOCALAPPDATA%
 
 **An app update reset an icon?** Use **More → Reapply my icons**.
 
-**Internet use?** None, except an update check that Iconbloom asks about first. Updates install only when you click **Update now**, and only after the download matches its published checksum.
+**Internet use?** Only an update check when it opens (untick **Check for updates** to stop it). Updates install only when you click **Update now**, and only after the download matches its published checksum.
 
 ## Build from source
 

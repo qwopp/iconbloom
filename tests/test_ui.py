@@ -11,7 +11,6 @@ from pytestqt.qtbot import QtBot
 
 from app.main import load_style
 from app.service import ChangeReport, IconService, Status
-from app.settings import Settings
 from app.ui.main_window import MainWindow
 from app.updates import Release, Updater
 from platform_win.shortcuts import Place
@@ -105,8 +104,6 @@ def harness(
     tmp_path: Path, qtbot: QtBot, qapp: QApplication, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Harness]:
     desktop = FakeDesktop(tmp_path, icons=APPS, default="dark")
-    # The first-run update question is tested on its own below.
-    Settings(asked_about_updates=True).save(desktop.paths.settings)
     for name in APPS:
         desktop.make(name)
     desktop.make("Admin Tool", folder=desktop.common)
@@ -338,29 +335,45 @@ RELEASE = Release(
 )
 
 
-def test_first_launch_asks_before_checking_for_updates(
-    tmp_path: Path, qtbot: QtBot, qapp: QApplication
-) -> None:
-    desktop = FakeDesktop(tmp_path)
-    desktop.make("Paint")
-    updater = FakeUpdater()
-    updater.release = RELEASE
+def _open(desktop: FakeDesktop, updater: FakeUpdater, qtbot: QtBot) -> MainWindow:
     window = MainWindow(desktop.service(), hard_refresh=lambda: None, updater=updater)
     qtbot.addWidget(window)
     window.show()
-    qtbot.waitUntil(window.notice.isVisible, timeout=5_000)
-    assert "new version" in window.notice_label.text()
-    window.update_box.setChecked(True)  # what "Yes, check" does
+    return window
+
+
+def test_first_launch_checks_for_updates_without_asking(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication
+) -> None:
+    desktop = FakeDesktop(tmp_path)
+    updater = FakeUpdater()
+    updater.release = RELEASE
+    window = _open(desktop, updater, qtbot)
+    assert window.update_box.isChecked()
     qtbot.waitUntil(lambda: "ready to install" in window.notice_label.text(), timeout=5_000)
-    saved = Settings.load(desktop.paths.settings)
-    assert saved.check_for_updates
-    assert saved.asked_about_updates
+    window.close()
+
+
+def test_switching_update_checks_off_sticks(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication
+) -> None:
+    desktop = FakeDesktop(tmp_path)
+    updater = FakeUpdater()
+    window = _open(desktop, updater, qtbot)
+    window.update_box.setChecked(False)
+    window.close()
+
+    updater.release = RELEASE
+    window = _open(desktop, updater, qtbot)
+    assert not window.update_box.isChecked()
+    qtbot.wait(100)
+    assert not window.notice.isVisible()
     window.close()
 
 
 def test_update_downloads_installs_and_closes(harness: Harness) -> None:
     harness.updater.release = RELEASE
-    harness.window.update_box.setChecked(True)
+    harness.window.check_for_updates()  # what happens at every launch
     harness.qtbot.waitUntil(
         lambda: "9.9.9 is ready" in harness.window.notice_label.text(), timeout=5_000
     )
