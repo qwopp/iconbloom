@@ -8,6 +8,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [0.3.2] - 2026-11-09
 
+### Fixed
+
+- A background task that finished very quickly could lose its result (an update notice or
+  a shortcut scan, for example), because its result arrived before anything was listening.
+
 ### Changed
 
 - Update checks are on by default, with no first-run question. Iconbloom asks GitHub for

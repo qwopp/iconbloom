@@ -458,7 +458,7 @@ class MainWindow(QMainWindow):
                         pixmap_at(payload.image, SELECTION_ICON, self.devicePixelRatioF())
                     )
 
-        self._start(work).signals.progress.connect(on_icon)
+        self._start(work, on_progress=on_icon)
 
     def _build_notice(self) -> QFrame:
         """Banner for things worth knowing now: a stale taskbar, an update, a question."""
@@ -524,8 +524,7 @@ class MainWindow(QMainWindow):
 
     def reload_shortcuts(self) -> None:
         """Rescan shortcut folders in the background and refresh the grid."""
-        job = self._start(lambda _report: self.service.scan())
-        job.signals.done.connect(self._on_scanned)
+        self._start(lambda _report: self.service.scan(), on_done=self._on_scanned)
 
     def _on_scanned(self, result: object) -> None:
         if not isinstance(result, list):
@@ -619,7 +618,7 @@ class MainWindow(QMainWindow):
                 image.thumbnail((128, 128))
                 report(Thumbnail(target.key, to_qimage(image)))
 
-        self._start(work).signals.progress.connect(self._on_thumbnail)
+        self._start(work, on_progress=self._on_thumbnail)
 
     def _on_thumbnail(self, payload: object) -> None:
         if not isinstance(payload, Thumbnail):
@@ -729,9 +728,11 @@ class MainWindow(QMainWindow):
 
         self._preview_token += 1
         token = self._preview_token
-        job = self._start(work)
-        job.signals.done.connect(lambda result: self._on_previews(token, result))
-        job.signals.failed.connect(lambda message: self._on_preview_failed(token, message))
+        self._start(
+            work,
+            on_done=lambda result: self._on_previews(token, result),
+            on_failed=lambda message: self._on_preview_failed(token, message),
+        )
 
     def _on_previews(self, token: int, result: object) -> None:
         current = self.current_group()
@@ -1057,10 +1058,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "That didn't work", message)
             self.reload_shortcuts()
 
-        job = self._start(work)
-        job.signals.progress.connect(on_progress)
-        job.signals.done.connect(finished)
-        job.signals.failed.connect(failed)
+        self._start(work, on_done=finished, on_failed=failed, on_progress=on_progress)
 
     def _show_skipped(self, report: ChangeReport) -> None:
         # Skipping shared shortcuts was the user's own choice; no need to repeat it.
@@ -1107,8 +1105,7 @@ class MainWindow(QMainWindow):
             self.check_for_updates()
 
     def check_for_updates(self) -> None:
-        job = self._start(lambda _report: self._updater.check())
-        job.signals.done.connect(self._on_update_result)
+        self._start(lambda _report: self._updater.check(), on_done=self._on_update_result)
 
     def _on_update_result(self, result: object) -> None:
         if not isinstance(result, Release):
@@ -1163,10 +1160,7 @@ class MainWindow(QMainWindow):
             dialog.reset()
             QMessageBox.warning(self, "The update didn't download", message)
 
-        job = self._start(work)
-        job.signals.progress.connect(on_progress)
-        job.signals.done.connect(on_done)
-        job.signals.failed.connect(on_failed)
+        self._start(work, on_done=on_done, on_failed=on_failed, on_progress=on_progress)
 
     # ---- plumbing -----------------------------------------------------------
 
@@ -1183,14 +1177,31 @@ class MainWindow(QMainWindow):
             )
             return None
 
-    def _start(self, work: Callable[[Callable[[object], None]], object]) -> Job:
+    def _start(
+        self,
+        work: Callable[[Callable[[object], None]], object],
+        *,
+        on_done: Callable[[object], None] | None = None,
+        on_failed: Callable[[str], None] | None = None,
+        on_progress: Callable[[object], None] | None = None,
+    ) -> None:
+        """Run ``work`` on the thread pool and report back on the UI thread.
+
+        Handlers are connected before the job starts: a job that finishes
+        straight away would otherwise report to nobody.
+        """
         job = Job(work)
         job.setAutoDelete(False)
         self._jobs.add(job)
+        if on_progress is not None:
+            job.signals.progress.connect(on_progress)
+        if on_done is not None:
+            job.signals.done.connect(on_done)
+        if on_failed is not None:
+            job.signals.failed.connect(on_failed)
         job.signals.done.connect(lambda _result: self._jobs.discard(job))
         job.signals.failed.connect(lambda _message: self._jobs.discard(job))
         self._pool.start(job)
-        return job
 
     def wait_for_jobs(self, msecs: int = 30_000) -> bool:
         return self._pool.waitForDone(msecs)
