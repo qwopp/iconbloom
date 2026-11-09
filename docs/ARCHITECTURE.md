@@ -31,13 +31,22 @@ future macOS port.
 pywin32 is imported inside the functions that need it, so the data types and the backup logic
 load and are tested on any OS.
 
-- `shortcuts.py`: finds `.lnk` files via known folders, reads and writes them through
-  `IShellLink` (`LinkIO`), filters out uninstallers and readmes, and groups shortcuts that
-  launch the same thing.
+- `shortcuts.py`: the data model and scanning. An item ("shortcut") is a `.lnk` or `.url`
+  file, a desktop folder, or a Windows icon such as the Recycle Bin (`::{CLSID}`). Scanning
+  uses the shell's known folders, filters out uninstallers and readmes, and groups items
+  that run the same program with the same arguments or the same name.
+- `item_io.py`: one `ItemIO` per kind of item. Each reads and sets the icon, and saves or
+  restores the full state that decides it, so backups work the same way for all of them:
+  `ShellLinkIO` (IShellLink), `UrlFileIO` (INI), `FolderIO` (`desktop.ini` plus the
+  folder's read-only bit) and `ItemRouter`, which picks one by path.
+- `shell_icons.py`: Windows' own desktop icons, through the per-user
+  `Explorer\CLSID\{...}\DefaultIcon` registry key behind a small `Registry` interface.
+- `ini.py`: edits `.url` and `desktop.ini` files line by line, keeping everything else.
 - `extract.py`: gets the original icon at full size. It reads the shortcut's icon location
   first (including system icons that moved to `SystemResources\*.mun`), then the target
   executable. It falls back to the shell's own rendering, which covers Store apps.
-- `backup.py`: the manifest of originals. Writes are atomic, the previous generation is kept,
+- `backup.py`: the manifest of originals (each item's saved state, where "nothing there"
+  is a valid original). Writes are atomic, the previous generation is kept,
   and a damaged file is refused rather than overwritten.
 - `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache for taskbar
   pins, and (only when asked) restarts Explorer.
