@@ -8,8 +8,8 @@ from PIL import Image
 from engine import ops
 from engine.families import Family
 from engine.recipes import render
-from engine.themes import ThemeError, list_themes, load_theme
-from tests.conftest import load_sample, sample_names
+from engine.themes import DEFAULT_THEME, ThemeError, list_themes, load_theme
+from tests.conftest import REPRESENTATIVE_SAMPLES, load_sample, sample_names
 
 STYLES_PER_THEME = 20
 
@@ -59,11 +59,15 @@ def test_bundled_themes_follow_the_style_rules(theme_id: str) -> None:
 
 @pytest.mark.parametrize("theme_id", list_themes())
 def test_bundled_themes_render_every_style_on_every_sample(theme_id: str) -> None:
+    """The goldens pin the default look on some samples; this covers the rest, plus a
+    shuffled look of every style."""
     theme = load_theme(theme_id)
-    for name in sample_names():
+    golden = sample_names() if theme_id == DEFAULT_THEME else REPRESENTATIVE_SAMPLES
+    cases = [(name, 0) for name in sample_names() if name not in golden]
+    for name, seed in [*cases, ("multicolor", 7)]:
         icon, _ = ops.prepare(load_sample(name))
         for recipe in theme.recipes:
-            assert render(recipe, icon, theme, seed=7).size == icon.size
+            assert render(recipe, icon, theme, seed=seed).size == icon.size
 
 
 def test_list_themes_finds_bundled_theme() -> None:

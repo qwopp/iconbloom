@@ -39,7 +39,7 @@ def _rgb() -> st.SearchStrategy[tuple[int, int, int]]:
     return st.tuples(st.integers(0, 255), st.integers(0, 255), st.integers(0, 255))
 
 
-PATTERNS: tuple[ops.Pattern, ...] = ("dots", "stripes", "gingham", "hearts")
+PATTERNS = ops.PATTERNS
 
 OPS: dict[str, Callable[[Image.Image, st.DataObject], Image.Image]] = {
     "tint": lambda img, d: ops.tint(

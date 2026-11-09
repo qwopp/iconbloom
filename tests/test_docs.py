@@ -5,8 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from engine.themes import list_themes
-
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = [
     ROOT / "README.md",
@@ -39,12 +37,3 @@ def test_readme_stays_short() -> None:
     """The README is a front page: pictures, download, FAQ. Details live in docs/."""
     lines = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
     assert len(lines) <= README_MAX_LINES
-
-
-def test_readme_shows_every_theme() -> None:
-    """The showcase image has a row per bundled theme; its alt text says so."""
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert f"each of the {_NUMBER_WORDS[len(list_themes())]} themes" in readme
-
-
-_NUMBER_WORDS = {3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"}

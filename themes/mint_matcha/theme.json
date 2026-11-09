@@ -36,12 +36,9 @@
              {"op": "tile", "fill": ["#7CC46F", "#3FAE9A"], "angle": 45}]},
     {"use": "mono_rose", "label": "Mono matcha on cream"},
     {"use": "bubble_pink", "label": "Bubble tile, mint"},
-    {"id": "matcha_recolor", "label": "Sakura recolor", "family": "recolor",
-     "ops": [{"op": "recolor", "stops": [["accent", "main", "light"], ["accent", "peach", "main"]]},
-             {"op": "sticker_outline", "thickness": 10, "color": "#FFFFFF"}]},
+    {"use": "lavender_recolor", "id": "matcha_recolor", "label": "Sakura recolor"},
     {"use": "sticker_face", "label": "Sticker + blush"},
-    {"id": "dot_tile", "label": "Polka-dot tile", "family": "pattern",
-     "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "pattern": "dots", "pattern_color": ["main", "accent"], "outline": "main"}]},
+    {"use": "polka_tile", "id": "dot_tile"},
     {"use": "recolor_tile", "label": "Recolor on cream tile"},
     {"id": "glow_matcha", "label": "Tint + leaf", "family": "glow",
      "ops": [{"op": "tint", "stops": ["ink", "main", "light"]},
@@ -60,9 +57,7 @@
              {"op": "tile", "fill": ["#6FC39A", "#4FA57F"], "shape": "circle"},
              {"op": "badge", "asset": "cloud", "corner": ["bottom-left", "bottom-right"], "scale": 0.42, "rotation": 0}]},
     {"use": "bubble_cream", "label": "Bubble tile, cream"},
-    {"id": "halo_matcha", "label": "Mint glow", "family": "glow",
-     "ops": [{"op": "tint", "stops": ["ink", "deep", "light"]},
-             {"op": "glow", "color": "main", "radius": 12, "strength": 0.9}]},
+    {"use": "rose_glow", "id": "halo_matcha", "label": "Mint glow"},
     {"id": "striped_matcha", "label": "Striped tile + leaf", "family": "pattern",
      "ops": [{"op": "tile", "fill": "light", "pattern": "stripes", "pattern_color": ["main", "accent"], "shape": "circle", "scale": 0.66},
              {"op": "badge", "asset": ["leaf", "sparkle"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": -12}]},
@@ -70,7 +65,6 @@
     {"id": "tile_matcha", "label": "Tile + leaf", "family": "tile",
      "ops": [{"op": "tile", "fill": [["light"], ["cream"]], "shape": "squircle", "scale": 0.66},
              {"op": "badge", "asset": ["leaf", "flower"], "corner": ["top-right", "top-left"], "scale": 0.4, "rotation": 12}]},
-    {"id": "tint_matcha", "label": "Matcha tint", "family": "tint",
-     "ops": [{"op": "tint", "stops": [["ink", "main", "light"], ["ink", "accent", "light"]]}]}
+    {"use": "pastel_tint", "id": "tint_matcha", "label": "Matcha tint"}
   ]
 }

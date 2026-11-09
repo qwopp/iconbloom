@@ -6,6 +6,7 @@ style.qss refers to these names as ``@name``; the tile painter reads them from
 
 import re
 from dataclasses import dataclass, fields
+from functools import cache
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QGuiApplication
@@ -19,7 +20,6 @@ _TOKEN = re.compile(r"@(\w+)")
 
 @dataclass(frozen=True)
 class UiPalette:
-    dark: bool
     text: str
     muted: str
     title: str
@@ -56,7 +56,6 @@ class UiPalette:
 
 
 LIGHT = UiPalette(
-    dark=False,
     text="#7A3E5D",
     muted="#A87A93",
     title="#E8689A",
@@ -90,7 +89,6 @@ LIGHT = UiPalette(
 )
 
 DARK = UiPalette(
-    dark=True,
     text="#F5DDE9",
     muted="#B89AAB",
     title="#FF8FBE",
@@ -141,8 +139,8 @@ def windows_prefers_dark() -> bool:
 
 def stylesheet(palette: UiPalette, template: str | None = None) -> str:
     """style.qss with every ``@name`` replaced by the palette's color."""
-    text = STYLE_TEMPLATE.read_text(encoding="utf-8") if template is None else template
-    names = {f.name for f in fields(palette)} - {"dark"}
+    text = _template() if template is None else template
+    names = {f.name for f in fields(palette)}
 
     def color(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -153,6 +151,15 @@ def stylesheet(palette: UiPalette, template: str | None = None) -> str:
     return _TOKEN.sub(color, text)
 
 
+@cache
+def _template() -> str:
+    return STYLE_TEMPLATE.read_text(encoding="utf-8")
+
+
 def apply(app: QApplication, palette: UiPalette) -> None:
+    """Restyle the whole app. Re-applying the palette already in use does nothing:
+    a new stylesheet repolishes every widget."""
+    if palette is _Active.palette and app.styleSheet():
+        return
     _Active.palette = palette
     app.setStyleSheet(stylesheet(palette))

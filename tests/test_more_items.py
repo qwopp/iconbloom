@@ -90,7 +90,7 @@ def test_same_program_and_name_is_one_app(env: FakeDesktop) -> None:
     exe = r"C:\Users\x\AppData\Local\Discord\Discord.exe"
     start = env.common.parent / "Start"
     start.mkdir()
-    env.roots.append(ScanRoot(start, Source.START_MENU, recursive=True))
+    env.roots.append(ScanRoot(start, Source.START_MENU, max_depth=None))
     env.link_io.create(env.desktop / "Discord.lnk", exe)
     _set_args(env, env.desktop / "Discord.lnk", "--processStart Discord.exe")
     env.link_io.create(start / "Discord.lnk", exe)  # no arguments
@@ -108,7 +108,7 @@ def test_group_that_lost_part_of_its_style_needs_reapply(env: FakeDesktop) -> No
     desktop = env.make("Paint")
     start = env.common.parent / "Start"
     start.mkdir()
-    env.roots.append(ScanRoot(start, Source.START_MENU, recursive=True))
+    env.roots.append(ScanRoot(start, Source.START_MENU, max_depth=None))
     env.link_io.create(start / "Paint.lnk", r"C:\Apps\Paint.exe")
     service = env.service()
     service.apply(_group(service, "Paint"), CHOICE)

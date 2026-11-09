@@ -134,8 +134,8 @@ class FakeDesktop:
         self.notified = 0
         self.refreshed: list[Path] = []
         self.roots = [
-            ScanRoot(self.desktop, Source.DESKTOP, recursive=False, folders=True),
-            ScanRoot(self.common, Source.ALL_USERS_START_MENU, recursive=True),
+            ScanRoot(self.desktop, Source.DESKTOP, folders=True),
+            ScanRoot(self.common, Source.ALL_USERS_START_MENU, max_depth=None),
             desktop_folders_root(self.desktop),
         ]
         # Plays Windows' permission prompt: True = the user says No.

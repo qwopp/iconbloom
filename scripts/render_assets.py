@@ -50,22 +50,22 @@ def render_svg(svg: str, width: int = RENDER_WIDTH) -> Image.Image:
     return Image.open(io.BytesIO(bytes(png))).convert("RGBA")
 
 
-def find_source(theme_dir: Path, stem: str, decorations: Path = DECORATIONS) -> Path | None:
+def find_source(theme_dir: Path, stem: str) -> Path | None:
     """The theme's own SVG for an asset if it has one, otherwise the shared template."""
-    for folder in (theme_dir / "src", decorations):
+    for folder in (theme_dir / "src", DECORATIONS):
         path = folder / f"{stem}.svg"
         if path.is_file():
             return path
     return None
 
 
-def render_theme(theme_dir: Path, decorations: Path = DECORATIONS) -> list[Path]:
+def render_theme(theme_dir: Path) -> list[Path]:
     raw = json.loads((theme_dir / THEME_FILE).read_text(encoding="utf-8"))
     colors: dict[str, str] = raw.get("decor", {})
     written: list[Path] = []
     for filename in raw.get("assets", {}).values():
         out_path = theme_dir / filename
-        source = find_source(theme_dir, out_path.stem, decorations)
+        source = find_source(theme_dir, out_path.stem)
         if source is None:
             continue  # a plain PNG the theme ships as it is
         try:
