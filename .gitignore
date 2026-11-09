@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build output
+build/
+dist/
+*.spec.bak
+
+# Local renders
+contact_sheet.png
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
