@@ -6,7 +6,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "icoextract>=0.3.1 ; sys_platform == 'win32'",
+    "icoextract>=0.3.1",
     "numpy>=2.5.4",
     "pillow>=13.0.0",
     "pyside6-essentials>=6.12.0",
@@ -45,6 +45,13 @@ ignore = [
     "PLW2901",  # rebinding a loop variable is often the clearest way to normalize input
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# pywin32 is imported inside functions so these modules still load on Linux.
+"platform_win/*" = ["PLC0415"]
+"tests/win/*" = ["PLC0415"]
+# Fakes and monkeypatched stand-ins must match real signatures they ignore.
+"tests/*" = ["ARG"]
+
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
@@ -55,6 +62,8 @@ pythonVersion = "3.12"
 pythonPlatform = "Windows"
 typeCheckingMode = "basic"
 strict = ["engine"]
+# pywin32 only installs on Windows; its stubs are enough to type-check elsewhere.
+reportMissingModuleSource = false
 venvPath = "."
 venv = ".venv"
 
