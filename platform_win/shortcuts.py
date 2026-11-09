@@ -7,14 +7,17 @@ icon is ever changed, never what an item opens.
 """
 
 import hashlib
+import logging
 import ntpath
 import os
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
+
+log = logging.getLogger(__name__)
 
 
 class Source(StrEnum):
@@ -24,6 +27,7 @@ class Source(StrEnum):
     TASKBAR = "Taskbar"
     START_MENU = "Start menu"
     ALL_USERS_START_MENU = "Start menu (all users)"
+    DESKTOP_FOLDERS = "In desktop folders"
 
 
 class Place(StrEnum):
@@ -63,6 +67,7 @@ _PLACES = {
     Source.TASKBAR: Place.TASKBAR,
     Source.START_MENU: Place.START_MENU,
     Source.ALL_USERS_START_MENU: Place.START_MENU,
+    Source.DESKTOP_FOLDERS: Place.DESKTOP,
 }
 
 
@@ -165,6 +170,12 @@ class ScanRoot:
     recursive: bool
     # Also list the folders directly inside (only the desktop does).
     folders: bool = False
+    # How deep shortcuts are looked for when recursive: 1 is the folder itself,
+    # 2 the folders inside it, and so on. None means no limit.
+    min_depth: int = 1
+    max_depth: int | None = None
+    # Stop after looking at this many files, so a huge folder can't stall the scan.
+    limit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -212,13 +223,31 @@ def default_roots() -> list[ScanRoot]:
 
     appdata = known_folder("RoamingAppData")
     pinned = appdata / "Microsoft" / "Internet Explorer" / "Quick Launch" / "User Pinned"
+    desktop = known_folder("Desktop")
     return [
-        ScanRoot(known_folder("Desktop"), Source.DESKTOP, recursive=False, folders=True),
+        ScanRoot(desktop, Source.DESKTOP, recursive=False, folders=True),
         ScanRoot(known_folder("PublicDesktop"), Source.PUBLIC_DESKTOP, recursive=False),
         ScanRoot(known_folder("Programs"), Source.START_MENU, recursive=True),
         ScanRoot(known_folder("CommonPrograms"), Source.ALL_USERS_START_MENU, recursive=True),
         ScanRoot(pinned / "TaskBar", Source.TASKBAR, recursive=False),
+        desktop_folders_root(desktop),
     ]
+
+
+# Shortcuts kept in folders on the desktop: up to three folders deep.
+DESKTOP_FOLDER_DEPTH = 3
+DESKTOP_FOLDER_FILE_LIMIT = 2000
+
+
+def desktop_folders_root(desktop: Path) -> ScanRoot:
+    return ScanRoot(
+        desktop,
+        Source.DESKTOP_FOLDERS,
+        recursive=True,
+        min_depth=2,
+        max_depth=1 + DESKTOP_FOLDER_DEPTH,
+        limit=DESKTOP_FOLDER_FILE_LIMIT,
+    )
 
 
 _NOISE_NAME = re.compile(
@@ -337,20 +366,73 @@ def _preference(shortcut: Shortcut) -> tuple[int, int, str]:
 
 
 _SHORTCUT_SUFFIXES = frozenset({".lnk", ".url"})
+# Folders full of files nobody launches from; never worth walking.
+_SKIPPED_FOLDERS = frozenset({".git", "node_modules", "__pycache__"})
+
+# Windows file attributes (winnt.h) the scan looks at.
+FILE_ATTRIBUTE_HIDDEN = 0x2
+FILE_ATTRIBUTE_OFFLINE = 0x1000
+FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x40000
+FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x400000
+# OneDrive "online-only" files: reading one downloads it, so the scan leaves them alone.
+_CLOUD_ONLY = (
+    FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+)
+
+
+def file_attributes(path: Path) -> int:
+    """The Windows attribute bits of ``path`` (0 elsewhere). Reading them never downloads."""
+    try:
+        return getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
+        return 0
 
 
 def _items(root: ScanRoot) -> list[Path]:
     if not root.path.is_dir():
         return []
-    candidates = root.path.rglob("*") if root.recursive else root.path.iterdir()
+    max_depth = root.max_depth if root.recursive else 1
     found: list[Path] = []
-    for path in candidates:
-        is_shortcut = path.is_file() and path.suffix.casefold() in _SHORTCUT_SUFFIXES
-        is_folder = root.folders and path.parent == root.path and _is_visible_folder(path)
-        if is_shortcut or is_folder:
+    looked_at = 0
+    for path, depth in _walk(root.path, max_depth):
+        if path.is_file():
+            looked_at += 1
+            if root.limit is not None and looked_at > root.limit:
+                log.warning("stopped scanning %s after %d files", root.path, root.limit)
+                break
+            if (
+                depth >= root.min_depth
+                and path.suffix.casefold() in _SHORTCUT_SUFFIXES
+                and not file_attributes(path) & _CLOUD_ONLY
+            ):
+                found.append(path)
+        elif root.folders and depth == 1 and _is_visible_folder(path):
             found.append(path)
     return sorted(found)
 
 
+def _walk(folder: Path, max_depth: int | None, depth: int = 1) -> Iterator[tuple[Path, int]]:
+    """Everything under ``folder`` with its depth, without entering hidden folders."""
+    try:
+        entries = sorted(folder.iterdir())
+    except OSError:
+        return  # gone, or not ours to read
+    for path in entries:
+        yield path, depth
+        deeper = max_depth is None or depth < max_depth
+        if deeper and path.is_dir() and not path.is_symlink() and _worth_entering(path):
+            yield from _walk(path, max_depth, depth + 1)
+
+
+def _worth_entering(folder: Path) -> bool:
+    return folder.name not in _SKIPPED_FOLDERS and _is_visible_folder(folder)
+
+
 def _is_visible_folder(path: Path) -> bool:
-    return path.is_dir() and not path.name.startswith((".", "$"))
+    """Folders a person sees in Explorer. Not "system" ones: Windows marks every
+    folder with a custom icon as system, including the ones Iconbloom themes."""
+    return (
+        path.is_dir()
+        and not path.name.startswith((".", "$"))
+        and not file_attributes(path) & FILE_ATTRIBUTE_HIDDEN
+    )

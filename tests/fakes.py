@@ -14,7 +14,13 @@ from platform_win.extract import SHARP_MIN, ExtractedIcon
 from platform_win.item_io import FileStateIO, FolderIO, ItemRouter, UrlFileIO
 from platform_win.paths import AppPaths
 from platform_win.shell_icons import RECYCLE_BIN, WINDOWS_ICONS, RegValue, WindowsIconIO
-from platform_win.shortcuts import IconLocation, LinkInfo, ScanRoot, Source
+from platform_win.shortcuts import (
+    IconLocation,
+    LinkInfo,
+    ScanRoot,
+    Source,
+    desktop_folders_root,
+)
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 
@@ -130,6 +136,7 @@ class FakeDesktop:
         self.roots = [
             ScanRoot(self.desktop, Source.DESKTOP, recursive=False, folders=True),
             ScanRoot(self.common, Source.ALL_USERS_START_MENU, recursive=True),
+            desktop_folders_root(self.desktop),
         ]
         # Plays Windows' permission prompt: True = the user says No.
         self.decline_permission = False
