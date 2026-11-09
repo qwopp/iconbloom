@@ -405,3 +405,12 @@ def test_every_button_works_when_clicked(harness: Harness, say_yes: None) -> Non
 
 def test_detail_says_where_a_style_lands(harness: Harness) -> None:
     assert harness.window.detail_label.text().startswith("Desktop \u00b7 original")
+
+
+def test_instant_background_jobs_still_report(harness: Harness) -> None:
+    """A job that finishes before its caller returns must not lose its result."""
+    results: list[object] = []
+    for i in range(50):
+        harness.window._start(lambda _report, i=i: i, on_done=results.append)
+    harness.settle()
+    assert sorted(results) == list(range(50))  # type: ignore[arg-type]

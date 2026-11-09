@@ -6,7 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.3.1] - 2026-11-09
+## [0.3.2] - 2026-11-09
+
+### Fixed
+
+- A background task that finished very quickly could lose its result (an update notice or
+  a shortcut scan, for example), because its result arrived before anything was listening.
 
 ### Changed
 
@@ -93,8 +98,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/qwopp/iconbloom/compare/v0.3.0...v0.3.1
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/qwopp/iconbloom/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/qwopp/iconbloom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qwopp/iconbloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qwopp/iconbloom/releases/tag/v0.1.0

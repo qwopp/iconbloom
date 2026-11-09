@@ -35,11 +35,16 @@ def test_missing_version() -> None:
 
 
 def test_changelog_has_notes_for_current_version() -> None:
-    assert section(__version__, CHANGELOG.read_text(encoding="utf-8"))
+    notes = section(__version__, CHANGELOG.read_text(encoding="utf-8"))
+    # Keep a Changelog groups notes under "### Added", "### Changed", "### Fixed" and so on.
+    assert notes.startswith("### ")
+    assert "\n- " in notes
 
 
 def test_cli(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([f"v{__version__}"]) == 0
-    assert "### Added" in capsys.readouterr().out
+    assert capsys.readouterr().out.strip() == section(
+        __version__, CHANGELOG.read_text(encoding="utf-8")
+    )
     assert main(["0.0.0"]) == 1
     assert main([]) == 2
