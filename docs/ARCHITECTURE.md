@@ -39,7 +39,9 @@ load and are tested on any OS.
   executable. It falls back to the shell's own rendering, which covers Store apps.
 - `backup.py`: the manifest of originals. Writes are atomic, the previous generation is kept,
   and a damaged file is refused rather than overwritten.
-- `refresh.py`: tells Explorer icons changed; the hard refresh restarts Explorer.
+- `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache for taskbar
+  pins, and (only when asked) restarts Explorer.
+- `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
   restored shortcuts, choices and settings.
 
@@ -51,6 +53,10 @@ load and are tested on any OS.
   same order: write the `.ico`, save the backup entry, point the shortcut at the `.ico`, then
   note the shortcut's new hash. Revert restores the original bytes if nothing else has touched
   the shortcut since, and otherwise only its icon field.
+- `elevation.py`: changes to shortcuts every user shares. The app writes a request file and
+  runs an elevated copy of itself, which validates every item on its own (only `.lnk` files
+  inside the shared folders, only the icon field, only Iconbloom's icons or the recorded
+  original) before touching anything.
 - `choices.py`: which style each app got, keyed by target so it survives app updates. This
   is what powers **Reapply my icons**.
 - `ui/`: the picker window. Scanning, icon extraction, rendering and batches run on a thread
