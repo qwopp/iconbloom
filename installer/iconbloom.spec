@@ -47,7 +47,9 @@ a = Analysis(
     [str(ROOT / "app" / "main.py")],
     pathex=[str(ROOT)],
     datas=datas,
-    hiddenimports=["win32com.shell.shell", "win32com.shell.shellcon"],
+    # IShellLink.GetPath returns file times, which pywin32 converts by importing
+    # win32timezone at call time, out of sight of PyInstaller's analysis.
+    hiddenimports=["win32com.shell.shell", "win32com.shell.shellcon", "win32timezone"],
     excludes=[*QT_EXCLUDES, *OTHER_EXCLUDES],
     noarchive=False,
 )

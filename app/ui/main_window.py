@@ -283,6 +283,7 @@ class MainWindow(QMainWindow):
 
     def reload_shortcuts(self) -> None:
         groups = self.service.scan()
+        log.info("found %d shortcut groups", len(groups))
         self._groups = {g.key: g for g in groups}
         self.model.clear()
         for target in groups:

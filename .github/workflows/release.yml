@@ -58,12 +58,14 @@ jobs:
           $gui = Start-Process $exe -PassThru
           $log = "$env:LOCALAPPDATA\Iconbloom\logs\iconbloom.log"
           $deadline = (Get-Date).AddSeconds(60)
-          while (-not (Select-String -Path $log -Pattern "window shown" -Quiet)) {
-            if ($gui.HasExited -or (Get-Date) -gt $deadline) { Get-Content $log; throw "window never opened" }
+          while (-not (Select-String -Path $log -Pattern "found \d+ shortcut groups" -Quiet)) {
+            if ($gui.HasExited -or (Get-Date) -gt $deadline) { Get-Content $log; throw "window never finished loading" }
             Start-Sleep -Seconds 2
           }
+          Start-Sleep -Seconds 5  # let icon thumbnails load too
           Stop-Process -Id $gui.Id
-          Get-Content $log -Tail 5
+          Get-Content $log -Tail 8
+          if (Select-String -Path $log -Pattern "CRITICAL|ERROR|Traceback" -Quiet) { throw "the app logged an error" }
 
       - name: Build installer
         shell: pwsh
