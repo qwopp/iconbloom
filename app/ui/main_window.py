@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
             (
                 "Refresh Windows icons…",
                 self.refresh_icons,
-                "Rebuild Windows' icon cache and restart Explorer, for icons that look stale",
+                "Clear Windows' icon cache and restart Explorer, for icons that look stale",
             ),
             (
                 "Delete unused icon files",
@@ -392,8 +392,9 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Refresh icons?",
-            "If some icons still look old, Windows can rebuild its icon cache. "
-            "This restarts Explorer, so the taskbar disappears for a few seconds.\n\nContinue?",
+            "If some icons still look old, Windows can clear its icon cache and redraw "
+            "them all. This restarts Explorer, so the taskbar disappears for a few "
+            "seconds.\n\nContinue?",
         )
         if answer == QMessageBox.StandardButton.Yes:
             guarded(self, self._hard_refresh)

@@ -5,11 +5,17 @@ changed is usually enough for the desktop and Start menu. Taskbar pins keep
 their own cached copy, so a change there also asks Windows to rebuild its
 icon cache; if that still isn't enough, the hard refresh restarts Explorer,
 which must only run after the user agrees.
+
+The icon cache lives on disk and outlives Explorer restarts. A pin that has
+been on the taskbar for a while has its old picture saved there, and after a
+restart the taskbar takes that picture instead of reading the shortcut, so
+the hard refresh deletes the cache files while Explorer is closed.
 """
 
 import logging
 import subprocess
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -41,7 +47,48 @@ def rebuild_icon_cache() -> None:
 
 
 def hard_refresh() -> None:
-    """Rebuild the icon cache and restart Explorer. Briefly hides the taskbar."""
-    subprocess.run(["ie4uinit.exe", "-show"], check=False, timeout=60)
+    """Restart Explorer with an empty icon cache. Briefly hides the taskbar."""
+    from platform_win.paths import known_folder
+
+    # Forced, so Explorer can't write its in-memory cache back on the way out.
     subprocess.run(["taskkill", "/f", "/im", "explorer.exe"], check=False, timeout=60)
-    subprocess.Popen(["explorer.exe"])  # detached: Explorer keeps running after we exit
+    try:
+        clear_icon_cache(known_folder("LocalAppData"))
+    finally:
+        subprocess.Popen(["explorer.exe"])  # detached: Explorer keeps running after we exit
+
+
+def icon_cache_files(local_appdata: Path) -> list[Path]:
+    """Windows' icon cache: one file from Windows 7 days, and one per icon size since."""
+    explorer = local_appdata / "Microsoft" / "Windows" / "Explorer"
+    legacy = local_appdata / "IconCache.db"
+    return [p for p in (legacy, *sorted(explorer.glob("iconcache_*.db"))) if p.is_file()]
+
+
+def clear_icon_cache(
+    local_appdata: Path,
+    *,
+    attempts: int = 10,
+    wait: Callable[[float], None] = time.sleep,
+) -> list[Path]:
+    """Delete the icon cache files Explorer has let go of; returns the ones left behind.
+
+    Explorer takes a moment to release them after it is killed, so each file
+    gets a few tries. Another program can hold one open too; Windows rebuilds
+    whatever is deleted, and anything left only means older icons may linger.
+    """
+    remaining = icon_cache_files(local_appdata)
+    for attempt in range(attempts):
+        locked: list[Path] = []
+        for path in remaining:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                locked.append(path)
+        remaining = locked
+        if not remaining or attempt == attempts - 1:
+            break
+        wait(0.2)
+    for path in remaining:
+        log.warning("could not delete icon cache file %s", path)
+    return remaining

@@ -59,7 +59,8 @@ load and are tested on any OS.
   is a valid original). Writes are atomic, the previous generation is kept,
   and a damaged file is refused rather than overwritten.
 - `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache for taskbar
-  pins, and (only when asked) restarts Explorer.
+  pins, and (only when asked) restarts Explorer with its icon cache files deleted, since
+  the taskbar otherwise redraws long-standing pins from pictures saved there.
 - `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
   restored shortcuts, choices and settings.

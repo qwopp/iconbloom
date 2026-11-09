@@ -6,6 +6,13 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Refresh icons** no longer puts the old icon back on taskbar pins. Windows saves each
+  pin's picture in an icon cache on disk, and after Explorer restarted the taskbar used that
+  old picture. The refresh now deletes the cache while Explorer is closed, so every icon is
+  drawn fresh.
+
 ## [0.5.1] - 2026-11-09
 
 ### Changed
