@@ -41,6 +41,7 @@ from app.ui.style_picker import StylePicker
 from app.ui.taskbar_page import TaskbarPage
 from app.ui.update_flow import UpdateFlow
 from app.updates import Updater
+from engine.recipes import RENDER_VERSION
 from engine.themes import DEFAULT_THEME, Theme, ThemeError
 from platform_win.shortcuts import Place
 
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         self._theme_names = service.styles.theme_names()
         theme, broken = self._first_working_theme()
         self._theme_id = theme.id
+        self._redraw_offered = False
 
         self.setWindowTitle("Iconbloom")
         self.setWindowIcon(QIcon(str(APP_ICON)))
@@ -279,6 +281,47 @@ class MainWindow(QMainWindow):
     def _on_scanned(self, found: int) -> None:
         if not found:
             self.picker.show_message("No icons found on your desktop or Start menu.")
+        self._offer_redraw()
+
+    def _offer_redraw(self) -> None:
+        """Once per version: icons styled by an older Iconbloom can be drawn again."""
+        if self._redraw_offered or self.settings.redraw_declined >= RENDER_VERSION:
+            return
+        old = self.service.drawn_before(self.shortcuts.groups)
+        if not old or self.notice.isVisible():
+            return
+        self._redraw_offered = True
+        self.notice.show_message(
+            f"Iconbloom draws icons better now: {count(old, 'of your styled icon')} "
+            "can be redrawn to match, for example to keep their full size.",
+            [
+                ("Redraw my icons", self.redraw_old, "Draw your chosen styles again"),
+                ("Not now", self._decline_redraw, "Don't ask again until the next change"),
+            ],
+        )
+
+    def _decline_redraw(self) -> None:
+        self.settings.redraw_declined = RENDER_VERSION
+        guarded(self, lambda: self.settings.save(self.service.paths.settings))
+
+    def redraw_old(self) -> None:
+        if not self._idle():
+            return
+        old = self.service.drawn_before(self.shortcuts.groups)
+        if not old:
+            return
+        include_shared = self.changes.ask_about_shared(old)
+        if include_shared is None:
+            return
+        self.changes.run(
+            "Redrawing your icons…",
+            old,
+            lambda progress: self.service.redraw(
+                old, include_shared=include_shared, progress=progress
+            ),
+            lambda report: self._say(f"Redrew {count(report.changed, 'icon')}"),
+            reload=True,
+        )
 
     def _update_actions(self) -> None:
         self.picker.update_actions(self.shortcuts.selected_groups())

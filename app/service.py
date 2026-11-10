@@ -27,6 +27,7 @@ from PIL import Image
 
 from app.changes import (
     DECLINED_REASON,
+    REVERTIBLE,
     SHARED_REASON,
     ChangeReport,
     Progress,
@@ -39,6 +40,7 @@ from app.styles import Styles
 from app.taskbar import TaskbarService
 from engine import ops
 from engine.ico import build_ico
+from engine.recipes import RENDER_VERSION
 from engine.themes import THEMES_DIR
 from platform_win.backup import UNKNOWN, BackupManifest, TaskbarBackup, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
@@ -365,6 +367,30 @@ class IconService:
         if report.changed:
             self._notify(report.changed)
             log.info("applied styles to %d shortcuts", len(report.changed))
+
+    def drawn_before(self, groups: Sequence[ShortcutGroup]) -> list[ShortcutGroup]:
+        """Styled apps whose icon an older version of Iconbloom drew."""
+        return [
+            g
+            for g in groups
+            if self.status(g) in REVERTIBLE and self.choices.drawn_with(g.key) < RENDER_VERSION
+        ]
+
+    @_one_at_a_time
+    def redraw(
+        self,
+        groups: Sequence[ShortcutGroup],
+        *,
+        include_shared: bool = False,
+        progress: Progress | None = None,
+    ) -> ChangeReport:
+        """Draw these apps' chosen styles again with this version's look."""
+        return self.apply_many(
+            self.drawn_before(groups),
+            lambda g: self.choices.get(g.key),
+            include_shared=include_shared,
+            progress=progress,
+        )
 
     @_one_at_a_time
     def reapply(

@@ -3,6 +3,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from app.choices import Choice, ChoiceStore
+from engine.recipes import RENDER_VERSION
 
 
 def test_choices_persist(tmp_path: Path) -> None:
@@ -106,3 +107,15 @@ def test_file_tags_never_collide() -> None:
     """Ids may contain "_", so the parts are joined with "-"."""
     assert Choice("mint", "matcha_tint").file_tag != Choice("mint_matcha", "tint").file_tag
     assert Choice("t", "r_s5").file_tag != Choice("t", "r", seed=5).file_tag
+
+
+def test_choices_remember_which_version_drew_them(tmp_path: Path) -> None:
+    path = tmp_path / "choices.json"
+    path.write_text(
+        '{"version": 1, "choices": {"app": {"theme": "t", "recipe": "r"}}, "skipped": []}',
+        encoding="utf-8",
+    )
+    store = ChoiceStore(path)
+    assert store.drawn_with("app") == 1  # from before versions were kept
+    store.set("app", Choice("t", "r"))
+    assert ChoiceStore(path).drawn_with("app") == RENDER_VERSION

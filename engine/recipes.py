@@ -31,6 +31,9 @@ type Json = str | int | float | bool | list[Json] | dict[str, Json] | None
 
 AUTO_COLOR = "auto"
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Bumped whenever the same choice would come out looking different (sizing, an op's
+# look), so icons drawn before can be offered a redraw. 2: sized like the original.
+RENDER_VERSION = 2
 # Theme and recipe ids: they end up in file names.
 ID_PATTERN = re.compile(r"[a-z0-9_]+")
 
