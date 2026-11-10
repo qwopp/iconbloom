@@ -15,6 +15,8 @@ Restyle your Windows desktop into one cute, matching theme, one icon at a time. 
 
 **Can I undo it?** Yes. **Revert** or **Revert all** puts every original back, and so does the uninstaller. Iconbloom only changes which icon something shows, never your apps.
 
+**Can it style the taskbar too?** Yes. Open **Taskbar** at the top to give it your theme's color, frosted glass and layout, with a live preview. It uses Windows' own settings, and **Revert** puts them back.
+
 **"Windows protected your PC"?** Releases aren't code-signed yet. Click **More info → Run anyway**. Each release lists SHA-256 checksums to verify your download.
 
 **An icon still looks old?** Windows caches icons, the taskbar especially. Use **More → Refresh Windows icons**.

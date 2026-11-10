@@ -1,13 +1,16 @@
 """The Iconbloom window: assembles the panels and turns button presses into changes."""
 
+import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import override
 
+from PIL import Image
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -16,7 +19,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -33,15 +38,21 @@ from app.ui.jobs import JobRunner
 from app.ui.notice import NoticeBar
 from app.ui.shortcut_list import ShortcutList
 from app.ui.style_picker import StylePicker
+from app.ui.taskbar_page import TaskbarPage
 from app.ui.update_flow import UpdateFlow
 from app.updates import Updater
 from engine.themes import DEFAULT_THEME
+from platform_win.shortcuts import Place
+
+log = logging.getLogger(__name__)
 
 APP_ICON = UI_DIR / "iconbloom.png"
 # Wait this long after the selection moves before rendering, so holding an
 # arrow key doesn't queue a full render for every icon it passes.
 SELECT_DELAY_MS = 80
 STATUS_MESSAGE_MS = 5000
+# Icons shown in the taskbar picture: the user's pins, or other apps when there are none.
+TASKBAR_ICONS = 6
 
 
 class MainWindow(QMainWindow):
@@ -112,7 +123,11 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.picker)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
-        outer.addWidget(splitter, 1)
+        # The Taskbar page is made the first time it's opened, so starting stays quick.
+        self.pages = QStackedWidget()
+        self.pages.addWidget(splitter)
+        self.taskbar_page: TaskbarPage | None = None
+        outer.addWidget(self.pages, 1)
         self.setCentralWidget(root)
         self._build_status_bar()
 
@@ -129,6 +144,8 @@ class MainWindow(QMainWindow):
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(theme_id)))
         self.theme_box.setToolTip("The look every style is drawn in")
         bar.addWidget(self.theme_box)
+        bar.addSpacing(16)
+        bar.addLayout(self._build_page_switch())
         bar.addStretch(1)
         bar.addWidget(self._build_more_menu())
         bar.addWidget(
@@ -140,6 +157,30 @@ class MainWindow(QMainWindow):
             )
         )
         return bar
+
+    def _build_page_switch(self) -> QHBoxLayout:
+        """Icons | Taskbar: which of the two pages fills the window."""
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        group = QButtonGroup(self)
+        self.page_buttons: list[QPushButton] = []
+        for text, tip in (
+            ("Icons", "Style your desktop, taskbar and Start menu icons"),
+            ("Taskbar", "Give the taskbar itself your theme's look"),
+        ):
+            button = QPushButton(text)
+            button.setObjectName("tab")
+            button.setCheckable(True)
+            button.setToolTip(tip)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            group.addButton(button)
+            row.addWidget(button)
+            self.page_buttons.append(button)
+            button.setVisible(self.service.taskbar is not None)
+        self.page_buttons[0].setChecked(True)
+        self.page_buttons[0].clicked.connect(without_arguments(self.show_icons))
+        self.page_buttons[1].clicked.connect(without_arguments(self.show_taskbar))
+        return row
 
     def _build_more_menu(self) -> QToolButton:
         self.more_menu = QMenu(self)
@@ -238,6 +279,41 @@ class MainWindow(QMainWindow):
             theme = guarded(self, lambda: self.service.styles.theme(theme_id))
             if theme is not None:
                 self.picker.set_theme(theme)
+                if self.taskbar_page is not None:
+                    self.taskbar_page.set_theme(theme)
+
+    # ---- pages --------------------------------------------------------------
+
+    def show_icons(self) -> None:
+        self.page_buttons[0].setChecked(True)
+        self.pages.setCurrentIndex(0)
+
+    def show_taskbar(self) -> None:
+        taskbar = self.service.taskbar
+        if taskbar is None:
+            return
+        if self.taskbar_page is None:
+            theme_id = str(self.theme_box.currentData())
+            self.taskbar_page = TaskbarPage(
+                taskbar, self.jobs, self.service.styles.theme(theme_id), self._taskbar_icons
+            )
+            self.taskbar_page.said.connect(self._say)
+            self.pages.addWidget(self.taskbar_page)
+        self.page_buttons[1].setChecked(True)
+        self.taskbar_page.refresh()
+        self.pages.setCurrentWidget(self.taskbar_page)
+
+    def _taskbar_icons(self) -> list[Image.Image]:
+        """The icons the taskbar shows now, themed ones included. Runs off the UI thread."""
+        groups = self.shortcuts.groups
+        pinned = [g for g in groups if Place.TASKBAR in g.places] or groups
+        icons: list[Image.Image] = []
+        for group in pinned[:TASKBAR_ICONS]:
+            try:
+                icons.append(self.service.current_icon(group))
+            except (OSError, ValueError) as exc:
+                log.debug("no icon for %s in the taskbar picture: %s", group.name, exc)
+        return icons
 
     # ---- actions ------------------------------------------------------------
 
@@ -320,7 +396,7 @@ class MainWindow(QMainWindow):
             "Putting every original back…",
             [],
             lambda _progress: self.service.revert_all(),
-            lambda report: self._say(_reverted(report)),
+            self._after_revert_all,
             reload=True,
         )
 
@@ -370,6 +446,11 @@ class MainWindow(QMainWindow):
             lambda report: self._say(f"Applied “{card.label}” to {count(report.changed, 'icon')}"),
             reload=True,
         )
+
+    def _after_revert_all(self, report: ChangeReport) -> None:
+        self._say(_reverted(report))
+        if self.taskbar_page is not None:
+            self.taskbar_page.refresh()
 
     def reapply_all(self) -> None:
         lost = [g for g in self.shortcuts.groups if self.service.status(g) is Status.NEEDS_REAPPLY]

@@ -99,11 +99,14 @@ load and are tested on any OS.
 One module per part of the window. Panels talk to `MainWindow` through signals, and every
 slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 
-- `main_window.py`: assembles the panels, the top bar and the More menu, and turns button
-  presses into changes.
+- `main_window.py`: assembles the panels, the top bar (with the Icons | Taskbar switch) and
+  the More menu, and turns button presses into changes.
 - `shortcut_list.py`: the left panel: search, place tabs, tiles and selection.
 - `style_picker.py`: the right panel: previews, the hover comparison, the multi-select strip
   and the action buttons.
+- `taskbar_page.py`: the Taskbar page: a live picture of the taskbar, the theme's looks and
+  the layout switches. Controls only redraw the picture; Apply and Revert go through
+  `TaskbarService`.
 - `change_runner.py`: runs a change in the background with a progress dialog, asks about
   shared shortcuts, and reports skipped items.
 - `update_flow.py`, `notice.py`: the update banner and the banner widget itself.
