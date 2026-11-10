@@ -87,6 +87,8 @@ class StylePicker(QWidget):
         self._image: str | None = None
         self._cards: list[PreviewCard] = []
         self._chosen: PreviewCard | None = None
+        self._busy = False
+        self._selected: list[ShortcutGroup] = []
         self.popup = SizePopup(self)
 
         layout = QVBoxLayout(self)
@@ -373,17 +375,24 @@ class StylePicker(QWidget):
 
     # ---- buttons and the multi-select strip ---------------------------------
 
+    def set_busy(self, busy: bool) -> None:
+        """While a change runs, the buttons that start another one are off."""
+        self._busy = busy
+        self.update_actions(self._selected)
+
     def update_actions(self, selected: Sequence[ShortcutGroup]) -> None:
+        self._selected = list(selected)
         chosen = self._chosen
         has_target = self._target is not None
-        self.apply_button.setEnabled(bool(selected) and chosen is not None)
+        idle = not self._busy
+        self.apply_button.setEnabled(idle and bool(selected) and chosen is not None)
         self.apply_button.setText(f"Apply to {len(selected)}" if len(selected) > 1 else "Apply")
-        self.all_button.setEnabled(chosen is not None and not chosen.choice.uses_own_image)
-        self.skip_button.setEnabled(bool(selected))
+        self.all_button.setEnabled(idle and chosen is not None and not chosen.choice.uses_own_image)
+        self.skip_button.setEnabled(idle and bool(selected))
         styled = any(self._service.status(g) is Status.THEMED for g in selected)
-        self.revert_button.setEnabled(styled)
+        self.revert_button.setEnabled(idle and styled)
         self.shuffle_button.setEnabled(has_target)
-        self.own_image_button.setEnabled(has_target)
+        self.own_image_button.setEnabled(idle and has_target)
         self._update_strip(selected)
 
     def _update_strip(self, selected: Sequence[ShortcutGroup]) -> None:

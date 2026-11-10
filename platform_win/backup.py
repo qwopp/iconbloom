@@ -20,7 +20,6 @@ Nothing here calls Windows APIs, so all of it is tested on every OS.
 
 import hashlib
 import json
-import shutil
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -244,9 +243,7 @@ def _load_guarded[T](path: Path, prev: Path, parse: Callable[[object], T]) -> T 
 def _save_guarded(path: Path, prev: Path, payload: object) -> None:
     if path.exists():
         # Copy, not move: the file must exist at every instant.
-        tmp_prev = prev.with_name(prev.name + ".tmp")
-        shutil.copyfile(path, tmp_prev)
-        tmp_prev.replace(prev)
+        atomic_write(prev, path.read_bytes())
     write_json(path, payload)
 
 

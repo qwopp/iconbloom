@@ -1,6 +1,9 @@
 """Apply / revert / reapply through IconService, using JSON stand-in shortcuts."""
 
+import threading
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -470,3 +473,35 @@ def test_a_failing_permission_helper_skips_only_shared_items(
     assert [p.stem for p in report.changed] == ["Paint"]
     assert "permission helper failed" in report.skipped[0][1]
     assert service.choices.get(_group(service, "Paint").key) == CHOICE
+
+
+def test_changes_from_two_threads_take_turns(env: FakeDesktop) -> None:
+    for name in ("Alpha", "Beta", "Gamma", "Delta"):
+        env.make(name)
+    service = env.service()
+    groups = service.scan()
+    inside: list[int] = []
+    overlaps: list[int] = []
+    real = service._themed_icon  # pyright: ignore[reportPrivateUsage]
+
+    def watched(*args: Any, **kwargs: Any) -> Path:
+        inside.append(1)
+        if len(inside) > 1:
+            overlaps.append(1)
+        try:
+            time.sleep(0.01)
+            return real(*args, **kwargs)
+        finally:
+            inside.pop()
+
+    service._themed_icon = watched  # type: ignore[method-assign]
+    workers = [
+        threading.Thread(target=service.apply_many, args=(groups[i::2], lambda g: CHOICE))
+        for i in (0, 1)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert not overlaps
+    assert all(service.status(g) is Status.THEMED for g in service.scan())

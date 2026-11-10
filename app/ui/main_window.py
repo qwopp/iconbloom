@@ -7,7 +7,7 @@ from typing import override
 
 from PIL import Image
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
             service.paths,
             refresh_icons=self.refresh_icons,
             reload=self.shortcuts.reload,
+            on_busy=self._on_busy,
         )
         self.updates = UpdateFlow(
             self,
@@ -150,14 +151,13 @@ class MainWindow(QMainWindow):
         bar.addLayout(self._build_page_switch())
         bar.addStretch(1)
         bar.addWidget(self._build_more_menu())
-        bar.addWidget(
-            make_button(
-                "Revert all",
-                "danger",
-                "Put every icon and taskbar setting Iconbloom changed back to the original",
-                self.revert_all,
-            )
+        self.revert_all_button = make_button(
+            "Revert all",
+            "danger",
+            "Put every icon and taskbar setting Iconbloom changed back to the original",
+            self.revert_all,
         )
+        bar.addWidget(self.revert_all_button)
         return bar
 
     def _build_page_switch(self) -> QHBoxLayout:
@@ -187,6 +187,8 @@ class MainWindow(QMainWindow):
     def _build_more_menu(self) -> QToolButton:
         self.more_menu = QMenu(self)
         self.more_menu.setToolTipsVisible(True)
+        # The actions that change icons, turned off while another change runs.
+        self.change_actions: list[QAction] = []
         for text, slot, tip in (
             (
                 "Reapply my icons",
@@ -207,6 +209,7 @@ class MainWindow(QMainWindow):
             action = self.more_menu.addAction(text)
             action.setToolTip(tip)
             action.triggered.connect(without_arguments(slot))
+            self.change_actions.append(action)
         self.more_menu.addSeparator()
         self.dark_mode_action = self.more_menu.addAction("Dark mode")
         self.dark_mode_action.setCheckable(True)
@@ -323,7 +326,28 @@ class MainWindow(QMainWindow):
 
     # ---- actions ------------------------------------------------------------
 
+    def _idle(self) -> bool:
+        """False, with a word to the user, while another change is still running."""
+        if self.changes.running:
+            self._say("One moment: the last change is still finishing")
+            return False
+        return True
+
+    def _on_busy(self, busy: bool) -> None:
+        self.picker.set_busy(busy)
+        self.revert_all_button.setEnabled(not busy)
+        for action in self.change_actions:
+            action.setEnabled(not busy)
+        if busy:
+            QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+            self.statusBar().showMessage("Working…")
+        else:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
+
     def apply_chosen(self) -> None:
+        if not self._idle():
+            return
         card = self.picker.chosen
         targets = self.shortcuts.selected_groups()
         if card is None or not targets:
@@ -360,6 +384,8 @@ class MainWindow(QMainWindow):
         )
 
     def skip_selected(self) -> None:
+        if not self._idle():
+            return
         targets = self.shortcuts.selected_groups()
         for target in targets:
             self.service.skip(target)
@@ -368,6 +394,8 @@ class MainWindow(QMainWindow):
             self.shortcuts.select_next_untouched()
 
     def revert_selected(self) -> None:
+        if not self._idle():
+            return
         targets = [
             g for g in self.shortcuts.selected_groups() if self.service.status(g) is Status.THEMED
         ]
@@ -391,6 +419,8 @@ class MainWindow(QMainWindow):
         )
 
     def revert_all(self) -> None:
+        if not self._idle():
+            return
         answer = QMessageBox.question(
             self,
             "Revert everything?",
@@ -409,6 +439,8 @@ class MainWindow(QMainWindow):
     def use_own_image(self, path: Path | None = None) -> None:
         """Style a picture of the user's own; while one is in use, the same button goes
         back to the app's icon."""
+        if not self._idle():
+            return
         target = self.shortcuts.current_group()
         if target is None:
             return
@@ -428,6 +460,8 @@ class MainWindow(QMainWindow):
             self.picker.use_custom_image(target, choice.custom_image)
 
     def apply_style_to_all(self) -> None:
+        if not self._idle():
+            return
         card = self.picker.chosen
         if card is None or card.choice.uses_own_image:
             return
@@ -459,6 +493,8 @@ class MainWindow(QMainWindow):
             self.taskbar_page.refresh()
 
     def reapply_all(self) -> None:
+        if not self._idle():
+            return
         lost = [g for g in self.shortcuts.groups if self.service.status(g) is Status.NEEDS_REAPPLY]
         if not lost:
             self._say("Nothing needed reapplying")
@@ -477,6 +513,8 @@ class MainWindow(QMainWindow):
         )
 
     def refresh_icons(self) -> None:
+        if not self._idle():
+            return
         answer = QMessageBox.question(
             self,
             "Refresh icons?",
@@ -484,13 +522,27 @@ class MainWindow(QMainWindow):
             "them all. This restarts Explorer, so the taskbar disappears for a few "
             "seconds.\n\nContinue?",
         )
-        if answer == QMessageBox.StandardButton.Yes:
-            guarded(self, self._hard_refresh)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def refresh(_progress: object) -> ChangeReport:
+            # Restarting Explorer takes a few seconds; off the window's thread.
+            self._hard_refresh()
+            return ChangeReport(dry_run=False)
+
+        self.changes.run(
+            "Refreshing Windows icons…", [], refresh, lambda _r: self._say("Icons refreshed")
+        )
 
     def clean_up(self) -> None:
-        report = guarded(self, self.service.cleanup)
-        if report is not None:
-            self._say(f"Removed {count(report.removed, 'unused icon file')}")
+        if not self._idle():
+            return
+        self.changes.run(
+            "Deleting unused icon files…",
+            [],
+            lambda _progress: self.service.cleanup(),
+            lambda report: self._say(f"Removed {count(report.removed, 'unused icon file')}"),
+        )
 
     def _on_update_toggled(self, enabled: bool) -> None:
         self.settings.check_for_updates = enabled
