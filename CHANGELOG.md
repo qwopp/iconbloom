@@ -15,6 +15,10 @@ All notable changes to Iconbloom are documented here. The format follows
 - A theme only needs a `main` color: any of the seven standard palette colors it leaves out
   are mixed from it, so every library style and the Taskbar page work with it.
 
+### Changed
+
+- The README shows real app icons, before and in every theme.
+
 ### Fixed
 
 - Icons that fill their whole square, like most game icons, are no longer shrunk: every
@@ -85,8 +89,9 @@ All notable changes to Iconbloom are documented here. The format follows
   The preview uses your own taskbar icons, and your wallpaper when Windows has a picture of it.
 - **Revert** on the page, **Revert all** and uninstalling put the taskbar back the way it was.
   Anything you changed yourself in Windows' Settings since stays as you set it.
-- From the command line: `iconbloom-cli taskbar apply --look deep --frosted --left`,
-  `iconbloom-cli taskbar revert`, and `python -m engine.taskbar` to preview a theme's looks.
+- From the command line (when running from source): `iconbloom-cli taskbar apply --look deep
+  --frosted --left`, `iconbloom-cli taskbar revert`, and `python -m engine.taskbar` to
+  preview a theme's looks.
 
 ## [0.6.1] - 2026-11-09
 

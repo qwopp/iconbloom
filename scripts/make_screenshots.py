@@ -1,11 +1,15 @@
-"""Render the README images from the real window and engine, using the sample icons.
+"""Render the README images from the real window and engine.
 
-    QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots
+    QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots [--icons DIR]
 
-Writes docs/screenshots/{picker.png, picker.gif, before-after.png}. The
-shortcuts are stand-ins in a temp folder, so this never touches a real desktop.
+Writes docs/screenshots/{picker.gif, before-after.png}. The shortcuts are
+stand-ins in a temp folder, so this never touches a real desktop. With
+``--icons``, the apps are the PNGs in DIR (named after the app, up to eight):
+real icons make better pictures, but they belong to their apps, so keep them out
+of the repository and commit only the screenshots.
 """
 
+import argparse
 import io
 import sys
 import tempfile
@@ -39,26 +43,28 @@ APPS = {
     "Terminal": "dark",
     "Weather": "semi_transparent",
 }
-# One pick per app, as a person might choose in the picker: the nth style of a
-# family in the theme's list, so every theme shows its own version of the look.
-PICKS: dict[str, tuple[Family, int]] = {
-    "Arcade": (Family.RECOLOR, 1),  # the theme's second recolor, on a sticker
-    "Browser": (Family.PATTERN, 1),  # gingham tile + badge
-    "Camera": (Family.PATTERN, 0),  # polka-dot tile
-    "Files": (Family.RECOLOR, 0),
-    "Music": (Family.GRADIENT, 0),
-    "Settings": (Family.MONO, 0),
-    "Terminal": (Family.TILE, 0),  # bubble tile
-    "Weather": (Family.GLOW, 0),  # tint + glow + badge
-}
+MAX_APPS = 8
+# One pick per app, in the list's (alphabetical) order, as a person might choose in
+# the picker: the nth style of a family in the theme's list, so every theme shows
+# its own version of the look.
+PICKS: list[tuple[Family, int]] = [
+    (Family.RECOLOR, 1),  # the theme's second recolor, on a sticker
+    (Family.PATTERN, 1),  # gingham tile + badge
+    (Family.PATTERN, 0),  # polka-dot tile
+    (Family.RECOLOR, 0),
+    (Family.GRADIENT, 0),
+    (Family.MONO, 0),
+    (Family.TILE, 0),  # bubble tile
+    (Family.GLOW, 0),  # tint + glow + badge
+]
 # How long the event loop runs after the previews land, so they are shown and laid out.
 LAYOUT_SETTLE_S = 0.2
 # The picker GIF switches to this theme halfway through.
 SECOND_THEME = "lavender_dream"
 
 
-def pick(theme: Theme, app: str) -> str:
-    family, nth = PICKS[app]
+def pick(theme: Theme, apps: dict[str, str], app: str) -> str:
+    family, nth = PICKS[list(apps).index(app)]
     return [r.id for r in theme.recipes if r.family is family][nth]
 
 
@@ -70,8 +76,9 @@ class OfflineUpdater(Updater):
         return None
 
 
-def _sample(app: str) -> Image.Image:
-    with Image.open(SAMPLES_DIR / f"{APPS[app]}.png") as img:
+def _picture(apps: dict[str, str], app: str) -> Image.Image:
+    source = Path(apps[app])
+    with Image.open(source if source.is_absolute() else SAMPLES_DIR / f"{source}.png") as img:
         return img.convert("RGBA")
 
 
@@ -102,17 +109,18 @@ def _previews_ready(window: MainWindow) -> bool:
     return bool(window.picker.cards)
 
 
-def picker_media(app: QApplication) -> None:
-    """picker.png, and picker.gif: pick, apply, switch theme, pick again, go dark."""
+def picker_media(app: QApplication, apps: dict[str, str]) -> None:
+    """picker.gif: pick, apply, switch theme, pick again, go dark."""
     kawaii = load_theme(DEFAULT_THEME)
+    names = list(apps)
     with tempfile.TemporaryDirectory() as tmp:
-        desktop = FakeDesktop(Path(tmp), icons=APPS)
-        for name in APPS:
+        desktop = FakeDesktop(Path(tmp), icons=apps)
+        for name in names:
             desktop.make(name)
         service = desktop.service()
         for target in service.scan():
-            if target.name in ("Camera", "Music"):
-                service.apply(target, Choice(DEFAULT_THEME, pick(kawaii, target.name)))
+            if target.name in (names[2], names[4]):  # two already styled
+                service.apply(target, Choice(DEFAULT_THEME, pick(kawaii, apps, target.name)))
         window = MainWindow(service, hard_refresh=lambda: None, updater=OfflineUpdater())
         window.set_dark_mode(False, save=False)
         window.resize(1180, 760)
@@ -128,8 +136,8 @@ def picker_media(app: QApplication) -> None:
         click(3)
         window.apply_chosen()
         frames.append(_grab(app, window))
-        browser = next(g for g in window.shortcuts.groups if g.name == "Browser")
-        window.shortcuts.select(browser.key)
+        second = next(g for g in window.shortcuts.groups if g.name == names[1])
+        window.shortcuts.select(second.key)
         frames.append(_grab(app, window))
         window.theme_box.setCurrentIndex(window.theme_box.findData(SECOND_THEME))
         frames.append(_grab(app, window))
@@ -138,7 +146,6 @@ def picker_media(app: QApplication) -> None:
         frames.append(_grab(app, window))
         window.set_dark_mode(True, save=False)
         frames.append(_grab(app, window))
-        frames[1].save(OUT / "picker.png", optimize=True)
         small = [
             f.resize((900, round(f.height * 900 / f.width)), Image.Resampling.LANCZOS)
             for f in frames
@@ -156,12 +163,12 @@ def picker_media(app: QApplication) -> None:
         window.close()
 
 
-def before_after() -> None:
-    """The sample icons as they come, then in every bundled theme."""
+def before_after(apps: dict[str, str]) -> None:
+    """The icons as they come, then in every bundled theme."""
     themes = [load_theme(t) for t in list_themes()]
     themes.sort(key=lambda t: t.id != DEFAULT_THEME)
-    size, gap, label_w, row_h = 64, 26, 150, 104
-    width = label_w + len(APPS) * (size + gap) + gap
+    size, gap, label_w, row_h = 64, 26, 150, 112
+    width = label_w + len(apps) * (size + gap) + gap
     sheet = Image.new("RGB", (width, (1 + len(themes)) * row_h + 20), (0, 0, 0))
     wallpaper = ops.linear_gradient(sheet.size, (92, 120, 168), (170, 140, 190), 20)
     sheet.paste(wallpaper)
@@ -171,30 +178,57 @@ def before_after() -> None:
     for row, (caption, theme) in enumerate(rows):
         y = 20 + row * row_h
         draw.text((18, y + size // 2), caption, fill=(255, 255, 255), font=font, anchor="lm")
-        for col, app in enumerate(APPS):
-            icon, _ = ops.prepare(_sample(app))
-            if theme is not None:
-                icon = render(theme.recipe(pick(theme, app)), icon, theme)
+        for col, app in enumerate(apps):
+            icon, _ = ops.prepare(_picture(apps, app))
+            if theme is None:
+                icon = ops.fit_output(icon)  # the same size the styles come out at
+            else:
+                icon = render(theme.recipe(pick(theme, apps, app)), icon, theme)
             x = label_w + gap + col * (size + gap)
             small = icon.resize((size, size), Image.Resampling.LANCZOS)
             sheet.paste(small, (x, y), small)
             if row == 0:
-                draw.text(
-                    (x + size // 2, y + size + 14),
-                    app,
+                draw.multiline_text(
+                    (x + size // 2, y + size + 6),
+                    _wrap(draw, app, font, size + gap - 4),
                     fill=(255, 255, 255),
                     font=font,
-                    anchor="mm",
+                    anchor="ma",
+                    align="center",
+                    spacing=1,
                 )
     sheet.save(OUT / "before-after.png", optimize=True)
 
 
-def main() -> int:
+def _wrap(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    width: int,
+) -> str:
+    """A long name on two lines, split at the space nearest its middle."""
+    if draw.textlength(text, font=font) <= width or " " not in text:
+        return text
+    spaces = [i for i, c in enumerate(text) if c == " "]
+    cut = min(spaces, key=lambda i: abs(i - len(text) / 2))
+    return f"{text[:cut]}\n{text[cut + 1 :]}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="make_screenshots")
+    parser.add_argument("--icons", type=Path, help="a folder of <App name>.png icons to show")
+    args = parser.parse_args(argv)
+    apps = dict(APPS)
+    if args.icons is not None:
+        found = sorted(args.icons.glob("*.png"))[:MAX_APPS]
+        if len(found) < len(PICKS):
+            parser.error(f"--icons needs {len(PICKS)} PNGs, found {len(found)}")
+        apps = {p.stem: str(p.resolve()) for p in found}
     OUT.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
     load_style(app)
-    picker_media(app)
-    before_after()
+    picker_media(app, apps)
+    before_after(apps)
     print("\n".join(str(p.relative_to(ROOT)) for p in sorted(OUT.iterdir())))
     return 0
 

@@ -7,7 +7,7 @@ Restyle your Windows desktop into one cute, matching theme, one icon at a time. 
 
 [![Download for Windows](https://img.shields.io/badge/Download_for_Windows-Iconbloom-2ea44f?style=for-the-badge)](https://github.com/qwopp/iconbloom/releases/latest)
 
-![Sample icons before, and in every theme](docs/screenshots/before-after.png)
+![Real app icons before, and in every theme](docs/screenshots/before-after.png)
 
 ![Picking styles, switching themes and dark mode](docs/screenshots/picker.gif)
 
@@ -35,4 +35,4 @@ Needs Windows 10 or 11 and [uv](https://docs.astral.sh/uv/): `uv sync`, then `uv
 
 ## License
 
-[MIT](LICENSE). Nunito font under the [SIL Open Font License](app/ui/fonts/OFL.txt). All artwork drawn for this project.
+[MIT](LICENSE). Nunito font under the [SIL Open Font License](app/ui/fonts/OFL.txt). Theme artwork drawn for this project; the app icons in the screenshots belong to their apps.

@@ -19,7 +19,7 @@ uv run python -m app.cli scan              # list what Iconbloom sees, changing 
 uv run python -m app.cli revert-all        # undo everything (every changing command takes --dry-run)
 uv run python -m engine.sheet tests/samples --theme mint_matcha -o sheet.png   # preview a theme, any OS
 uv run python -m scripts.render_assets     # re-render decorations after editing an SVG or decor colors
-QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots   # refresh README images
+QT_QPA_PLATFORM=offscreen uv run python -m scripts.make_screenshots --icons DIR   # README images
 ```
 
 To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then:
