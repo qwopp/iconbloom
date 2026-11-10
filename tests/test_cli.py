@@ -130,3 +130,18 @@ def test_revert_all_also_restores_the_taskbar(
     assert _run(env, "revert-all") == 0
     assert "did restore the taskbar's" in capsys.readouterr().out
     assert env.taskbar.state() == before
+
+
+def test_store_apps_are_listed_and_get_a_shortcut_to_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app_id = "Microsoft.XboxGamingOverlay_8wekyb3d8bbwe!App"
+    env = FakeDesktop(tmp_path, store_apps={app_id: "Game Bar"})
+    assert _run(env, "scan") == 0
+    out = capsys.readouterr().out
+    assert "Game Bar  (original)" in out
+    assert f"target: Store app {app_id}" in out
+    assert _run(env, "apply", "Game Bar", "--recipe", "pastel_recolor") == 0
+    link = env.desktop / "Game Bar.lnk"
+    assert f"pin {link} yourself" in capsys.readouterr().out
+    assert link.exists()

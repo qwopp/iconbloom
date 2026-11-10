@@ -29,6 +29,15 @@ class AppPaths:
         return self.root / "original-icons"
 
     @property
+    def pin_icons(self) -> Path:
+        """Store apps' own icons, for taskbar pins Iconbloom made and later reverted.
+
+        Beside the data folder, not in it: such a pin can't become Windows' own
+        pin again, so it keeps pointing here even after Iconbloom is uninstalled.
+        """
+        return self.root.with_name(f"{self.root.name} pins")
+
+    @property
     def custom_images(self) -> Path:
         """Images the user picked with "Use my own image", kept for reapplying."""
         return self.root / "custom"

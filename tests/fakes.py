@@ -18,14 +18,17 @@ from platform_win.item_io import FileStateIO, FolderIO, ItemRouter, UrlFileIO
 from platform_win.paths import AppPaths
 from platform_win.shell_icons import RECYCLE_BIN, WINDOWS_ICONS, RegValue, WindowsIconIO
 from platform_win.shortcuts import (
+    STORE_APP_PREFIX,
     IconLocation,
     LinkInfo,
     ScanRoot,
     Source,
     desktop_folders_root,
 )
+from platform_win.store_apps import StoreApp, StoreAppIO
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
+EXPLORER = r"C:\Windows\explorer.exe"
 
 
 class FakeLinkIO(FileStateIO):
@@ -52,6 +55,29 @@ class FakeLinkIO(FileStateIO):
         data["icon"], data["index"] = icon.path, icon.index
         # Key order changes on purpose: a real save does not keep bytes stable either.
         path.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+
+
+class FakeStoreApps:
+    """The Store apps on a pretend PC. Their shortcuts are FakeLinkIO files that also
+    record the app id, as the real ones carry it in their property store."""
+
+    explorer = EXPLORER
+
+    def __init__(self, apps: Mapping[str, str]) -> None:
+        self.apps = [StoreApp(app_id, name) for app_id, name in apps.items()]
+
+    def list(self) -> Sequence[StoreApp]:
+        return self.apps
+
+    def create_link(self, path: Path, app: StoreApp, icon: IconLocation) -> None:
+        data = {
+            "target": self.explorer,
+            "args": STORE_APP_PREFIX + app.app_id,
+            "icon": icon.path,
+            "index": icon.index,
+            "app_id": app.app_id,
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
 
 
 class FakeAttributes:
@@ -185,8 +211,9 @@ class FakeTaskbar:
 class FakeDesktop:
     """A temp-folder stand-in for the user's shortcut folders, wired to an IconService.
 
-    ``icons`` maps app name to a sample icon; apps not listed get ``default``.
-    Apps named in ``unreadable`` fail extraction, like a broken program file.
+    ``icons`` maps app name (a Store app's id) to a sample icon; apps not listed
+    get ``default``. Apps named in ``unreadable`` fail extraction, like a broken
+    program file. ``store_apps`` maps Store app ids to their names.
     """
 
     def __init__(
@@ -196,27 +223,32 @@ class FakeDesktop:
         default: str = "multicolor",
         unreadable: Collection[str] = (),
         windows_icons: bool = False,
+        store_apps: Mapping[str, str] | None = None,
     ) -> None:
         self.desktop = root / "Desktop"
         self.common = root / "Common"
-        self.desktop.mkdir()
-        self.common.mkdir()
+        self.pinned = root / "TaskBar"
+        for folder in (self.desktop, self.common, self.pinned):
+            folder.mkdir()
         self.paths = AppPaths(root / "Iconbloom")
         self.link_io = FakeLinkIO()
         self.attributes = FakeAttributes()
         self.registry = FakeRegistry()
         self.taskbar = FakeTaskbar()
+        self.store_apps = FakeStoreApps(store_apps or {})
         self.io = ItemRouter(
             shortcut=self.link_io,
             web_shortcut=UrlFileIO(),
             folder=FolderIO(self.attributes),
             windows_icon=WindowsIconIO(self.registry),
+            store_app=StoreAppIO(EXPLORER),
         )
         self.windows_icons = WINDOWS_ICONS if windows_icons else ()
         self.notified = 0
         self.refreshed: list[Path] = []
         self.roots = [
             ScanRoot(self.desktop, Source.DESKTOP, folders=True),
+            ScanRoot(self.pinned, Source.TASKBAR),
             ScanRoot(self.common, Source.ALL_USERS_START_MENU, max_depth=None),
             desktop_folders_root(self.desktop),
         ]
@@ -231,6 +263,12 @@ class FakeDesktop:
         path = (folder or self.desktop) / f"{name}.lnk"
         self.link_io.create(path, rf"C:\Apps\{name}.exe", IconLocation(icon, 1 if icon else 0))
         return path
+
+    def pin(self, shortcut: Path) -> Path:
+        """What Windows does when a shortcut is pinned: copies it into the taskbar folder."""
+        pinned = self.pinned / shortcut.name
+        pinned.write_bytes(shortcut.read_bytes())
+        return pinned
 
     def make_url(
         self, name: str, url: str, icon_file: str = "", folder: Path | None = None
@@ -265,6 +303,7 @@ class FakeDesktop:
             notify=self._notify,
             elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
             taskbar=self.taskbar.service(self.paths.taskbar),
+            store_apps=self.store_apps,
         )
 
     def _launch_elevated(self, arguments: Sequence[str]) -> int:
@@ -281,7 +320,8 @@ class FakeDesktop:
         self, icon: IconLocation, target: str, shortcut: Path, *, use_shell: bool = True
     ) -> ExtractedIcon:
         """Stand-in extractor: the sample icon for the app, labelled with where it came from."""
-        app = PureWindowsPath(target).stem
+        # Store apps have no target; the shell is asked for "shell:AppsFolder\<id>".
+        app = PureWindowsPath(target).stem or str(shortcut).rpartition("\\")[2]
         if app in self._unreadable:
             raise OSError(f"{app}: unreadable icon")
         sample = self._icons.get(app, self._default)

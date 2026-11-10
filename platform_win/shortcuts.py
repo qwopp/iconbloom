@@ -1,9 +1,10 @@
 """What Iconbloom can restyle, where it finds it, and which items belong together.
 
 "Shortcut" covers everything with a changeable icon: .lnk and .url shortcut
-files, folders on the desktop, and Windows' own desktop icons such as the
-Recycle Bin. How each kind is read and changed lives in ``item_io``; only the
-icon is ever changed, never what an item opens.
+files, folders on the desktop, Windows' own desktop icons such as the
+Recycle Bin, and Store apps (see ``store_apps``). How each kind is read and
+changed lives in ``item_io``; only the icon is ever changed, never what an
+item opens.
 """
 
 import hashlib
@@ -28,6 +29,7 @@ class Source(StrEnum):
     START_MENU = "Start menu"
     ALL_USERS_START_MENU = "Start menu (all users)"
     DESKTOP_FOLDERS = "In desktop folders"
+    STORE_APPS = "Store apps"
 
 
 class Place(StrEnum):
@@ -43,15 +45,20 @@ class ItemKind(StrEnum):
     WEB_SHORTCUT = "Web or game shortcut"
     FOLDER = "Folder"
     WINDOWS_ICON = "Windows icon"
+    STORE_APP = "Store app"
 
 
 # Windows' own name for a shell object such as the Recycle Bin: "::{CLSID}".
 WINDOWS_ICON_PREFIX = "::{"
+# How Explorer names a Store app: "shell:AppsFolder\\<package>!<app>".
+STORE_APP_PREFIX = "shell:AppsFolder\\"
 
 
 def kind_of(path: Path) -> ItemKind:
     if str(path).startswith(WINDOWS_ICON_PREFIX):
         return ItemKind.WINDOWS_ICON
+    if str(path).casefold().startswith(STORE_APP_PREFIX.casefold()):
+        return ItemKind.STORE_APP
     suffix = path.suffix.casefold()
     if suffix == ".lnk" and not path.is_dir():
         return ItemKind.SHORTCUT
@@ -68,6 +75,8 @@ _PLACES = {
     Source.START_MENU: Place.START_MENU,
     Source.ALL_USERS_START_MENU: Place.START_MENU,
     Source.DESKTOP_FOLDERS: Place.DESKTOP,
+    # Store apps live in the Start menu's app list.
+    Source.STORE_APPS: Place.START_MENU,
 }
 
 
@@ -92,6 +101,17 @@ class LinkInfo:
     target: str
     arguments: str
     icon: IconLocation
+
+    @property
+    def store_app_id(self) -> str | None:
+        """The Store app this shortcut starts through Explorer, if that's what it does."""
+        if ntpath.basename(self.target).casefold() != "explorer.exe":
+            return None
+        args = self.arguments.strip().strip('"')
+        if not args.casefold().startswith(STORE_APP_PREFIX.casefold()):
+            return None
+        app_id = args[len(STORE_APP_PREFIX) :]
+        return app_id if "!" in app_id else None
 
 
 @dataclass(frozen=True)
@@ -153,6 +173,8 @@ class ShortcutGroup:
     @property
     def is_windows_tool(self) -> bool:
         """Built into Windows (Command Prompt, Character Map...): listed after real apps."""
+        if self.primary.info.store_app_id is not None:
+            return False  # explorer.exe only starts it; it's a real app
         target = self.primary.info.target
         windir = normalize_path(os.environ.get("SYSTEMROOT", r"C:\Windows")) + "\\"
         return bool(target) and normalize_path(os.path.expandvars(target)).startswith(windir)
@@ -264,9 +286,16 @@ def is_noise(name: str, target: str) -> bool:
 
 
 def scan(
-    roots: Sequence[ScanRoot], io: ItemIO, windows_icons: Sequence[WindowsIcon] = ()
+    roots: Sequence[ScanRoot],
+    io: ItemIO,
+    windows_icons: Sequence[WindowsIcon] = (),
+    store_apps: Sequence[Shortcut] = (),
 ) -> list[ShortcutGroup]:
-    """Read everything under ``roots`` (plus Windows' own icons) and group what belongs together."""
+    """Read everything under ``roots`` (plus Windows' own icons) and group what belongs together.
+
+    ``store_apps`` are listed only while no shortcut found here starts them yet:
+    once Iconbloom has made one (or it's pinned), that shortcut stands for the app.
+    """
     shortcuts: list[Shortcut] = []
     for root in roots:
         for path in _items(root):
@@ -283,6 +312,10 @@ def scan(
         except OSError:
             continue
         shortcuts.append(Shortcut(icon.path, Source.WINDOWS, info, label=icon.name))
+    covered = {group_key(s) for s in shortcuts}
+    for app in store_apps:
+        if group_key(app) not in covered and not is_noise(app.name, ""):
+            shortcuts.append(app)
     return group(shortcuts)
 
 

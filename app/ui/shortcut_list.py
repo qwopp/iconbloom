@@ -320,13 +320,17 @@ def _same_icon(before: ShortcutGroup, after: ShortcutGroup) -> bool:
 
 def _tooltip(target: ShortcutGroup) -> str:
     primary = target.primary
-    if primary.kind is ItemKind.SHORTCUT:
+    if primary.info.store_app_id is not None:
+        opens = "Store app"
+    elif primary.kind is ItemKind.SHORTCUT:
         opens = primary.info.target or "(Store or advertised app)"
     else:
         opens = primary.info.target or str(primary.kind)
     lines = [target.name, opens]
     lines += [
-        f"{s.source}: {s.path}" for s in target.shortcuts if s.kind is not ItemKind.WINDOWS_ICON
+        f"{s.source}: {s.path}"
+        for s in target.shortcuts
+        if s.kind not in (ItemKind.WINDOWS_ICON, ItemKind.STORE_APP)  # no real path to show
     ]
     if target.shared_shortcuts:
         lines.append("Shared by every user: Windows asks for permission to change it.")

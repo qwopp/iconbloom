@@ -54,6 +54,7 @@ ignore = [
 # ItemIO implementations keep the protocol's parameters even when one kind ignores them.
 "platform_win/item_io.py" = ["ARG002"]
 "platform_win/shell_icons.py" = ["ARG002"]
+"platform_win/store_apps.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
