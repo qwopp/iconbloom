@@ -69,3 +69,13 @@ def test_uncaught_errors_are_logged(tmp_path: Path, caplog: pytest.LogCaptureFix
         with caplog.at_level(logging.CRITICAL):
             logs.log_uncaught(RuntimeError, exc, exc.__traceback__)
     assert "unexpected error" in caplog.text
+
+
+def test_elevated_copy_refuses_a_linked_data_folder(tmp_path: Path) -> None:
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    linked = tmp_path / "Iconbloom"
+    linked.symlink_to(real, target_is_directory=True)
+    request = tmp_path / "request.json"
+    request.write_text('{"action": "revert", "items": []}', encoding="utf-8")
+    assert main.run_elevated_request(AppPaths(linked), request) == 2

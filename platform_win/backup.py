@@ -24,7 +24,7 @@ import shutil
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from platform_win.fileio import atomic_write, write_json
 from platform_win.shortcuts import IconLocation, normalize_path
@@ -289,10 +289,23 @@ def _parse_entry(item: object) -> BackupEntry:
     for name in ("original_copy", "applied_sha256", "applied_icon"):
         if item.get(name) is not None and not isinstance(item.get(name), str):
             raise ValueError(f"entry field '{name}' must be a string or null")
+    copy = item.get("original_copy")
+    if copy is not None and not _is_copy_name(copy):
+        # Copies are deleted by name, so a path here could aim that delete anywhere.
+        raise ValueError(f"entry field 'original_copy' is not a backup file name: {copy!r}")
     try:
         return BackupEntry(**item)
     except TypeError as exc:
         raise ValueError(f"unexpected entry fields: {exc}") from exc
+
+
+def _is_copy_name(name: str) -> bool:
+    return (
+        name.strip(". ") != ""
+        and PureWindowsPath(name).name == name
+        and PurePosixPath(name).name == name
+        and ":" not in name
+    )
 
 
 def _key(item: Path) -> str:

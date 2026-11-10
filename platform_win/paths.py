@@ -1,5 +1,6 @@
 """Where Iconbloom keeps its own files, and where Windows keeps shortcuts."""
 
+import ntpath
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,23 @@ class AppPaths:
 def default_app_paths() -> AppPaths:
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     return AppPaths(Path(base) / APP_NAME)
+
+
+def is_network_path(path: str) -> bool:
+    r"""Whether a Windows path reaches another machine or a raw device.
+
+    Covers \\server, //server, \\?\UNC\ and \\.\ forms, also once environment
+    variables such as %LOGONSERVER% are expanded.
+    """
+    for candidate in (path, ntpath.expandvars(path)):
+        if candidate.replace("/", "\\").startswith("\\\\"):
+            return True
+    return False
+
+
+def is_redirected(folder: Path) -> bool:
+    """Whether a folder is a symlink or junction, which could send writes elsewhere."""
+    return folder.is_symlink() or folder.is_junction()
 
 
 def known_folder(name: str) -> Path:
