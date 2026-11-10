@@ -6,6 +6,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
 ### Added
 
 - A **Taskbar** page (switch at the top of the window) gives the taskbar itself your theme's
@@ -13,7 +15,7 @@ All notable changes to Iconbloom are documented here. The format follows
   centered or left, smaller buttons, the search box, Task view and hiding automatically.
   Everything changes instantly through Windows' own settings, with no Explorer restart.
   Colors are darkened just enough for the white clock to stay readable.
-  The preview shows your own wallpaper and taskbar icons when Windows has a picture of it.
+  The preview uses your own taskbar icons, and your wallpaper when Windows has a picture of it.
 - **Revert** on the page, **Revert all** and uninstalling put the taskbar back the way it was.
   Anything you changed yourself in Windows' Settings since stays as you set it.
 - From the command line: `iconbloom-cli taskbar apply --look deep --frosted --left`,
@@ -190,7 +192,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/qwopp/iconbloom/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/qwopp/iconbloom/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/qwopp/iconbloom/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/qwopp/iconbloom/compare/v0.5.1...v0.5.2
