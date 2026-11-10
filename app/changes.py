@@ -33,12 +33,15 @@ class ChangeReport:
     written: list[Path] = field(default_factory=list[Path])
     removed: list[Path] = field(default_factory=list[Path])
     skipped: list[tuple[Path, str]] = field(default_factory=list[tuple[Path, str]])
+    # Taskbar settings put back or changed, by name ("taskbar color", "alignment"...).
+    taskbar: list[str] = field(default_factory=list[str])
 
     def extend(self, other: "ChangeReport") -> None:
         self.changed += other.changed
         self.written += other.written
         self.removed += other.removed
         self.skipped += other.skipped
+        self.taskbar += other.taskbar
 
 
 # Called before each group in a batch; returning False stops the batch.

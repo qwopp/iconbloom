@@ -21,7 +21,7 @@ Nothing here calls Windows APIs, so all of it is tested on every OS.
 import hashlib
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +30,7 @@ from platform_win.fileio import atomic_write, write_json
 from platform_win.shortcuts import IconLocation, normalize_path
 
 MANIFEST_VERSION = 1
+TASKBAR_VERSION = 1
 
 
 class BackupCorruptError(Exception):
@@ -168,32 +169,99 @@ class BackupManifest:
         return entry
 
     def _load(self) -> dict[str, BackupEntry]:
-        if not self._path.exists():
-            if self._prev.exists():
-                raise BackupCorruptError(
-                    f"{self._path} is missing but {self._prev.name} exists. "
-                    f"Restore it from {self._prev.name} before changing any icons."
-                )
-            return {}
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-            return _parse(raw)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-            raise BackupCorruptError(
-                f"{self._path} can't be read ({exc}). It has not been changed; "
-                f"the previous version is {self._prev.name}."
-            ) from exc
+        raw = _load_guarded(self._path, self._prev, _parse)
+        return {} if raw is None else raw
 
     def _save(self) -> None:
-        if self._path.exists():
-            # Copy, not move: backup.json must exist at every instant.
-            tmp_prev = self._prev.with_name(self._prev.name + ".tmp")
-            shutil.copyfile(self._path, tmp_prev)
-            tmp_prev.replace(self._prev)
-        write_json(
+        _save_guarded(
             self._path,
+            self._prev,
             {"version": MANIFEST_VERSION, "entries": [asdict(e) for e in self._entries.values()]},
         )
+
+
+class TaskbarBackup:
+    """taskbar.json: the taskbar settings before Iconbloom changed them, and after.
+
+    Same guarantees as backup.json: written atomically with the previous version kept,
+    and a file that can't be read is refused and left as it is. ``original`` is saved
+    before any setting is touched; ``applied`` once they are written. The values are
+    opaque JSON here (``platform_win.taskbar`` decides what they mean).
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._prev = path.with_name(path.name + ".prev")
+        data = _load_guarded(self._path, self._prev, _parse_taskbar)
+        self.original: dict[str, object] | None = data.get("original") if data else None
+        self.applied: dict[str, object] | None = data.get("applied") if data else None
+        self.choice: dict[str, object] | None = data.get("choice") if data else None
+
+    def save(
+        self,
+        original: dict[str, object],
+        applied: dict[str, object] | None = None,
+        choice: dict[str, object] | None = None,
+    ) -> None:
+        payload = {
+            "version": TASKBAR_VERSION,
+            "recorded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "original": original,
+            "applied": applied,
+            "choice": choice,
+        }
+        _save_guarded(self._path, self._prev, payload)
+        self.original, self.applied, self.choice = original, applied, choice
+
+    def forget(self) -> None:
+        """Once everything is back to the original, nothing is left to restore."""
+        self._path.unlink(missing_ok=True)
+        self._prev.unlink(missing_ok=True)
+        self.original = self.applied = self.choice = None
+
+
+def _load_guarded[T](path: Path, prev: Path, parse: Callable[[object], T]) -> T | None:
+    """``parse`` of the JSON at ``path``; None when there is none yet.
+
+    Raises BackupCorruptError, leaving the file alone, when it can't be trusted.
+    """
+    if not path.exists():
+        if prev.exists():
+            raise BackupCorruptError(
+                f"{path} is missing but {prev.name} exists. "
+                f"Restore it from {prev.name} before changing anything."
+            )
+        return None
+    try:
+        return parse(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise BackupCorruptError(
+            f"{path} can't be read ({exc}). It has not been changed; "
+            f"the previous version is {prev.name}."
+        ) from exc
+
+
+def _save_guarded(path: Path, prev: Path, payload: object) -> None:
+    if path.exists():
+        # Copy, not move: the file must exist at every instant.
+        tmp_prev = prev.with_name(prev.name + ".tmp")
+        shutil.copyfile(path, tmp_prev)
+        tmp_prev.replace(prev)
+    write_json(path, payload)
+
+
+def _parse_taskbar(raw: object) -> dict[str, dict[str, object] | None]:
+    if not isinstance(raw, dict) or raw.get("version") != TASKBAR_VERSION:
+        raise ValueError(f"expected a version {TASKBAR_VERSION} taskbar backup")
+    parsed: dict[str, dict[str, object] | None] = {}
+    for name in ("original", "applied", "choice"):
+        value = raw.get(name)
+        if value is not None and not isinstance(value, dict):
+            raise ValueError(f"'{name}' must be an object or null")
+        parsed[name] = value
+    if parsed["original"] is None:
+        raise ValueError("'original' is missing")
+    return parsed
 
 
 def _parse(raw: object) -> dict[str, BackupEntry]:

@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
             make_button(
                 "Revert all",
                 "danger",
-                "Put every icon Iconbloom changed back to the original",
+                "Put every icon and taskbar setting Iconbloom changed back to the original",
                 self.revert_all,
             )
         )
@@ -311,8 +311,8 @@ class MainWindow(QMainWindow):
     def revert_all(self) -> None:
         answer = QMessageBox.question(
             self,
-            "Revert all icons?",
-            "Put every icon Iconbloom changed back to its original?",
+            "Revert everything?",
+            "Put every icon and taskbar setting Iconbloom changed back to the original?",
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
             "Putting every original back…",
             [],
             lambda _progress: self.service.revert_all(),
-            lambda report: self._say(f"Reverted {count(report.changed, 'icon')}"),
+            lambda report: self._say(_reverted(report)),
             reload=True,
         )
 
@@ -436,6 +436,11 @@ class MainWindow(QMainWindow):
         self._select_timer.stop()
         self.jobs.shutdown()
         super().closeEvent(event)
+
+
+def _reverted(report: ChangeReport) -> str:
+    message = f"Reverted {count(report.changed, 'icon')}"
+    return message + " and the taskbar" if report.taskbar else message
 
 
 def _merged(reports: Iterable[ChangeReport]) -> ChangeReport:

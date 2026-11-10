@@ -59,7 +59,11 @@ load and are tested on any OS.
   executable. It falls back to the shell's own rendering, which covers Store apps.
 - `backup.py`: the manifest of originals (each item's saved state, where "nothing there"
   is a valid original). Writes are atomic, the previous generation is kept,
-  and a damaged file is refused rather than overwritten.
+  and a damaged file is refused rather than overwritten. `TaskbarBackup` keeps the same
+  promises for `taskbar.json`.
+- `taskbar.py`: the taskbar's per-user settings (accent color, frosted glass, alignment,
+  buttons, auto-hide): reading them, planning only the writes a change needs, and saving
+  and restoring them. All of them apply live; no Explorer restart.
 - `refresh.py`: tells Explorer which shortcuts changed, refreshes the icon cache for taskbar
   pins, and (only when asked) restarts Explorer with its icon cache files deleted, since
   the taskbar otherwise redraws long-standing pins from pictures saved there.
@@ -73,6 +77,10 @@ load and are tested on any OS.
   revert and reapply. Every change follows the same order: write the `.ico`, save the backup
   entry, point the item at the `.ico`, then note the item's new state. Revert restores the
   saved state if nothing else has touched the item since, and otherwise only its icon.
+  Revert all also reverts the taskbar.
+- `taskbar.py`: `TaskbarService`, the taskbar's apply and revert, in the same order as
+  icons (save the originals, write, note what was applied). Revert puts back only settings
+  still as Iconbloom left them, so ones the user changed in Settings since stay theirs.
 - `styles.py`: themes, rendering a choice, and the files that come out of it (generated
   icons, variants such as the Recycle Bin's "full", and saved pictures of originals).
 - `changes.py`: `ChangeReport` (what a change did) and `Status` (original, themed, skipped,
@@ -116,8 +124,8 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 ## Runtime data
 
 Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` files),
-`originals\` (byte copies of shortcuts), `backup.json`, `choices.json`, `settings.json`,
-`custom\` (images from **Use my own image**) and `logs\`.
+`originals\` (byte copies of shortcuts), `backup.json`, `taskbar.json`, `choices.json`,
+`settings.json`, `custom\` (images from **Use my own image**) and `logs\`.
 
 ## Testing
 

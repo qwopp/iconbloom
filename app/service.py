@@ -1,5 +1,8 @@
 """Apply, revert and reapply themed icons: the one place shortcuts get changed.
 
+It also holds the taskbar's service (app/taskbar.py), so Revert all, the CLI's
+revert-all and the uninstaller put the taskbar back too.
+
 The UI and the CLI both go through ``IconService``. Every change follows the
 same order, so a crash at any step leaves a recoverable state:
 
@@ -27,9 +30,10 @@ from app.changes import (
 from app.choices import Choice, ChoiceStore
 from app.elevation import Action, ElevatedItem, ElevatedResult, Elevator, WindowsElevator
 from app.styles import Styles
+from app.taskbar import TaskbarService
 from engine import ops
 from engine.themes import THEMES_DIR
-from platform_win.backup import BackupManifest, state_hash
+from platform_win.backup import BackupManifest, TaskbarBackup, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
 from platform_win.item_io import windows_item_io
@@ -48,6 +52,7 @@ from platform_win.shortcuts import (
     normalize_path,
     scan,
 )
+from platform_win.taskbar import windows_taskbar_io
 
 log = logging.getLogger(__name__)
 
@@ -82,8 +87,10 @@ class IconService:
         notify: Callable[[Sequence[Path]], None] = lambda _paths: None,
         themes_dir: Path = THEMES_DIR,
         elevator: Elevator | None = None,
+        taskbar: TaskbarService | None = None,
     ) -> None:
         self.paths = paths.ensure()
+        self.taskbar = taskbar
         self._io = io
         self._roots = roots
         self._windows_icons = windows_icons
@@ -313,9 +320,12 @@ class IconService:
         return report
 
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
+        """Every icon, and the taskbar's settings, back to the originals."""
         report = self._revert_paths([Path(e.shortcut) for e in self.manifest], dry_run=dry_run)
         if not dry_run:
             self.choices.clear_all()
+        if self.taskbar is not None:
+            report.taskbar += self.taskbar.revert(dry_run=dry_run)
         return report
 
     def _revert_paths(self, paths: Sequence[Path], *, dry_run: bool) -> ChangeReport:
@@ -483,4 +493,5 @@ def windows_service(paths: AppPaths | None = None) -> IconService:
         windows_icons=WINDOWS_ICONS,
         notify=notify_icons_changed,
         elevator=WindowsElevator(paths),
+        taskbar=TaskbarService(windows_taskbar_io(), TaskbarBackup(paths.taskbar)),
     )
