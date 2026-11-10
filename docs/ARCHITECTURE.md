@@ -78,6 +78,8 @@ load and are tested on any OS.
 - `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
   restored shortcuts, choices and settings.
+- `paths.py`: where Iconbloom's data and Windows' shortcut folders are, and checks for
+  network paths and links.
 
 ## app/
 
@@ -85,7 +87,9 @@ load and are tested on any OS.
   revert and reapply. Every change follows the same order: write the `.ico`, save the backup
   entry, point the item at the `.ico`, then note the item's new state. Revert restores the
   saved state if nothing else has touched the item since, and otherwise only its icon.
-  Revert all also reverts the taskbar.
+  Revert all also reverts the taskbar. Changes take one lock, so two never interleave, and
+  one failing item is skipped, not fatal. Copies of styled items (renamed, moved, pinned)
+  are taken on with the original icon of the item they came from.
 - `taskbar.py`: `TaskbarService`, the taskbar's apply and revert, in the same order as
   icons (save the originals, write, note what was applied). Revert puts back only settings
   still as Iconbloom left them, so ones the user changed in Settings since stay theirs.
@@ -96,11 +100,14 @@ load and are tested on any OS.
 - `elevation.py`: changes to shortcuts every user shares. The app writes a request file and
   runs an elevated copy of itself, which validates every item on its own (only shortcut
   files inside the shared folders, only the icon, only Iconbloom's icons or the recorded
-  original) before touching anything.
+  original) before touching anything. It works in the requesting user's data folder, which
+  matters when an administrator's password elevates a standard account.
 - `choices.py`, `settings.py`: which style each app got (powers **Reapply my icons**) and
   which own image it uses, and the user's preferences.
 - `updates.py`: the update check and the checksum-verified download.
-- `cli.py`, `main.py`: entry points.
+- `cli.py`, `main.py`: entry points. They exit 3 when items were skipped; the uninstaller
+  keeps the backups unless `--revert-all` exits 0.
+- `logs.py`: the log file, and logging of uncaught errors.
 
 ### app/ui/
 
@@ -128,7 +135,8 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 - `render_assets.py`: fills each decoration template with a theme's `decor` colors and
   writes the PNGs the app loads.
 - `bundle.py`: the theme files the packaged app ships, used by the PyInstaller spec.
-- `make_screenshots.py`: the README images, from the real window offscreen.
+- `make_screenshots.py`: the README images, from the real window offscreen. `--icons` takes
+  real app icons from a local folder; only the finished images are committed.
 - `make_samples.py`, `make_app_icon.py`: the test sample icons and Iconbloom's own icon.
 - `release_notes.py`: a version's CHANGELOG section, for the GitHub release.
 
@@ -136,9 +144,10 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 
 Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` files),
 `originals\` (byte copies of shortcuts), `backup.json`, `taskbar.json`, `choices.json`,
-`settings.json`, `custom\` (images from **Use my own image**) and `logs\`. The one exception
-is `%LOCALAPPDATA%\Iconbloom pins\`: Store apps' own icons for reverted pins, which outlive
-an uninstall.
+`settings.json`, `custom\` (images from **Use my own image**), `original-icons\` (pictures of
+each app's own icon), `updates\` (a downloaded installer, deleted afterwards) and `logs\`.
+The one exception is `%LOCALAPPDATA%\Iconbloom pins\`: Store apps' own icons for reverted
+pins, which outlive an uninstall.
 
 ## Testing
 

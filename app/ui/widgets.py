@@ -81,7 +81,8 @@ class TileDelegate(QStyledItemDelegate):
     """Shortcut tile: icon, name underneath, and a status dot in the corner."""
 
     ICON = 56
-    SIZE = QSize(112, 112)
+    # Tall enough for a two-line name ("Stardew Valley") without clipping its last line.
+    SIZE = QSize(112, 120)
 
     @override
     def sizeHint(
@@ -114,7 +115,8 @@ class TileDelegate(QStyledItemDelegate):
             painter.drawPixmap(icon_rect, pixmap)
 
         painter.setPen(colors.color("text"))
-        text_rect = QRect(rect.left() + 6, rect.top() + self.ICON + 16, rect.width() - 12, 34)
+        top = rect.top() + self.ICON + 16
+        text_rect = QRect(rect.left() + 6, top, rect.width() - 12, rect.bottom() - top - 2)
         name = str(index.data(Qt.ItemDataRole.DisplayRole))
         elided = painter.fontMetrics().elidedText(
             name, Qt.TextElideMode.ElideRight, text_rect.width() * 2 - 10

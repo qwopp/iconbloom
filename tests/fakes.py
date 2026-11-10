@@ -211,7 +211,7 @@ class FakeTaskbar:
 class FakeDesktop:
     """A temp-folder stand-in for the user's shortcut folders, wired to an IconService.
 
-    ``icons`` maps app name (a Store app's id) to a sample icon; apps not listed
+    ``icons`` maps app name (a Store app's id) to a sample icon or an image path; apps not listed
     get ``default``. Apps named in ``unreadable`` fail extraction, like a broken
     program file. ``store_apps`` maps Store app ids to their names.
     """
@@ -328,7 +328,9 @@ class FakeDesktop:
         if app in self._unreadable:
             raise OSError(f"{app}: unreadable icon")
         sample = self._icons.get(app, self._default)
-        with Image.open(SAMPLES_DIR / f"{sample}.png") as img:
+        # A sample's name, or (for the README screenshots) the path of a real icon.
+        picture = Path(sample) if Path(sample).is_absolute() else SAMPLES_DIR / f"{sample}.png"
+        with Image.open(picture) as img:
             image = img.convert("RGBA")
         source = icon.path if not use_shell else f"{icon.path} (shell allowed)"
         return ExtractedIcon(image, max(image.size) < SHARP_MIN, source)
