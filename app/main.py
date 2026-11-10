@@ -62,7 +62,11 @@ def revert_everything(paths: AppPaths) -> int:
     except BackupCorruptError as exc:
         log.error("revert-all refused: %s", exc)
         return 2
-    log.info("revert-all restored %d shortcuts", len(report.changed))
+    log.info(
+        "revert-all restored %d shortcuts and taskbar settings %s",
+        len(report.changed),
+        report.taskbar,
+    )
     return 0
 
 

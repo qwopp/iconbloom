@@ -9,6 +9,9 @@ from PIL import Image
 
 from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request
 from app.service import IconService
+from app.taskbar import TaskbarService
+from platform_win import taskbar as tb
+from platform_win.backup import TaskbarBackup
 from platform_win.elevate import ElevationDeclinedError
 from platform_win.extract import SHARP_MIN, ExtractedIcon
 from platform_win.item_io import FileStateIO, FolderIO, ItemRouter, UrlFileIO
@@ -101,6 +104,84 @@ class FakeRegistry:
         return self.SYSTEM.get(name) if clsid == RECYCLE_BIN.clsid else None
 
 
+class FakeUserRegistry:
+    """HKEY_CURRENT_USER as a dict of {(key, value name): (type, data)}."""
+
+    def __init__(self, values: Mapping[tuple[str, str], tb.RegValue] | None = None) -> None:
+        self.values: dict[tuple[str, str], tb.RegValue] = dict(values or {})
+        # Set to make every write after this many fail, like a policy-locked value.
+        self.fail_after: int | None = None
+        self.writes = 0
+
+    def read(self, key: str, name: str) -> tb.RegValue | None:
+        return self.values.get((key, name))
+
+    def write(self, key: str, name: str, value: tb.RegValue) -> None:
+        if self.fail_after is not None and self.writes >= self.fail_after:
+            raise PermissionError(f"access denied: {key}\\{name}")
+        self.writes += 1
+        self.values[(key, name)] = value
+
+    def delete(self, key: str, name: str) -> None:
+        self.values.pop((key, name), None)
+
+
+class FakeAppBar:
+    def __init__(self) -> None:
+        self.hidden = False
+
+    def auto_hide(self) -> bool:
+        return self.hidden
+
+    def set_auto_hide(self, on: bool) -> None:
+        self.hidden = on
+
+
+# The user's own Windows 11 taskbar when this was written: dark, Windows' gray, frosted glass
+# off, centered, a search box, no Task view.
+USER_TASKBAR: Mapping[tuple[str, str], tb.RegValue] = MappingProxyType(
+    {
+        tb.LIGHT_MODE: (tb.REG_DWORD, 0),
+        tb.TRANSPARENCY: (tb.REG_DWORD, 0),
+        tb.ACCENT_ON_TASKBAR: (tb.REG_DWORD, 0),
+        tb.PALETTE: (
+            tb.REG_BINARY,
+            bytes.fromhex("69fcff0029f7ff0000d5e10000b7c300009faa000067700000343b004a545900"),
+        ),
+        tb.ACCENT_MENU: (tb.REG_DWORD, 0xFFC3B700),
+        tb.START_MENU: (tb.REG_DWORD, 0xFFAA9F00),
+        tb.DWM_ACCENT: (tb.REG_DWORD, 0xFFC3B700),
+        tb.DWM_COLOR: (tb.REG_DWORD, 0xC400B7C3),
+        tb.DWM_AFTERGLOW: (tb.REG_DWORD, 0xC400B7C3),
+        tb.AUTO_COLOR: (tb.REG_DWORD, 1),
+        tb.SEARCH_MODE: (tb.REG_DWORD, 2),
+        tb.TASK_VIEW: (tb.REG_DWORD, 0),
+    }
+)
+
+
+class FakeTaskbar:
+    """A taskbar's settings in memory, with the same TaskbarIO the app uses."""
+
+    def __init__(
+        self,
+        values: Mapping[tuple[str, str], tb.RegValue] = USER_TASKBAR,
+        *,
+        win11: bool = True,
+    ) -> None:
+        self.registry = FakeUserRegistry(values)
+        self.appbar = FakeAppBar()
+        self.broadcasts: list[str] = []
+        self.io = tb.TaskbarIO(self.registry, self.appbar, self.broadcasts.append, win11=win11)
+
+    def service(self, backup: Path) -> TaskbarService:
+        return TaskbarService(self.io, TaskbarBackup(backup))
+
+    def state(self) -> tuple[dict[tuple[str, str], tb.RegValue], bool]:
+        """Everything a revert must put back exactly."""
+        return dict(self.registry.values), self.appbar.hidden
+
+
 class FakeDesktop:
     """A temp-folder stand-in for the user's shortcut folders, wired to an IconService.
 
@@ -124,6 +205,7 @@ class FakeDesktop:
         self.link_io = FakeLinkIO()
         self.attributes = FakeAttributes()
         self.registry = FakeRegistry()
+        self.taskbar = FakeTaskbar()
         self.io = ItemRouter(
             shortcut=self.link_io,
             web_shortcut=UrlFileIO(),
@@ -182,6 +264,7 @@ class FakeDesktop:
             extractor=self.extract,
             notify=self._notify,
             elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
+            taskbar=self.taskbar.service(self.paths.taskbar),
         )
 
     def _launch_elevated(self, arguments: Sequence[str]) -> int:

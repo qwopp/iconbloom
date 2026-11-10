@@ -1,6 +1,7 @@
 import logging
 import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from app import logs, main
 from app.choices import Choice
 from app.service import IconService
+from app.taskbar import TaskbarChoice
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import AppPaths
 from tests.fakes import FakeDesktop
@@ -36,8 +38,17 @@ def test_revert_all_flag_restores_everything(desktop: FakeDesktop) -> None:
     service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
     assert lnk.read_bytes() != original
 
+    taskbar = desktop.taskbar
+    before = taskbar.state()
+    current = service.taskbar.current() if service.taskbar else None
+    assert current is not None
+    assert service.taskbar is not None
+    service.taskbar.apply(replace(current, color=(90, 40, 80)), TaskbarChoice("x", "deep"))
+    assert taskbar.state() != before
+
     assert main.main(["--revert-all"]) == 0
     assert lnk.read_bytes() == original
+    assert taskbar.state() == before
     assert (desktop.paths.logs / logs.LOG_NAME).exists()
 
 

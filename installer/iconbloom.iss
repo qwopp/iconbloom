@@ -84,7 +84,7 @@ begin
     exit;
   if UninstallSilent() then
     exit;
-  if MsgBox('Put all your original icons back before uninstalling?' + #13#10 + #13#10 +
+  if MsgBox('Put all your original icons and taskbar settings back before uninstalling?' + #13#10 + #13#10 +
             'Choose No to keep your themed icons. Their icon files stay in ' + DataDir + '.',
             mbConfirmation, MB_YESNO) = IDYES then
   begin

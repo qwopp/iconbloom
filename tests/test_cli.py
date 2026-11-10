@@ -82,3 +82,51 @@ def test_reported_skips(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) ->
 
 def test_service_type_is_used(env: FakeDesktop) -> None:
     assert isinstance(env.service(), IconService)
+
+
+def test_taskbar_show_apply_and_revert(
+    env: FakeDesktop, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = env.taskbar.state()
+    assert _run(env, "taskbar") == 0
+    out = capsys.readouterr().out
+    assert "color:         Windows' own" in out
+    assert "alignment:     centered" in out
+    assert "Iconbloom:     not changed" in out
+
+    assert _run(env, "taskbar", "apply", "--look", "deep", "--left", "--dry-run") == 0
+    assert capsys.readouterr().out.strip() == "would change taskbar color, alignment"
+    assert env.taskbar.state() == before
+
+    args = ("taskbar", "apply", "--look", "soft", "--frosted", "--search", "button")
+    assert _run(env, *args, "--auto-hide") == 0
+    assert "changed taskbar color, frosted glass, search, hide automatically" in (
+        capsys.readouterr().out
+    )
+    assert _run(env, "taskbar") == 0
+    assert "Iconbloom:     kawaii_pink / soft" in capsys.readouterr().out
+
+    assert _run(env, "taskbar", "revert") == 0
+    assert env.taskbar.state() == before
+    assert _run(env, "taskbar", "revert") == 0
+    assert capsys.readouterr().out.strip().endswith("nothing to do")
+
+
+def test_taskbar_rejects_an_unknown_look(
+    env: FakeDesktop, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run(env, "taskbar", "apply", "--look", "sparkly") == 1
+    assert "no look 'sparkly'" in capsys.readouterr().err
+
+
+def test_revert_all_also_restores_the_taskbar(
+    env: FakeDesktop, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = env.taskbar.state()
+    assert _run(env, "taskbar", "apply", "--look", "deep", "--small") == 0
+    capsys.readouterr()
+    assert _run(env, "revert-all", "--dry-run") == 0
+    assert "would restore the taskbar's taskbar color, smaller buttons" in capsys.readouterr().out
+    assert _run(env, "revert-all") == 0
+    assert "did restore the taskbar's" in capsys.readouterr().out
+    assert env.taskbar.state() == before

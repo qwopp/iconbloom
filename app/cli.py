@@ -3,18 +3,22 @@
     uv run python -m app.cli scan --dump-dir originals/
     uv run python -m app.cli apply "Firefox" --recipe tile_bow --dry-run
     uv run python -m app.cli revert-all
+    uv run python -m app.cli taskbar apply --look deep --frosted --left
 
-Every command that changes shortcuts accepts --dry-run.
+Every command that changes shortcuts or the taskbar accepts --dry-run.
 """
 
 import argparse
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from app.choices import Choice
 from app.service import ChangeReport, IconService, windows_service
+from app.taskbar import TaskbarChoice, TaskbarService
+from engine.taskbar import SearchMode, looks
 from engine.themes import DEFAULT_THEME, ThemeError
 from platform_win.backup import BackupCorruptError
 from platform_win.extract import ExtractionError
@@ -66,6 +70,65 @@ def _cmd_reapply(args: argparse.Namespace, service: IconService) -> int:
     )
 
 
+def _taskbar(service: IconService) -> TaskbarService:
+    if service.taskbar is None:
+        raise LookupError("the taskbar can't be changed here")
+    return service.taskbar
+
+
+def _cmd_taskbar_show(_args: argparse.Namespace, service: IconService) -> int:
+    taskbar = _taskbar(service)
+    bar = taskbar.current()
+    color = "#{:02X}{:02X}{:02X}".format(*bar.color) if bar.color else "Windows' own"
+    print(f"color:         {color}")
+    print(f"frosted glass: {_yes(bar.transparency)}")
+    if taskbar.win11:
+        print(f"alignment:     {'centered' if bar.centered else 'left'}")
+    print(f"smaller:       {_yes(bar.small)}")
+    print(f"search:        {bar.search}")
+    print(f"Task view:     {_yes(bar.task_view)}")
+    print(f"auto-hide:     {_yes(bar.auto_hide)}")
+    choice = taskbar.applied_choice()
+    print(f"Iconbloom:     {f'{choice.theme} / {choice.look}' if choice else 'not changed'}")
+    return 0
+
+
+def _cmd_taskbar_apply(args: argparse.Namespace, service: IconService) -> int:
+    taskbar = _taskbar(service)
+    theme = service.styles.theme(args.theme)
+    look = {look.id: look for look in looks(theme.palette)}.get(args.look)
+    if look is None:
+        raise LookupError(f"no look {args.look!r}; choose soft, deep or windows")
+    bar = replace(taskbar.current(), color=look.color)
+    for field_name, value in (
+        ("transparency", args.frosted),
+        ("centered", args.centered),
+        ("small", args.small),
+        ("task_view", args.task_view),
+        ("auto_hide", args.auto_hide),
+        ("search", SearchMode(args.search) if args.search else None),
+    ):
+        if value is not None:
+            bar = replace(bar, **{field_name: value})
+    return _report_taskbar(
+        taskbar.apply(bar, TaskbarChoice(theme.id, look.id), dry_run=args.dry_run), args.dry_run
+    )
+
+
+def _cmd_taskbar_revert(args: argparse.Namespace, service: IconService) -> int:
+    return _report_taskbar(_taskbar(service).revert(dry_run=args.dry_run), args.dry_run)
+
+
+def _report_taskbar(names: list[str], dry_run: bool) -> int:
+    verb = "would change" if dry_run else "changed"
+    print(f"{verb} {', '.join(names)}" if names else "nothing to do")
+    return 0
+
+
+def _yes(value: bool) -> str:
+    return "on" if value else "off"
+
+
 def _find(service: IconService, name: str) -> ShortcutGroup:
     matches = [g for g in service.scan() if g.name.casefold() == name.casefold()]
     if not matches:
@@ -83,7 +146,9 @@ def _report(report: ChangeReport) -> int:
         print(f"{verb} delete {path}")
     for path, reason in report.skipped:
         print(f"skipped     {path}: {reason}")
-    if not (report.written or report.changed or report.removed or report.skipped):
+    if report.taskbar:
+        print(f"{verb} restore the taskbar's {', '.join(report.taskbar)}")
+    if not (report.written or report.changed or report.removed or report.skipped or report.taskbar):
         print("nothing to do")
     return 0
 
@@ -146,6 +211,31 @@ def build_parser() -> argparse.ArgumentParser:
         "reapply", _cmd_reapply, "re-theme shortcuts that lost their icon", changes=True
     )
     reapply_cmd.add_argument("--include-shared", action="store_true", help=SHARED_HELP)
+
+    taskbar_cmd = commands.add_parser("taskbar", help="show or change the taskbar's look")
+    taskbar_cmd.set_defaults(func=_cmd_taskbar_show)
+    taskbar_actions = taskbar_cmd.add_subparsers(dest="taskbar_command")
+    tb_apply = taskbar_actions.add_parser("apply", help="give the taskbar a theme's look")
+    tb_apply.set_defaults(func=_cmd_taskbar_apply)
+    tb_apply.add_argument("--look", required=True, help="soft, deep or windows")
+    tb_apply.add_argument("--theme", default=DEFAULT_THEME)
+    on_off = argparse.BooleanOptionalAction
+    tb_apply.add_argument("--frosted", action=on_off, help="Windows' frosted glass effect")
+    align = tb_apply.add_mutually_exclusive_group()
+    align.add_argument("--centered", dest="centered", action="store_const", const=True)
+    align.add_argument(
+        "--left", dest="centered", action="store_const", const=False, help="(Windows 11)"
+    )
+    tb_apply.add_argument("--small", action=on_off, help="smaller taskbar buttons")
+    tb_apply.add_argument("--task-view", action=on_off, help="show the Task view button")
+    tb_apply.add_argument("--auto-hide", action=on_off, help="hide the taskbar automatically")
+    tb_apply.add_argument("--search", choices=[mode.value for mode in SearchMode])
+    tb_revert = taskbar_actions.add_parser("revert", help="put the taskbar back")
+    tb_revert.set_defaults(func=_cmd_taskbar_revert)
+    for sub in (tb_apply, tb_revert):
+        sub.add_argument(
+            "--dry-run", action="store_true", help="show what would change, change nothing"
+        )
     return parser
 
 

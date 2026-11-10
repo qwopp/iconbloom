@@ -49,6 +49,11 @@ class AppPaths:
     def settings(self) -> Path:
         return self.root / "settings.json"
 
+    @property
+    def taskbar(self) -> Path:
+        """The taskbar settings before Iconbloom changed them; absent when it hasn't."""
+        return self.root / "taskbar.json"
+
     def ensure(self) -> "AppPaths":
         for folder in (
             self.icons,
