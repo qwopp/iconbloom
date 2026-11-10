@@ -43,7 +43,7 @@ from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
 from platform_win.fileio import atomic_write
 from platform_win.item_io import windows_item_io
-from platform_win.paths import AppPaths, default_app_paths
+from platform_win.paths import AppPaths, default_app_paths, is_network_path
 from platform_win.refresh import notify_icons_changed
 from platform_win.shell_icons import WINDOWS_ICONS
 from platform_win.shortcuts import (
@@ -447,7 +447,7 @@ class IconService:
             entry = self.manifest.get(shortcut)
             if entry is None:
                 continue
-            if entry.original_icon_path.startswith("\\\\"):
+            if is_network_path(entry.original_icon_path):
                 # Network icon paths would make every user's PC reach out to that server.
                 result.skipped.append((shortcut, "original icon is on a network path"))
                 continue

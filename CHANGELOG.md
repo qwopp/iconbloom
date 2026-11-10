@@ -6,6 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The permission helper only trusts backup file names and local icon paths, and refuses a
+  data folder that links somewhere else, so a tampered backup file can't make it delete or
+  point at anything outside Iconbloom's own files.
+
 ## [0.8.1] - 2026-11-09
 
 ### Changed

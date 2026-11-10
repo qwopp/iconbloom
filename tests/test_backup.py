@@ -164,3 +164,23 @@ def test_missing_manifest_with_previous_generation_is_refused(tmp_path: Path) ->
     (folder / "backup.json.prev").write_text('{"version": 1, "entries": []}', encoding="utf-8")
     with pytest.raises(BackupCorruptError, match="is missing"):
         _manifest(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "copy", ["..\\..\\Windows\\x.dll", "C:\\Windows\\x.dll", "/etc/x", "sub/x.bak", "..", "C:x.bak"]
+)
+def test_backup_copy_names_cannot_point_elsewhere(tmp_path: Path, copy: str) -> None:
+    """Copies are deleted by name, so a name that is a path is a damaged manifest."""
+    path = tmp_path / "data" / "backup.json"
+    path.parent.mkdir()
+    entry = {
+        "shortcut": "C:/Users/x/Desktop/App.lnk",
+        "original_icon_path": "",
+        "original_icon_index": 0,
+        "original_sha256": "ab" * 32,
+        "original_copy": copy,
+        "recorded_at": "2026-11-09T00:00:00+00:00",
+    }
+    path.write_text(json.dumps({"version": 1, "entries": [entry]}), encoding="utf-8")
+    with pytest.raises(BackupCorruptError):
+        _manifest(tmp_path)

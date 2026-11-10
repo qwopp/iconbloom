@@ -88,8 +88,20 @@ def test_unknown_action_and_unreadable_request(env: FakeDesktop, admin: IconServ
     assert handle_request(request, admin, [env.common]) == 2
 
 
-def test_revert_never_points_at_a_network_path(env: FakeDesktop, admin: IconService) -> None:
-    lnk = env.make("Tool", folder=env.common, icon=r"\\server\share\evil.ico")
+@pytest.mark.parametrize(
+    "remote",
+    [
+        r"\\server\share\evil.ico",
+        "//server/share/evil.ico",
+        r"\\?\UNC\server\share\evil.ico",
+        r"%LOGONSERVER%\share\evil.ico",
+    ],
+)
+def test_revert_never_points_at_a_network_path(
+    env: FakeDesktop, admin: IconService, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOGONSERVER", r"\\DC1")
+    lnk = env.make("Tool", folder=env.common, icon=remote)
     admin.apply_files([(lnk, _our_icon(env))])
     request = _request(env, "revert", [{"shortcut": str(lnk), "icon": None}])
     assert handle_request(request, admin, [env.common]) == 0

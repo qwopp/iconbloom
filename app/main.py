@@ -21,7 +21,7 @@ from app.ui.main_window import MainWindow
 from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
-from platform_win.paths import AppPaths, default_app_paths
+from platform_win.paths import AppPaths, default_app_paths, is_redirected
 from platform_win.refresh import hard_refresh
 from platform_win.wallpaper import current_wallpaper
 
@@ -73,6 +73,11 @@ def revert_everything(paths: AppPaths) -> int:
 
 def run_elevated_request(paths: AppPaths, request: Path) -> int:
     """The elevated copy: carry out one request from the normal app, then exit."""
+    redirected = [f for f in (paths.root, paths.originals, paths.icons) if is_redirected(f)]
+    if redirected:
+        # An admin process must not follow a link the user made into another folder.
+        log.error("elevated request refused: %s is a link", redirected[0])
+        return 2
     try:
         service = IconService(paths, windows_item_io(), roots=[])
         return handle_request(request, service, shared_folders())
