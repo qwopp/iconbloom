@@ -38,6 +38,9 @@ class BackupCorruptError(Exception):
 
 # Hash recorded for an item whose original state was "nothing there".
 ABSENT = "absent"
+# Hash recorded for a copy Iconbloom found already showing its icon (a renamed, moved
+# or pinned shortcut): its original bytes were never seen, so only its icon goes back.
+UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,27 @@ class BackupManifest:
         self._save()
         if entry.original_copy is not None:
             (self._originals / entry.original_copy).unlink(missing_ok=True)
+
+    def record_adopted(self, item: Path, original: IconLocation, icon_file: str) -> BackupEntry:
+        """Take on a copy that already shows ``icon_file``, to be reverted to ``original``.
+
+        No state is saved, so reverting it only ever resets its icon.
+        """
+        existing = self.get(item)
+        if existing is not None:
+            return existing
+        entry = BackupEntry(
+            shortcut=str(item),
+            original_icon_path=original.path,
+            original_icon_index=original.index,
+            original_sha256=UNKNOWN,
+            original_copy=None,
+            recorded_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            applied_icon=icon_file,
+        )
+        self._entries[_key(item)] = entry
+        self._save()
+        return entry
 
     def _record(self, item: Path, icon: IconLocation, state: bytes | None) -> BackupEntry:
         digest = state_hash(state)

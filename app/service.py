@@ -40,7 +40,7 @@ from app.taskbar import TaskbarService
 from engine import ops
 from engine.ico import build_ico
 from engine.themes import THEMES_DIR
-from platform_win.backup import BackupManifest, TaskbarBackup, state_hash
+from platform_win.backup import UNKNOWN, BackupManifest, TaskbarBackup, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
 from platform_win.fileio import atomic_write
@@ -331,7 +331,7 @@ class IconService:
         item that was changed or queued.
         """
         touched: list[Path] = []
-        self._adopt_pins([target], dry_run=dry_run)
+        self._adopt_copies([target], dry_run=dry_run)
         for shortcut in target.own_shortcuts:
             path = shortcut.path
             try:
@@ -387,10 +387,10 @@ class IconService:
 
     @_one_at_a_time
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
-        pins = self._adopt_pins([target], dry_run=dry_run)
+        copies = self._adopt_copies([target], dry_run=dry_run)
         report = self._revert_paths([s.path for s in target.shortcuts], dry_run=dry_run)
         if dry_run:
-            report.changed += pins
+            report.changed += copies
         else:
             self.choices.clear(target.key)
             self._forget_deleted(target)
@@ -409,11 +409,10 @@ class IconService:
     @_one_at_a_time
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
         """Every icon, and the taskbar's settings, back to the originals."""
-        store_groups = [g for g in self.scan() if g.primary.info.store_app_id is not None]
-        pins = self._adopt_pins(store_groups, dry_run=dry_run)
+        copies = self._adopt_copies(self.scan(), dry_run=dry_run)
         report = self._revert_paths([Path(e.shortcut) for e in self.manifest], dry_run=dry_run)
         if dry_run:
-            report.changed += pins
+            report.changed += copies
         if not dry_run:
             self.choices.clear_all()
         if self.taskbar is not None:
@@ -517,8 +516,17 @@ class IconService:
     def cleanup(self, *, dry_run: bool = False) -> ChangeReport:
         """Delete generated .ico files that no shortcut points at any more."""
         report = ChangeReport(dry_run)
+        groups = self.scan()
+        self._adopt_copies(groups, dry_run=dry_run)
         in_use = {
             normalize_path(e.applied_icon) for e in self.manifest if e.applied_icon is not None
+        }
+        # Anything still showing an icon keeps it, backup entry or not.
+        in_use |= {
+            normalize_path(s.info.icon.path)
+            for g in groups
+            for s in g.shortcuts
+            if self.is_ours(s.info.icon)
         }
         for path in self.styles.unused_icons(in_use):
             report.removed.append(path)
@@ -530,7 +538,8 @@ class IconService:
         current = self._io.read(path)
         entry = self.manifest.get(path)
         ours = self.is_ours(current.icon)
-        if entry is None and ours:
+        if entry is None and ours and not dry_run:
+            # A dry run hasn't taken on copies yet (see _adopt_copies); a real run has.
             raise ShortcutStateError(
                 "already uses an Iconbloom icon but has no backup entry; revert it by hand first"
             )
@@ -561,32 +570,55 @@ class IconService:
         self._made[normalize_path(str(app.path))] = path
         return path
 
-    def _adopt_pins(self, groups: Sequence[ShortcutGroup], *, dry_run: bool) -> list[Path]:
-        """Take on Windows' own copies of our Store-app shortcuts. Returns the copies found.
+    def _adopt_copies(self, groups: Sequence[ShortcutGroup], *, dry_run: bool) -> list[Path]:
+        """Take on copies of styled items that have no backup entry. Returns those found.
 
-        Pinning our desktop shortcut makes Windows copy it into the taskbar folder.
-        The copy shows our icon but has no backup entry, and clearing its icon would
-        make Explorer draw a folder. So its original becomes the app's own icon.
+        Renaming or moving a styled shortcut, or pinning it (Windows copies it into
+        the taskbar folder), leaves an item showing our icon that revert and cleanup
+        would otherwise never see. Each gets the original icon of the item it was
+        copied from. A Store app's pin gets the app's own icon at once, because
+        clearing its icon would make Explorer draw a folder.
         """
         found: list[Path] = []
         for target in groups:
-            for s in target.own_shortcuts:
-                if (
-                    s.kind is ItemKind.SHORTCUT
-                    and s.info.store_app_id is not None
-                    and self.is_ours(s.info.icon)
-                    and self.manifest.get(s.path) is None
-                ):
-                    if not dry_run:
-                        try:
+            own = {s.path for s in target.own_shortcuts}
+            for s in target.shortcuts:
+                if not self.is_ours(s.info.icon) or self.manifest.get(s.path) is not None:
+                    continue
+                store_pin = s.path in own and (
+                    s.kind is ItemKind.SHORTCUT and s.info.store_app_id is not None
+                )
+                if not dry_run:
+                    try:
+                        if store_pin:
                             icon = self._pin_icon(target)
                             self._io.set_icon(s.path, icon)
                             self.manifest.record_original(s.path, icon, self._io.snapshot(s.path))
-                        except (*ITEM_ERRORS, ExtractionError) as exc:
-                            log.warning("could not take on the pinned copy %s: %s", s.path, exc)
-                            continue
-                    found.append(s.path)
+                        else:
+                            original = self._copied_from(s.info.icon)
+                            self.manifest.record_adopted(s.path, original, s.info.icon.path)
+                    except (*ITEM_ERRORS, ExtractionError) as exc:
+                        log.warning("could not take on the copy %s: %s", s.path, exc)
+                        continue
+                found.append(s.path)
         return found
+
+    def _copied_from(self, icon: IconLocation) -> IconLocation:
+        """The original icon of the styled item whose icon file a copy shows.
+
+        Without one (its backup is gone), an empty location: Windows then shows the
+        program's own icon.
+        """
+        slug = Path(icon.path).name.partition("_")[0]
+        for entry in self.manifest:
+            applied = entry.applied_icon
+            if (
+                applied
+                and Path(applied).name.startswith(f"{slug}_")
+                and entry.original_sha256 != UNKNOWN
+            ):
+                return entry.original_icon
+        return IconLocation()
 
     def _pin_icon(self, target: ShortcutGroup) -> IconLocation:
         """The Store app's own icon as an .ico file that outlives Iconbloom's data folder."""
