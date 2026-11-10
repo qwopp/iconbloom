@@ -359,7 +359,18 @@ class IconService:
             report.changed += pins
         else:
             self.choices.clear(target.key)
+            self._forget_deleted(target)
         return report
+
+    def _forget_deleted(self, target: ShortcutGroup) -> None:
+        """Drop backup entries for this app's shortcuts that were deleted since styling
+        (a Store app's desktop copy once it's pinned, say): nothing is left to put back."""
+        prefix = f"{target.slug}_"
+        for entry in list(self.manifest):
+            path = Path(entry.shortcut)
+            applied = entry.applied_icon
+            if applied and Path(applied).name.startswith(prefix) and not self._io.exists(path):
+                self.manifest.forget(path)
 
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
         """Every icon, and the taskbar's settings, back to the originals."""

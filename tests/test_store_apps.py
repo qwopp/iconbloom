@@ -204,6 +204,24 @@ def test_a_reverted_pin_can_be_styled_again(env: FakeDesktop) -> None:
     assert Path(str(_link(pin)["icon"])).parent == env.paths.pin_icons
 
 
+def test_the_desktop_copy_can_go_once_pinned(env: FakeDesktop) -> None:
+    service = env.service()
+    pin = _pinned(env, service)
+    (env.desktop / "Outlook.lnk").unlink()  # tidied away after pinning
+    group = _group(service, "Outlook")
+    assert [s.path for s in group.shortcuts] == [pin]
+    assert service.status(group) is Status.THEMED  # nothing to reapply
+    assert service.reapply(service.scan()).changed == []
+    report = service.apply(group, OTHER)
+    assert report.changed == [pin]
+    assert report.created == []  # restyling never puts it back on the desktop
+    service.revert(_group(service, "Outlook"))
+    assert pin.exists()
+    assert Path(str(_link(pin)["icon"])).parent == env.paths.pin_icons
+    assert not (env.desktop / "Outlook.lnk").exists()
+    assert len(service.manifest) == 0
+
+
 def test_reapply_brings_back_a_deleted_desktop_shortcut(env: FakeDesktop) -> None:
     service = env.service()
     service.apply(_group(service, "Outlook"), CHOICE)

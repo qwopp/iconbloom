@@ -12,7 +12,12 @@ All notable changes to Iconbloom are documented here. The format follows
   Styling one puts a themed copy on your desktop and shows how to pin it in place of the
   old taskbar icon, since Windows only lets you pin things yourself. Its open window joins
   that pin. **Revert** removes the desktop copy, and a pin you made keeps working with the
-  app's own icon, even after uninstalling.
+  app's own icon, even after uninstalling. Once it's pinned, the desktop copy can be deleted.
+
+### Fixed
+
+- **Revert** also forgets styled shortcuts you've deleted since, so their old icons can be
+  cleaned up.
 
 ## [0.7.0] - 2026-11-09
 
