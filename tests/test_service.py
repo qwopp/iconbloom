@@ -385,6 +385,22 @@ def test_batch_can_be_stopped(env: FakeDesktop) -> None:
     assert len(report.changed) == 1
 
 
+def test_revert_forgets_shortcuts_deleted_since_styling(env: FakeDesktop) -> None:
+    folder = env.desktop / "Games"
+    folder.mkdir()
+    kept = env.make("Paint")
+    gone = env.make("Paint", folder=folder)
+    env.make("Other")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(_group(service, "Other"), CHOICE)
+    gone.unlink()
+    service.revert(_group(service, "Paint"))
+    assert service.manifest.get(gone) is None
+    assert service.manifest.get(kept) is None
+    assert len(service.manifest) == 1  # Other's entry stays
+
+
 def test_custom_image_must_have_visible_pixels(env: FakeDesktop, tmp_path: Path) -> None:
     blank = tmp_path / "blank.png"
     Image.new("RGBA", (16, 16)).save(blank)
