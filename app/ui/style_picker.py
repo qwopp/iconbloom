@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.changes import Status
+from app.changes import REVERTIBLE
 from app.choices import Choice
 from app.service import IconService
 from app.ui.controls import count, make_button
@@ -389,7 +389,7 @@ class StylePicker(QWidget):
         self.apply_button.setText(f"Apply to {len(selected)}" if len(selected) > 1 else "Apply")
         self.all_button.setEnabled(idle and chosen is not None and not chosen.choice.uses_own_image)
         self.skip_button.setEnabled(idle and bool(selected))
-        styled = any(self._service.status(g) is Status.THEMED for g in selected)
+        styled = any(self._service.status(g) in REVERTIBLE for g in selected)
         self.revert_button.setEnabled(idle and styled)
         self.shuffle_button.setEnabled(has_target)
         self.own_image_button.setEnabled(idle and has_target)

@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import __version__
-from app.changes import ChangeReport, Status
+from app.changes import REVERTIBLE, ChangeReport, Status
 from app.service import IconService
 from app.settings import Settings
 from app.ui import UI_DIR, palette
@@ -334,6 +334,10 @@ class MainWindow(QMainWindow):
         return True
 
     def _on_busy(self, busy: bool) -> None:
+        if busy:
+            self.shortcuts.invalidate()
+        else:
+            self.shortcuts.resume()
         self.picker.set_busy(busy)
         self.revert_all_button.setEnabled(not busy)
         for action in self.change_actions:
@@ -397,7 +401,7 @@ class MainWindow(QMainWindow):
         if not self._idle():
             return
         targets = [
-            g for g in self.shortcuts.selected_groups() if self.service.status(g) is Status.THEMED
+            g for g in self.shortcuts.selected_groups() if self.service.status(g) in REVERTIBLE
         ]
         if not targets:
             return

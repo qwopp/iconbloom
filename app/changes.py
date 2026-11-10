@@ -19,6 +19,10 @@ class Status(StrEnum):
     NEEDS_REAPPLY = "needs reapply"
 
 
+# Statuses Revert can undo: a style is on the icons, or was and an update took part of it.
+REVERTIBLE = frozenset({Status.THEMED, Status.NEEDS_REAPPLY})
+
+
 SHARED_REASON = "shared by every user on this PC; needs administrator permission"
 DECLINED_REASON = "you declined Windows' permission prompt"
 
