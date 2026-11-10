@@ -1,8 +1,9 @@
-"""Find, download and start newer releases from GitHub, only after the user agreed.
+"""Find, download and start newer releases from GitHub.
 
-Iconbloom asks before its first check. When a newer release exists, the user
-clicks Update; only then is the installer downloaded, and it only runs if its
-SHA-256 matches the checksum file published with the same release.
+Iconbloom checks for a newer release when it starts, unless the user switched
+that off. Nothing is downloaded until the user clicks Update now, and the
+installer only runs if its SHA-256 matches the checksum file published with
+the same release.
 """
 
 import hashlib
@@ -24,11 +25,32 @@ INSTALLER_ARGS = ("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
 _VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 _CHUNK = 256 * 1024
 
-type Progress = Callable[[int, int], None]
+# Called with (bytes done, total bytes); returning False stops the download.
+type Progress = Callable[[int, int], bool | None]
+
+
+def clear_downloads(folder: Path) -> None:
+    """Delete installers and partial downloads left from earlier updates.
+
+    A file Windows still has open (the installer that is running right now) is
+    left for next time.
+    """
+    if not folder.is_dir():
+        return
+    for path in folder.iterdir():
+        try:
+            if path.is_file():
+                path.unlink()
+        except OSError:
+            continue
 
 
 class UpdateError(Exception):
     """The update could not be downloaded or didn't match its published checksum."""
+
+
+class UpdateCancelledError(UpdateError):
+    """The user stopped the download."""
 
 
 @dataclass(frozen=True)
@@ -83,7 +105,7 @@ def parse_checksums(text: str) -> dict[str, str]:
 
 
 class Updater:
-    """Talks to GitHub. Every method is a deliberate user action; nothing runs on its own."""
+    """Talks to GitHub: the startup check, and the download the user asked for."""
 
     # ``opener`` is urlopen, or a stand-in returning anything with read() and headers.
     def __init__(self, opener: Callable[..., Any] = urllib.request.urlopen) -> None:
@@ -102,24 +124,32 @@ class Updater:
         want = expected.get(release.installer_name)
         if want is None:
             raise UpdateError("the release's checksum file doesn't list its installer")
+        clear_downloads(folder)  # older installers are only taking up space
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / release.installer_name
         partial = target.with_name(target.name + ".part")
+        try:
+            self._fetch(release.installer_url, partial, want, progress)
+        except BaseException:
+            # Cancelled, cut off or wrong: never leave a half-downloaded installer behind.
+            partial.unlink(missing_ok=True)
+            raise
+        partial.replace(target)
+        return target
+
+    def _fetch(self, url: str, partial: Path, want: str, progress: Progress | None) -> None:
         digest = hashlib.sha256()
-        with self._get(release.installer_url, 60) as response, partial.open("wb") as out:
+        with self._get(url, 60) as response, partial.open("wb") as out:
             total = int(response.headers.get("Content-Length") or 0)
             done = 0
             while chunk := response.read(_CHUNK):
                 out.write(chunk)
                 digest.update(chunk)
                 done += len(chunk)
-                if progress is not None:
-                    progress(done, total)
+                if progress is not None and progress(done, total) is False:
+                    raise UpdateCancelledError("the download was cancelled")
         if digest.hexdigest() != want:
-            partial.unlink(missing_ok=True)
             raise UpdateError("the download didn't match its published checksum, so it was deleted")
-        partial.replace(target)
-        return target
 
     def launch(self, installer: Path) -> None:
         """Start the installer, detached: it waits for Iconbloom to close, then upgrades it."""

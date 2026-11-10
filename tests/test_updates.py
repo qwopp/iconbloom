@@ -173,3 +173,56 @@ def test_settings_ignore_junk(tmp_path: Path) -> None:
     assert Settings.load(path) == Settings()
     path.write_text("[1, 2]", encoding="utf-8")
     assert Settings.load(path) == Settings()
+
+
+class DroppingResponse(FakeResponse):
+    """A connection that breaks partway through the installer."""
+
+    def read(self, size: int | None = -1) -> bytes:
+        if self.tell() > 1000:
+            raise ConnectionResetError("connection reset by peer")
+        return super().read(1000)
+
+
+def test_a_broken_download_leaves_nothing_behind(tmp_path: Path) -> None:
+    github = FakeGitHub()
+    updater = Updater(github)
+    release = updater.check()
+    assert release is not None
+    real = github.__call__
+
+    def opener(request: object, timeout: float) -> FakeResponse:
+        response = real(request, timeout)
+        if getattr(request, "full_url", "") == "https://dl/setup.exe":
+            return DroppingResponse(response.getvalue())
+        return response
+
+    with pytest.raises(ConnectionResetError):
+        Updater(opener).download(release, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cancelling_stops_and_cleans_up(tmp_path: Path) -> None:
+    updater = Updater(FakeGitHub())
+    release = updater.check()
+    assert release is not None
+    seen: list[int] = []
+
+    def progress(done: int, total: int) -> bool:
+        seen.append(done)
+        return False
+
+    with pytest.raises(updates.UpdateCancelledError):
+        updater.download(release, tmp_path, progress)
+    assert len(seen) == 1
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_old_installers_are_removed(tmp_path: Path) -> None:
+    (tmp_path / "Iconbloom-Setup-0.1.0.exe").write_bytes(b"old")
+    (tmp_path / "Iconbloom-Setup-0.2.0.exe.part").write_bytes(b"half")
+    updater = Updater(FakeGitHub())
+    release = updater.check()
+    assert release is not None
+    installer = updater.download(release, tmp_path)
+    assert list(tmp_path.iterdir()) == [installer]

@@ -3,7 +3,7 @@
 Loaded as a pytest plugin (see conftest.py), so its fixtures work in every UI test.
 """
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import override
 
@@ -16,7 +16,7 @@ from app.main import load_style
 from app.service import IconService, Status
 from app.ui import palette
 from app.ui.main_window import MainWindow
-from app.updates import Release, Updater
+from app.updates import Progress, Release, Updater
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
@@ -35,9 +35,7 @@ class FakeUpdater(Updater):
         return self.release
 
     @override
-    def download(
-        self, release: Release, folder: Path, progress: Callable[[int, int], None] | None = None
-    ) -> Path:
+    def download(self, release: Release, folder: Path, progress: Progress | None = None) -> Path:
         if progress is not None:
             progress(5, 10)
         folder.mkdir(parents=True, exist_ok=True)
