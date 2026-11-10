@@ -20,6 +20,7 @@ from platform_win.shortcuts import (
     Place,
     ShortcutGroup,
     Source,
+    is_store_app_id,
     kind_of,
 )
 from tests.fakes import EXPLORER, FakeDesktop
@@ -122,7 +123,7 @@ def test_a_name_already_on_the_desktop_is_left_alone(env: FakeDesktop) -> None:
 
 
 def test_names_windows_cant_use_in_files_are_dropped(tmp_path: Path) -> None:
-    env = FakeDesktop(tmp_path, store_apps={"A.B_x!App": 'Notes: "Q4"?'})
+    env = FakeDesktop(tmp_path, store_apps={"Acme.Notes_abcdefghjkmnp!App": 'Notes: "Q4"?'})
     service = env.service()
     report = service.apply(_group(service, 'Notes: "Q4"?'), CHOICE)
     assert report.created == [env.desktop / "Notes Q4.lnk"]
@@ -230,6 +231,22 @@ def test_kind_of_knows_store_apps() -> None:
 )
 def test_store_app_id(target: str, args: str, app_id: str | None) -> None:
     assert LinkInfo(target, args, IconLocation()).store_app_id == app_id
+
+
+@pytest.mark.parametrize(
+    ("app_id", "is_store"),
+    [
+        (OUTLOOK, True),
+        (GAME_BAR, True),
+        ("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.settings", True),
+        (r"C:\Users\x\AppData\Local\osu!\osu!.exe", False),  # a program whose path has "!"
+        ("Microsoft.Windows.Explorer", False),
+        ("{6D809377-6AF0-444B-8957-A3773F02200E}\\Tool\\tool.exe", False),
+        ("Microsoft.WindowsCalculator_8wekyb3d8bbwe", False),  # a package, not an app in it
+    ],
+)
+def test_store_app_ids_are_told_apart_from_programs(app_id: str, is_store: bool) -> None:
+    assert is_store_app_id(app_id) is is_store
 
 
 def test_pin_icons_live_beside_the_data_folder(tmp_path: Path) -> None:

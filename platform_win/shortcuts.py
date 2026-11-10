@@ -52,6 +52,13 @@ class ItemKind(StrEnum):
 WINDOWS_ICON_PREFIX = "::{"
 # How Explorer names a Store app: "shell:AppsFolder\\<package>!<app>".
 STORE_APP_PREFIX = "shell:AppsFolder\\"
+# A Store app's id: "<name>_<13-character publisher id>!<app>". Desktop programs in the
+# Apps folder have other ids, sometimes a path that happens to contain "!" (osu!).
+_STORE_APP_ID = re.compile(r"[^\\/:!\s]+_[a-z0-9]{13}![^\\/:!\s]+", re.IGNORECASE)
+
+
+def is_store_app_id(app_id: str) -> bool:
+    return _STORE_APP_ID.fullmatch(app_id) is not None
 
 
 def kind_of(path: Path) -> ItemKind:
@@ -111,7 +118,7 @@ class LinkInfo:
         if not args.casefold().startswith(STORE_APP_PREFIX.casefold()):
             return None
         app_id = args[len(STORE_APP_PREFIX) :]
-        return app_id if "!" in app_id else None
+        return app_id if is_store_app_id(app_id) else None
 
 
 @dataclass(frozen=True)

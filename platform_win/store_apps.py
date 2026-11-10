@@ -19,7 +19,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from platform_win.shortcuts import STORE_APP_PREFIX, IconLocation, LinkInfo, Shortcut, Source
+from platform_win.shortcuts import (
+    STORE_APP_PREFIX,
+    IconLocation,
+    LinkInfo,
+    Shortcut,
+    Source,
+    is_store_app_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -148,8 +155,7 @@ def _apps_folder() -> list[StoreApp]:
             name = str(item.GetDisplayName(shellcon.SIGDN_NORMALDISPLAY))
         except Exception:  # noqa: BLE001 - one odd entry shouldn't hide the rest
             continue
-        # Packaged apps' ids have "Package!App"; desktop programs listed here
-        # already have Start menu shortcuts of their own.
-        if "!" in app_id and name:
+        # Desktop programs listed here already have Start menu shortcuts of their own.
+        if is_store_app_id(app_id) and name:
             apps.setdefault(app_id.casefold(), StoreApp(app_id, name))
     return sorted(apps.values(), key=lambda a: a.name.casefold())
