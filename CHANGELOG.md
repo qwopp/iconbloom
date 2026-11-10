@@ -6,6 +6,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-09
+
 ### Changed
 
 - Every style now comes out the same size, about as big as a normal Windows icon. Plain
@@ -213,7 +215,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/qwopp/iconbloom/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/qwopp/iconbloom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/qwopp/iconbloom/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/qwopp/iconbloom/compare/v0.6.0...v0.6.1
