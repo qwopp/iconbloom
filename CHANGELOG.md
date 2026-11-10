@@ -6,6 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Taskbar looks for every theme (soft, deep, frosted and Windows' default) and a preview of
+  the taskbar in them: `uv run python -m engine.taskbar --theme mint_matcha`. The app doesn't
+  change the taskbar yet.
+
 ## [0.6.1] - 2026-11-09
 
 ### Fixed

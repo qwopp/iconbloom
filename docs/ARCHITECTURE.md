@@ -31,6 +31,8 @@ future macOS port.
   `"auto"` colors.
 - `ico.py`: multi-size `.ico` writer. The 16 and 24 px frames come from a simplified render.
 - `sheet.py`: the contact sheet CLI.
+- `taskbar.py`: taskbar looks worked out from a theme's palette (dark enough for white text),
+  and a picture of the taskbar with them. `python -m engine.taskbar` draws a sheet of them.
 
 Decorations are SVG templates in `themes/_library/decorations/`, colored per theme by
 `scripts/render_assets.py` into committed PNGs; the app never renders SVG.

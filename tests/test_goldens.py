@@ -25,6 +25,8 @@ GOLDENS_DIR = Path(__file__).parent / "goldens"
 # Allows for tiny rounding differences between platforms, nothing visible.
 MAX_CHANNEL_DIFF = 2
 MIN_MATCHING_SHARE = 0.995
+# The taskbar previews keep their goldens here; test_taskbar_engine checks those.
+TASKBAR_GOLDENS = GOLDENS_DIR / "taskbar"
 
 
 @cache
@@ -72,4 +74,5 @@ def test_recipe_matches_golden(
 def test_no_stale_goldens() -> None:
     """A renamed or removed recipe must take its golden with it."""
     expected = {GOLDENS_DIR / t / f"{s}__{r}.png" for t, s, r in _cases()}
-    assert set(GOLDENS_DIR.rglob("*.png")) == expected
+    found = {p for p in GOLDENS_DIR.rglob("*.png") if TASKBAR_GOLDENS not in p.parents}
+    assert found == expected
