@@ -76,7 +76,8 @@ def test_corrupt_backup_refuses(env: FakeDesktop, capsys: pytest.CaptureFixture[
 
 def test_reported_skips(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) -> None:
     env.make("Admin", folder=env.common)
-    assert _run(env, "apply", "Admin", "--recipe", "sticker") == 0
+    assert _run(env, "apply", "Admin", "--recipe", "sticker", "--dry-run") == 0
+    assert _run(env, "apply", "Admin", "--recipe", "sticker") == 3
     assert "needs administrator permission" in capsys.readouterr().out
 
 

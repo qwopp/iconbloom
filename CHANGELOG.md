@@ -8,6 +8,9 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- Uninstalling keeps your backups when any icon couldn't be put back (for example when the
+  permission prompt was declined), instead of deleting them and leaving blank icons. The
+  command line also exits with code 3 when it skipped something.
 - The permission helper only trusts backup file names and local icon paths, and refuses a
   data folder that links somewhere else, so a tampered backup file can't make it delete or
   point at anything outside Iconbloom's own files.

@@ -7,6 +7,9 @@ from pathlib import Path
 
 from platform_win.shortcuts import ShortcutGroup
 
+# Exit code of the CLI and --revert-all when some items could not be changed.
+SKIPPED_EXIT = 3
+
 
 class Status(StrEnum):
     ORIGINAL = "original"

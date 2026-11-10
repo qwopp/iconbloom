@@ -13,6 +13,7 @@ from pathlib import Path
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from app.changes import SKIPPED_EXIT
 from app.elevation import ELEVATED_FLAG, handle_request
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
@@ -68,7 +69,10 @@ def revert_everything(paths: AppPaths) -> int:
         len(report.changed),
         report.taskbar,
     )
-    return 0
+    for path, reason in report.skipped:
+        log.warning("revert-all skipped %s: %s", path, reason)
+    # The uninstaller deletes the backups only on 0, so anything left themed must not be 0.
+    return SKIPPED_EXIT if report.skipped else 0
 
 
 def run_elevated_request(paths: AppPaths, request: Path) -> int:

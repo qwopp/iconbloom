@@ -92,7 +92,9 @@ begin
             ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
       DelTree(DataDir, True, True, True)
     else
-      MsgBox('Some icons could not be restored automatically. Your backups are kept in ' +
-             DataDir + '.', mbError, MB_OK);
+      MsgBox('Some icons could not be put back, for example because the permission prompt was ' +
+             'declined. Your backups are kept in ' + DataDir + '.' + #13#10 + #13#10 +
+             'To finish, reinstall Iconbloom, click Revert all, then uninstall again.',
+             mbError, MB_OK);
   end;
 end;
