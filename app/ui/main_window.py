@@ -488,7 +488,10 @@ class MainWindow(QMainWindow):
             return
         if path is None:
             chosen, _ = QFileDialog.getOpenFileName(
-                self, "Use my own image", str(Path.home()), "Images (*.png *.ico *.bmp)"
+                self,
+                "Use my own image",
+                str(Path.home()),
+                "Images (*.png *.jpg *.jpeg *.webp *.gif *.ico *.bmp)",
             )
             if not chosen:
                 return

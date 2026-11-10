@@ -9,7 +9,7 @@ import io
 from collections.abc import Mapping
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.choices import Choice
 from engine import ops
@@ -65,13 +65,13 @@ class Styles:
         """The user's stored image, prepared like an app's icon so any style applies."""
         if image_name not in self._sources:
             with Image.open(self._paths.custom_images / image_name) as img:
-                self._sources[image_name], _ = ops.prepare(img)
+                self._sources[image_name], _ = ops.prepare(_upright(img))
         return self._sources[image_name]
 
     def store_custom_image(self, source: Path) -> Choice:
         """Copy a user-picked image into app data and return the choice that uses it."""
         with Image.open(source) as img:
-            ops.prepare(img)  # raises on an unusable image before anything is stored
+            ops.prepare(_upright(img))  # raises on an unusable image before anything is stored
         data = source.read_bytes()
         name = f"{hashlib.sha256(data).hexdigest()[:12]}{source.suffix.casefold()}"
         destination = self._paths.custom_images / name
@@ -120,3 +120,8 @@ class Styles:
 
     def _original_path(self, slug: str) -> Path:
         return self._paths.original_icons / f"{slug}.png"
+
+
+def _upright(img: Image.Image) -> Image.Image:
+    """Phone photos are stored sideways with a note saying how to turn them."""
+    return ImageOps.exif_transpose(img) or img

@@ -84,18 +84,44 @@ def test_bundled_themes_render_every_style_on_every_sample(theme_id: str) -> Non
     theme = load_theme(theme_id)
     golden = sample_names() if theme_id == DEFAULT_THEME else REPRESENTATIVE_SAMPLES
     cases = [(name, 0) for name in sample_names() if name not in golden]
-    fitted = round(ops.CANVAS * ops.OUTPUT_FILL)
+    room = ops.CANVAS - 2 * ops.PAD
     for name, seed in [*cases, ("multicolor", 7)]:
         icon, _ = ops.prepare(load_sample(name))
+        fitted = round(ops.CANVAS * ops.target_fill(icon))
         for recipe in theme.recipes:
             for simplified in (False, True):
                 out = render(recipe, icon, theme, seed=seed, simplified=simplified)
                 assert out.size == icon.size
-                assert abs(_visible_extent(out) - fitted) <= 1, (recipe.id, name, simplified)
+                # The solid shape is the target size, unless a soft glow or shadow already
+                # reaches the border: then it is as big as that allows.
+                solid, faint = _extent(out, 64), _extent(out, 8)
+                where = (recipe.id, name, simplified, solid, faint)
+                # 2 px of slack: resizing softens the edge, which moves the threshold a little.
+                assert abs(solid - fitted) <= 2 or (solid < fitted and faint >= room - 1), where
 
 
-def _visible_extent(img: Image.Image) -> int:
-    alpha = np.asarray(img.getchannel("A")) > 8
+def test_glow_styles_are_about_as_big_as_the_rest() -> None:
+    theme = load_theme(DEFAULT_THEME)
+    icon, _ = ops.prepare(load_sample("simple_glyph"))
+    plain = _extent(render(theme.recipe("pastel_recolor"), icon, theme), 64)
+    glow = _extent(render(theme.recipe("rose_glow"), icon, theme), 64)
+    assert glow >= plain * 0.95
+
+
+def test_full_bleed_icons_stay_as_big_as_they_were() -> None:
+    """Game icons fill their whole square; shrinking them to 92% looks clearly smaller."""
+    theme = load_theme(DEFAULT_THEME)
+    square = Image.new("RGBA", (256, 256), (40, 120, 200, 255))
+    icon, _ = ops.prepare(square)
+    out = render(theme.recipe("pastel_recolor"), icon, theme)
+    assert _extent(out, 64) >= round(ops.CANVAS * 0.97)
+    padded, _ = ops.prepare(load_sample("multicolor"))
+    out = render(theme.recipe("pastel_recolor"), padded, theme)
+    assert abs(_extent(out, 64) - round(ops.CANVAS * ops.OUTPUT_FILL)) <= 1
+
+
+def _extent(img: Image.Image, level: int) -> int:
+    alpha = np.asarray(img.getchannel("A")) > level
     rows, cols = np.flatnonzero(alpha.any(axis=1)), np.flatnonzero(alpha.any(axis=0))
     return max(rows[-1] - rows[0], cols[-1] - cols[0]) + 1
 

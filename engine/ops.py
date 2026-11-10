@@ -29,8 +29,16 @@ PAD = 2
 # outlines, glows and shadows added by later ops.
 CONTENT_FILL = 0.78
 # Share of the canvas every finished style is fitted to, framed or not, so a theme's
-# icons all come out one size, about as big as a normal Windows icon.
+# icons all come out one size, about as big as a normal Windows icon...
 OUTPUT_FILL = 0.92
+# ...unless the original filled more of its frame (full-bleed game icons do): then the
+# style is as big as the original, up to the 2 px border plus a pixel of soft edge.
+MAX_FILL = (CANVAS - 2 * PAD - 2) / CANVAS
+# The prepared canvas's info key for how much of its frame the original filled.
+SOURCE_FILL = "source_fill"
+# Pixels at least this opaque are the icon's shape; fainter ones (glows, shadows) are
+# kept but don't count toward its size.
+_ALPHA_SOLID = 64
 # Supersampling factor for drawn shapes, which Pillow does not anti-alias.
 _SUPERSAMPLE = 4
 _ALPHA_VISIBLE = 8
@@ -74,12 +82,14 @@ def prepare(
     """Center an icon of any size on a square transparent canvas, ready for ops.
 
     Returns the canvas and whether the icon had to be enlarged a lot, in which
-    case results may look soft.
+    case results may look soft. ``canvas.info[SOURCE_FILL]`` records how much of
+    its own frame the original filled, for ``target_fill``.
     """
-    rgba = icon.convert("RGBA")
+    rgba = _to_8bit(icon).convert("RGBA")
     bbox = _visible_bbox(rgba)
     if bbox is None:
         raise ValueError("icon has no visible pixels")
+    solid = _solid_bbox(rgba) or bbox
     content = rgba.crop(bbox)
     target = round(size * fill)
     scale = target / max(content.size)
@@ -95,12 +105,51 @@ def prepare(
     content = content.resize(new_size, Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     canvas.alpha_composite(content, ((size - new_size[0]) // 2, (size - new_size[1]) // 2))
+    if _visible_bbox(canvas) is None:
+        raise ValueError("the image is too thin or faint to show as an icon")
+    long_side = max(solid[2] - solid[0], solid[3] - solid[1])
+    canvas.info[SOURCE_FILL] = long_side / max(rgba.size)
     return canvas, upscaled
 
 
-def fit_output(img: Image.Image) -> Image.Image:
-    """Fit a finished style to ``OUTPUT_FILL``, whatever frame or outline it added."""
-    return _finish(prepare(img, img.width, fill=OUTPUT_FILL)[0])
+def target_fill(prepared: Image.Image) -> float:
+    """How big a finished style of this prepared icon should be: never smaller than
+    the original was in its own frame, and ``OUTPUT_FILL`` at least."""
+    source = prepared.info.get(SOURCE_FILL, OUTPUT_FILL)
+    fill = float(source) if isinstance(source, int | float) else OUTPUT_FILL
+    return min(max(fill, OUTPUT_FILL), MAX_FILL)
+
+
+def fit_output(img: Image.Image, fill: float | None = None) -> Image.Image:
+    """Fit a finished style to ``fill`` of the canvas, whatever frame or outline it added.
+
+    Size is measured on the solid shape, so a soft glow or shadow doesn't make the icon
+    itself smaller; the faint edge is kept whole as long as it fits inside the border.
+    ``fill`` defaults to ``target_fill(img)``, for showing a prepared original.
+    """
+    fill = target_fill(img) if fill is None else fill
+    visible = _visible_bbox(img)
+    if visible is None:
+        return _finish(img.copy())
+    solid = _solid_bbox(img) or visible
+    size = img.width
+    room = size - 2 * PAD
+    scale = min(
+        fill * size / max(solid[2] - solid[0], solid[3] - solid[1]),
+        room / max(visible[2] - visible[0], visible[3] - visible[1]),
+    )
+    content = img.crop(visible)
+    new_size = (max(1, round(content.width * scale)), max(1, round(content.height * scale)))
+    content = content.resize(new_size, Image.Resampling.LANCZOS)
+    # Center the solid shape, then nudge so the faint edge stays inside the border.
+    centre = ((solid[0] + solid[2]) / 2 - visible[0], (solid[1] + solid[3]) / 2 - visible[1])
+    x = round(size / 2 - centre[0] * scale)
+    y = round(size / 2 - centre[1] * scale)
+    x = min(max(x, PAD), size - PAD - new_size[0])
+    y = min(max(y, PAD), size - PAD - new_size[1])
+    canvas = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    canvas.alpha_composite(content, (x, y))
+    return _finish(canvas)
 
 
 def tint(img: Image.Image, *, stops: Sequence[RGB], strength: float = 1.0) -> Image.Image:
@@ -590,6 +639,20 @@ def _trim(img: Image.Image) -> Image.Image:
 
 def _visible_bbox(img: Image.Image) -> tuple[int, int, int, int] | None:
     return img.getchannel("A").point(_threshold_lut(_ALPHA_VISIBLE)).getbbox()
+
+
+def _solid_bbox(img: Image.Image) -> tuple[int, int, int, int] | None:
+    return img.getchannel("A").point(_threshold_lut(_ALPHA_SOLID)).getbbox()
+
+
+def _to_8bit(img: Image.Image) -> Image.Image:
+    """16-bit and float grayscale scaled to 0..255; Pillow's own conversion clips them."""
+    if img.mode not in ("I", "I;16", "I;16B", "I;16L", "I;16N", "F"):
+        return img
+    arr = np.asarray(img, dtype=np.float64)
+    top = float(arr.max())
+    scaled = arr * (255.0 / top) if top > 255 else arr
+    return Image.fromarray(np.clip(scaled, 0, 255).astype(np.uint8), "L")
 
 
 def _threshold_lut(level: int) -> list[int]:
