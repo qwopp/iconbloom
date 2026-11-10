@@ -187,14 +187,65 @@ def test_group_applies_to_every_own_copy(env: FakeDesktop) -> None:
     assert env.link_io.read(start).icon == IconLocation()
 
 
-def test_icon_without_backup_is_refused(env: FakeDesktop) -> None:
+def test_our_icon_without_backup_is_taken_on(env: FakeDesktop) -> None:
+    """With no record of where it came from, it reverts to the program's own icon."""
     lnk = env.make("Paint")
     env.paths.ensure()
     env.link_io.set_icon(lnk, IconLocation(str(env.paths.icons / "stray.ico"), 0))
     service = env.service()
     report = service.apply(_group(service, "Paint"), CHOICE)
-    assert report.changed == []
-    assert "no backup entry" in report.skipped[0][1]
+    assert report.changed == [lnk]
+    service.revert(_group(service, "Paint"))
+    assert env.link_io.read(lnk).icon == IconLocation()
+    assert len(service.manifest) == 0
+
+
+def test_renamed_styled_shortcut_reverts(env: FakeDesktop) -> None:
+    lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    renamed = lnk.with_name("My Paint.lnk")
+    lnk.rename(renamed)
+    report = service.revert(_group(service, "My Paint"))
+    assert renamed in report.changed
+    assert env.link_io.read(renamed).icon == IconLocation(r"C:\Apps\paint.ico", 1)
+    assert len(service.manifest) == 0
+
+
+def test_renamed_styled_shortcut_can_be_styled_again(env: FakeDesktop) -> None:
+    lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    renamed = lnk.with_name("My Paint.lnk")
+    lnk.rename(renamed)
+    report = service.apply(_group(service, "My Paint"), Choice("kawaii_pink", "pastel_recolor"))
+    assert report.changed == [renamed]
+    service.revert_all()
+    assert env.link_io.read(renamed).icon == IconLocation(r"C:\Apps\paint.ico", 1)
+
+
+def test_copied_styled_shortcut_reverts_with_revert_all(env: FakeDesktop) -> None:
+    """Pinning makes Windows copy the shortcut into the taskbar folder."""
+    lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    pinned = env.pinned / "Paint.lnk"
+    pinned.write_bytes(lnk.read_bytes())
+    report = service.revert_all()
+    assert set(report.changed) == {lnk, pinned}
+    assert env.link_io.read(pinned).icon == IconLocation(r"C:\Apps\paint.ico", 1)
+    assert not report.skipped
+
+
+def test_cleanup_keeps_an_icon_only_a_copy_uses(env: FakeDesktop) -> None:
+    lnk = env.make("Paint")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    icon = Path(env.link_io.read(lnk).icon.path)
+    lnk.rename(lnk.with_name("My Paint.lnk"))
+    service.manifest.forget(lnk)
+    assert service.cleanup().removed == []
+    assert icon.exists()
 
 
 @pytest.mark.parametrize("own_image", [False, True], ids=["theme", "own-image"])

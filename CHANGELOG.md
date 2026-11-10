@@ -8,6 +8,9 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- Styled shortcuts that you rename, move or pin can be reverted and restyled. Iconbloom
+  takes on such copies and gives them back the original icon, and **Delete unused icon
+  files** never deletes an icon a copy still shows.
 - Only one change runs at a time. While one is running the buttons that start another are
   turned off and the window says it's working, so a quick double-click can no longer start
   two changes that overwrite each other's backups. **Refresh Windows icons** and **Delete
