@@ -13,6 +13,7 @@ All notable changes to Iconbloom are documented here. The format follows
   centered or left, smaller buttons, the search box, Task view and hiding automatically.
   Everything changes instantly through Windows' own settings, with no Explorer restart.
   Colors are darkened just enough for the white clock to stay readable.
+  The preview shows your own wallpaper and taskbar icons when Windows has a picture of it.
 - **Revert** on the page, **Revert all** and uninstalling put the taskbar back the way it was.
   Anything you changed yourself in Windows' Settings since stays as you set it.
 - From the command line: `iconbloom-cli taskbar apply --look deep --frosted --left`,

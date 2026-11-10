@@ -23,6 +23,7 @@ from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import hard_refresh
+from platform_win.wallpaper import current_wallpaper
 
 log = logging.getLogger("iconbloom")
 
@@ -50,7 +51,7 @@ def run_window(paths: AppPaths) -> int:
             "until this file is fixed or restored.",
         )
         return 2
-    window = MainWindow(service, hard_refresh=hard_refresh)
+    window = MainWindow(service, hard_refresh=hard_refresh, wallpaper=current_wallpaper)
     window.show()
     log.info("window shown")
     return app.exec()

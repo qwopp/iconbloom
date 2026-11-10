@@ -1,9 +1,11 @@
 """The Taskbar page, driven through the real window against a fake taskbar."""
 
 import pytest
+from PIL import Image
 from PySide6.QtWidgets import QMessageBox
 from pytestqt.qtbot import QtBot
 
+from app.ui.main_window import MainWindow
 from app.ui.taskbar_page import TaskbarPage
 from platform_win import taskbar as tb
 from tests.fakes import USER_TASKBAR, FakeTaskbar
@@ -168,3 +170,25 @@ def test_a_failed_apply_explains_and_can_be_reverted(harness: Harness) -> None:
     page.revert_button.click()
     harness.settle()
     assert harness.desktop.taskbar.state() == before
+
+
+def test_the_picture_uses_the_users_wallpaper(harness: Harness, qtbot: QtBot) -> None:
+    plain = _preview(_open(harness))
+    harness.window.close()
+    green = Image.new("RGBA", (1920, 1080), (30, 160, 60, 255))
+    window = MainWindow(
+        harness.desktop.service(),
+        hard_refresh=lambda: None,
+        updater=FakeUpdater(),
+        wallpaper=lambda: green,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    window.show_taskbar()
+    qtbot.waitUntil(lambda: not window.jobs.busy, timeout=15_000)
+    page = window.taskbar_page
+    assert page is not None
+    assert _preview(page) != plain
+    top_left = page.preview.pixmap().toImage().pixelColor(5, 5)
+    assert (top_left.red(), top_left.green(), top_left.blue()) == (30, 160, 60)
+    window.close()
