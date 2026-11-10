@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from engine import ops
@@ -30,14 +31,19 @@ BLACK: RGB = (0, 0, 0)
 READABLE_RATIO = 3.0
 # Windows keeps eight shades of the accent color, lightest first.
 SHADES = 8
+# The shade the taskbar paints, measured on Windows 11 26H2.
+TASKBAR_SLOT = 5
 _SHADE_STEP = 0.16
 
 # Windows' own taskbar colors, for the look that keeps Windows' default.
 _DEFAULT_DARK: RGB = (32, 32, 32)
 _DEFAULT_LIGHT: RGB = (238, 238, 238)
-# How much of the bar's color shows over the blurred wallpaper with transparency on.
-_FROSTED_OPACITY = 0.72
-_FROSTED_BLUR = 28
+# With transparency on, Windows 11 26H2 blurs the wallpaper behind the bar so heavily that
+# only its average shows: measured, about 22% wallpaper under 78% bar color.
+_FROSTED_WALLPAPER = 0.22
+# A trace of the blurred wallpaper, so the frosted bar isn't perfectly flat.
+_FROSTED_TEXTURE = 0.06
+_FROSTED_BLUR = 40
 _SUPERSAMPLE = 2
 # Logical pixels, as on a 100% scaled screen.
 _SCREEN_ASPECT = 9 / 16
@@ -108,7 +114,7 @@ def readable_under_white(color: RGB, ratio: float = READABLE_RATIO) -> RGB:
     return BLACK
 
 
-def accent_shades(color: RGB, slot: int) -> tuple[RGB, ...]:
+def accent_shades(color: RGB, slot: int = TASKBAR_SLOT) -> tuple[RGB, ...]:
     """Windows' eight accent shades, lightest first, with ``color`` exactly at ``slot``."""
     if not 0 <= slot < SHADES:
         raise ValueError(f"slot must be 0 to {SHADES - 1}, got {slot}")
@@ -178,7 +184,7 @@ class _Layout:
     @classmethod
     def of(cls, bar: BarSpec) -> "_Layout":
         if bar.win11:
-            return cls(48, 36, 18, 12) if bar.small else cls(48, 44, 24, 12)
+            return cls(48, 36, 16, 12) if bar.small else cls(48, 44, 24, 12)
         return cls(30, 40, 16, 0) if bar.small else cls(40, 48, 24, 0)
 
 
@@ -213,9 +219,12 @@ def _paint_bar(screen: Image.Image, bar: BarSpec, top: int, s: float) -> None:
     box = (0, top, screen.width, screen.height)
     color = _bar_color(bar)
     if bar.transparency:
-        behind = screen.crop(box).filter(ImageFilter.GaussianBlur(_FROSTED_BLUR * s))
-        tint = Image.new("RGBA", behind.size, (*color, round(255 * _FROSTED_OPACITY)))
-        screen.paste(Image.alpha_composite(behind, tint), box[:2])
+        behind = screen.crop(box)
+        flat = ops.mix(color, _average(behind), _FROSTED_WALLPAPER)
+        texture = behind.filter(ImageFilter.GaussianBlur(_FROSTED_BLUR * s))
+        texture.putalpha(round(255 * _FROSTED_TEXTURE))
+        frosted = Image.new("RGBA", behind.size, (*flat, 255))
+        screen.paste(Image.alpha_composite(frosted, texture), box[:2])
     else:
         screen.paste((*color, 255), box)
     # Windows draws a faint line along the top of the taskbar.
@@ -282,8 +291,8 @@ def _search_width(bar: BarSpec, layout: _Layout) -> int:
     if bar.search is SearchMode.ICON or (bar.search is SearchMode.BUTTON and not bar.win11):
         return layout.slot
     if bar.search is SearchMode.BUTTON:
-        return 96 if not bar.small else 84
-    return 200 if bar.win11 else 260
+        return 100
+    return 220 if bar.win11 else 260
 
 
 def _draw_start(
@@ -451,6 +460,11 @@ def _chevron(draw: ImageDraw.ImageDraw, cx: float, cy: float, s: float, ink: RGB
 
 def _font(px: float) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default(size=max(1, round(px)))
+
+
+def _average(image: Image.Image) -> RGB:
+    mean = np.asarray(image.convert("RGB"), dtype=np.float64).reshape(-1, 3).mean(axis=0)
+    return (round(float(mean[0])), round(float(mean[1])), round(float(mean[2])))
 
 
 def _luminance(color: RGB) -> float:

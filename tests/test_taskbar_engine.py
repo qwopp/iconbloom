@@ -90,6 +90,11 @@ def test_accent_shades_put_the_color_at_its_slot(color: tb.RGB, slot: int) -> No
     assert brightness == sorted(brightness, reverse=True)
 
 
+def test_accent_shades_default_to_the_taskbar_slot() -> None:
+    assert tb.TASKBAR_SLOT == 5
+    assert tb.accent_shades(PINK)[5] == PINK
+
+
 @pytest.mark.parametrize("slot", [-1, tb.SHADES])
 def test_accent_shades_rejects_a_missing_slot(slot: int) -> None:
     with pytest.raises(ValueError, match="slot"):
