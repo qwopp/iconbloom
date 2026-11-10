@@ -6,6 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Every style now comes out the same size, about as big as a normal Windows icon. Plain
+  recolors and cut-outs used to be smaller than the original, and smaller than the tiles
+  beside them.
+
 ## [0.8.0] - 2026-11-09
 
 ### Added

@@ -22,7 +22,8 @@ future macOS port.
   `badge`. Every op keeps the image size and leaves a 2 px transparent border.
 - `recipes.py`: the op registry, parameter checking, and `render()`. Theme-level values (palette
   names, asset names, shuffle choices) are turned into concrete values here, so ops stay pure.
-  Seed 0 always renders the default look.
+  Seed 0 always renders the default look, and every result is fitted to one size
+  (`ops.OUTPUT_FILL`), so framed and plain styles match.
 - `themes.py`: loads `themes/<id>/theme.json` and its PNG assets, resolving recipes listed
   by id from the shared `themes/_library/recipes.json`.
 - `families.py`: the kinds of recipe (recolor, tile, sticker, tint...). Themes keep two of a

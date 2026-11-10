@@ -2,6 +2,7 @@ import itertools
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -72,14 +73,24 @@ def test_bundled_themes_follow_the_style_rules(theme_id: str) -> None:
 @pytest.mark.parametrize("theme_id", list_themes())
 def test_bundled_themes_render_every_style_on_every_sample(theme_id: str) -> None:
     """The goldens pin the default look on some samples; this covers the rest, plus a
-    shuffled look of every style."""
+    shuffled look of every style. Every style, framed or not, comes out one size."""
     theme = load_theme(theme_id)
     golden = sample_names() if theme_id == DEFAULT_THEME else REPRESENTATIVE_SAMPLES
     cases = [(name, 0) for name in sample_names() if name not in golden]
+    fitted = round(ops.CANVAS * ops.OUTPUT_FILL)
     for name, seed in [*cases, ("multicolor", 7)]:
         icon, _ = ops.prepare(load_sample(name))
         for recipe in theme.recipes:
-            assert render(recipe, icon, theme, seed=seed).size == icon.size
+            for simplified in (False, True):
+                out = render(recipe, icon, theme, seed=seed, simplified=simplified)
+                assert out.size == icon.size
+                assert abs(_visible_extent(out) - fitted) <= 1, (recipe.id, name, simplified)
+
+
+def _visible_extent(img: Image.Image) -> int:
+    alpha = np.asarray(img.getchannel("A")) > 8
+    rows, cols = np.flatnonzero(alpha.any(axis=1)), np.flatnonzero(alpha.any(axis=0))
+    return max(rows[-1] - rows[0], cols[-1] - cols[0]) + 1
 
 
 def test_list_themes_finds_bundled_theme() -> None:
