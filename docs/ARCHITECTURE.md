@@ -53,6 +53,11 @@ load and are tested on any OS.
   folder's read-only bit) and `ItemRouter`, which picks one by path.
 - `shell_icons.py`: Windows' own desktop icons, through the per-user
   `Explorer\CLSID\{...}\DefaultIcon` registry key behind a small `Registry` interface.
+- `store_apps.py`: Store apps, from the shell's Apps folder. Their pins keep no file, so
+  styling one creates a desktop shortcut, `explorer.exe shell:AppsFolder\<app id>` carrying
+  the app's id, which the person pins (Windows lets only them). When they pin it, Windows
+  copies it into the taskbar folder. Revert gives that copy the app's own icon, saved
+  beside the data folder, because clearing the icon would show a folder.
 - `ini.py`: edits `.url` and `desktop.ini` files line by line, keeping everything else.
 - `extract.py`: gets the original icon at full size. It reads the shortcut's icon location
   first (including system icons that moved to `SystemResources\*.mun`), then the target
@@ -130,7 +135,9 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 
 Everything lives in `%LOCALAPPDATA%\Iconbloom\`: `icons\` (generated `.ico` files),
 `originals\` (byte copies of shortcuts), `backup.json`, `taskbar.json`, `choices.json`,
-`settings.json`, `custom\` (images from **Use my own image**) and `logs\`.
+`settings.json`, `custom\` (images from **Use my own image**) and `logs\`. The one exception
+is `%LOCALAPPDATA%\Iconbloom pins\`: Store apps' own icons for reverted pins, which outlive
+an uninstall.
 
 ## Testing
 

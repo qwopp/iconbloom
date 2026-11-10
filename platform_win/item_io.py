@@ -7,6 +7,7 @@ Every kind implements ``shortcuts.ItemIO``:
   which are small INI files.
 * ``FolderIO``: folders, whose custom icon lives in a hidden desktop.ini.
 * ``shell_icons.WindowsIconIO``: the Recycle Bin, This PC and friends.
+* ``store_apps.StoreAppIO``: Store apps that don't have a shortcut yet.
 
 ``ItemRouter`` picks the right one from the item's path.
 """
@@ -56,8 +57,8 @@ class ShellLinkIO(FileStateIO):
     """.lnk shortcuts, through the Windows shell's own IShellLink implementation."""
 
     def read(self, path: Path) -> LinkInfo:
-        with _shell_errors_as_os_errors(path):
-            link, persist = _new_link()
+        with shell_errors_as_os_errors(path):
+            link, persist = new_link()
             persist.Load(str(path), _STGM_READ)
             target, _ = link.GetPath(0, _MAX_PATH)
             icon_path, icon_index = link.GetIconLocation(_MAX_PATH)
@@ -69,15 +70,15 @@ class ShellLinkIO(FileStateIO):
         )
 
     def set_icon(self, path: Path, icon: IconLocation) -> None:
-        with _shell_errors_as_os_errors(path):
-            link, persist = _new_link()
+        with shell_errors_as_os_errors(path):
+            link, persist = new_link()
             persist.Load(str(path), _STGM_READWRITE)
             link.SetIconLocation(icon.path, icon.index)
             persist.Save(str(path), True)
 
     def create(self, path: Path, target: str, icon: IconLocation | None = None) -> None:
         """Make a new shortcut. Used by tests to build real .lnk fixtures."""
-        link, persist = _new_link()
+        link, persist = new_link()
         link.SetPath(target)
         if icon is not None:
             link.SetIconLocation(icon.path, icon.index)
@@ -278,13 +279,20 @@ class ItemRouter:
     """Sends each item to the ItemIO for its kind."""
 
     def __init__(
-        self, *, shortcut: ItemIO, web_shortcut: ItemIO, folder: ItemIO, windows_icon: ItemIO
+        self,
+        *,
+        shortcut: ItemIO,
+        web_shortcut: ItemIO,
+        folder: ItemIO,
+        windows_icon: ItemIO,
+        store_app: ItemIO,
     ) -> None:
         self._by_kind: dict[ItemKind, ItemIO] = {
             ItemKind.SHORTCUT: shortcut,
             ItemKind.WEB_SHORTCUT: web_shortcut,
             ItemKind.FOLDER: folder,
             ItemKind.WINDOWS_ICON: windows_icon,
+            ItemKind.STORE_APP: store_app,
         }
 
     def exists(self, path: Path) -> bool:
@@ -312,12 +320,14 @@ class ItemRouter:
 def windows_item_io() -> ItemRouter:
     """The real thing, for every kind of item."""
     from platform_win.shell_icons import WindowsIconIO, WindowsRegistry
+    from platform_win.store_apps import StoreAppIO, explorer_path
 
     return ItemRouter(
         shortcut=ShellLinkIO(),
         web_shortcut=UrlFileIO(),
         folder=FolderIO(WindowsAttributes(), shell_set_folder_icon),
         windows_icon=WindowsIconIO(WindowsRegistry()),
+        store_app=StoreAppIO(explorer_path()),
     )
 
 
@@ -363,7 +373,7 @@ def ensure_com() -> None:
 
 
 @contextmanager
-def _shell_errors_as_os_errors(path: Path) -> Iterator[None]:
+def shell_errors_as_os_errors(path: Path) -> Iterator[None]:
     """A corrupt, locked or half-synced .lnk makes the shell raise com_error. It means
     the same as any unreadable file, so callers handle it the same way: as OSError."""
     import pythoncom
@@ -374,7 +384,7 @@ def _shell_errors_as_os_errors(path: Path) -> Iterator[None]:
         raise OSError(f"Windows couldn't use the shortcut {path} ({exc})") from exc
 
 
-def _new_link() -> "tuple[PyIShellLink, PyIPersistFile]":
+def new_link() -> "tuple[PyIShellLink, PyIPersistFile]":
     import pythoncom
     from win32com.shell import shell
 

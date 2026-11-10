@@ -20,6 +20,11 @@ All notable changes to Iconbloom are documented here. The format follows
   Anything you changed yourself in Windows' Settings since stays as you set it.
 - From the command line: `iconbloom-cli taskbar apply --look deep --frosted --left`,
   `iconbloom-cli taskbar revert`, and `python -m engine.taskbar` to preview a theme's looks.
+- **Store apps** such as the new Outlook, Game Bar and Calculator are in the list now.
+  Styling one puts a themed copy on your desktop and shows how to pin it in place of the
+  old taskbar icon, since Windows only lets you pin things yourself. Its open window joins
+  that pin. **Revert** removes the desktop copy, and a pin you made keeps working with the
+  app's own icon, even after uninstalling.
 
 ## [0.6.1] - 2026-11-09
 

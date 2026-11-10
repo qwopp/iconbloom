@@ -148,6 +148,9 @@ def _report(report: ChangeReport) -> int:
         print(f"skipped     {path}: {reason}")
     if report.taskbar:
         print(f"{verb} restore the taskbar's {', '.join(report.taskbar)}")
+    for path in report.created:
+        # Windows doesn't let programs pin; only the person can.
+        print(f"to theme its taskbar icon, pin {path} yourself (right-click > Pin to taskbar)")
     if not (report.written or report.changed or report.removed or report.skipped or report.taskbar):
         print("nothing to do")
     return 0
@@ -157,7 +160,10 @@ def _print_group(service: IconService, group: ShortcutGroup) -> None:
     primary = group.primary
     lock = "" if group.own_shortcuts else "  [shared: needs administrator permission]"
     print(f"{group.name}  ({service.status(group)}){lock}")
-    print(f"    target: {primary.info.target or '(none: Store or advertised app)'}")
+    if primary.info.store_app_id is not None:
+        print(f"    target: Store app {primary.info.store_app_id}")
+    else:
+        print(f"    target: {primary.info.target or '(none: Store or advertised app)'}")
     icon = primary.info.icon
     print(f"    icon:   {icon.path},{icon.index}" if icon.path else "    icon:   (target's icon)")
     for shortcut in group.shortcuts:

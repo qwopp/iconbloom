@@ -10,6 +10,10 @@ same order, so a crash at any step leaves a recoverable state:
 2. record the shortcut's original in the backup manifest (saved to disk)
 3. point the shortcut at the new .ico
 4. note the shortcut's new hash in the manifest, and the choice in choices.json
+
+A Store app has no shortcut to change, so styling one creates a shortcut on the
+desktop instead (see platform_win/store_apps.py), recorded as "wasn't there" so
+revert removes it again.
 """
 
 import logging
@@ -32,26 +36,32 @@ from app.elevation import Action, ElevatedItem, ElevatedResult, Elevator, Window
 from app.styles import Styles
 from app.taskbar import TaskbarService
 from engine import ops
+from engine.ico import build_ico
 from engine.themes import THEMES_DIR
 from platform_win.backup import BackupManifest, TaskbarBackup, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
+from platform_win.fileio import atomic_write
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths
 from platform_win.refresh import notify_icons_changed
 from platform_win.shell_icons import WINDOWS_ICONS
 from platform_win.shortcuts import (
     SHARED_SOURCES,
+    STORE_APP_PREFIX,
     IconLocation,
     ItemIO,
+    ItemKind,
     ScanRoot,
     Shortcut,
     ShortcutGroup,
+    Source,
     WindowsIcon,
     default_roots,
     normalize_path,
     scan,
 )
+from platform_win.store_apps import StoreApp, StoreApps, WindowsStoreApps
 from platform_win.taskbar import windows_taskbar_io
 
 log = logging.getLogger(__name__)
@@ -88,12 +98,18 @@ class IconService:
         themes_dir: Path = THEMES_DIR,
         elevator: Elevator | None = None,
         taskbar: TaskbarService | None = None,
+        store_apps: StoreApps | None = None,
     ) -> None:
         self.paths = paths.ensure()
         self.taskbar = taskbar
         self._io = io
         self._roots = roots
         self._windows_icons = windows_icons
+        self._store_apps = store_apps
+        # Where a Store app's themed shortcut goes: the user's own desktop.
+        self._desktop = next((r.path for r in roots if r.source is Source.DESKTOP), None)
+        # A listed Store app's path -> the shortcut made for it since this service started.
+        self._made: dict[str, Path] = {}
         self._extract = extractor
         self._notify = notify
         self._elevator = elevator
@@ -105,16 +121,24 @@ class IconService:
         self.choices = ChoiceStore(paths.choices)
 
     def scan(self) -> list[ShortcutGroup]:
-        return scan(self._roots, self._io, self._windows_icons)
+        return scan(self._roots, self._io, self._windows_icons, self._store_shortcuts())
+
+    def _store_shortcuts(self) -> list[Shortcut]:
+        if self._store_apps is None or self._desktop is None:
+            return []
+        explorer = self._store_apps.explorer
+        return [app.shortcut(explorer) for app in self._store_apps.list()]
 
     def reload(self, target: ShortcutGroup) -> ShortcutGroup:
         """Re-read a group's shortcuts after they changed."""
-        fresh = tuple(
-            Shortcut(s.path, s.source, self._io.read(s.path), s.label)
-            for s in target.shortcuts
-            if self._io.exists(s.path)
-        )
-        return ShortcutGroup(target.key, fresh or target.shortcuts)
+        fresh: list[Shortcut] = []
+        for s in target.shortcuts:
+            made = self._made.get(normalize_path(str(s.path)))
+            if made is not None and self._io.exists(made):
+                s = Shortcut(made, Source.DESKTOP, s.info)  # the Store app's new shortcut
+            if self._io.exists(s.path):
+                fresh.append(Shortcut(s.path, s.source, self._io.read(s.path), s.label))
+        return ShortcutGroup(target.key, tuple(fresh) or target.shortcuts)
 
     def is_ours(self, icon: IconLocation) -> bool:
         return bool(icon.path) and normalize_path(icon.path).startswith(self._icons_prefix)
@@ -159,14 +183,23 @@ class IconService:
         """
         primary = target.primary
         icon = primary.info.icon
+        app_id = primary.info.store_app_id
+        if app_id is not None and not self.is_ours(icon):
+            return self._store_app_icon(app_id)
         if not self.is_ours(icon):
             return self._extract(icon, primary.info.target, primary.path)
         saved = self.styles.saved_original(target.slug)
         if saved is not None:
             return ExtractedIcon(saved, upscaled=False, source="saved original")
+        if app_id is not None:
+            return self._store_app_icon(app_id)
         entry = self.manifest.get(primary.path)
         icon = entry.original_icon if entry is not None else IconLocation()
         return self._extract(icon, primary.info.target, primary.path, use_shell=False)
+
+    def _store_app_icon(self, app_id: str) -> ExtractedIcon:
+        # Explorer draws the app itself here, never our shortcut, so this is always the original.
+        return self._extract(IconLocation(), "", Path(STORE_APP_PREFIX + app_id))
 
     def current_icon(self, target: ShortcutGroup) -> Image.Image:
         """What the shortcut shows right now: our .ico when themed, else the original."""
@@ -269,14 +302,20 @@ class IconService:
         item that was changed or queued.
         """
         touched: list[Path] = []
+        self._adopt_pins([target], dry_run=dry_run)
         for shortcut in target.own_shortcuts:
+            path = shortcut.path
             try:
-                self._apply_one(shortcut.path, icon_file, dry_run=dry_run)
+                if shortcut.kind is ItemKind.STORE_APP:
+                    path = self._make_store_link(shortcut, icon_file, dry_run=dry_run)
+                    report.created.append(path)
+                else:
+                    self._apply_one(path, icon_file, dry_run=dry_run)
             except ShortcutStateError as exc:
-                report.skipped.append((shortcut.path, str(exc)))
+                report.skipped.append((path, str(exc)))
                 continue
-            report.changed.append(shortcut.path)
-            touched.append(shortcut.path)
+            report.changed.append(path)
+            touched.append(path)
         for shortcut in target.shared_shortcuts:
             if shared is None:
                 report.skipped.append((shortcut.path, SHARED_REASON))
@@ -314,14 +353,21 @@ class IconService:
         )
 
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
+        pins = self._adopt_pins([target], dry_run=dry_run)
         report = self._revert_paths([s.path for s in target.shortcuts], dry_run=dry_run)
-        if not dry_run:
+        if dry_run:
+            report.changed += pins
+        else:
             self.choices.clear(target.key)
         return report
 
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
         """Every icon, and the taskbar's settings, back to the originals."""
+        store_groups = [g for g in self.scan() if g.primary.info.store_app_id is not None]
+        pins = self._adopt_pins(store_groups, dry_run=dry_run)
         report = self._revert_paths([Path(e.shortcut) for e in self.manifest], dry_run=dry_run)
+        if dry_run:
+            report.changed += pins
         if not dry_run:
             self.choices.clear_all()
         if self.taskbar is not None:
@@ -436,6 +482,54 @@ class IconService:
         self._io.set_icon(path, IconLocation(str(icon_file), 0))
         self.manifest.mark_applied(path, icon_file, self._io.snapshot(path))
 
+    def _make_store_link(self, app: Shortcut, icon_file: Path, *, dry_run: bool) -> Path:
+        """A desktop shortcut that starts a Store app with our icon, for the person to pin."""
+        app_id = app.info.store_app_id
+        if self._store_apps is None or self._desktop is None or app_id is None:
+            raise ShortcutStateError("Store apps can't be styled here")
+        path = _free_link_path(self._desktop, app.name)
+        if dry_run:
+            return path
+        self.manifest.record_original(path, IconLocation(), None)
+        self._store_apps.create_link(
+            path, StoreApp(app_id, app.name), IconLocation(str(icon_file), 0)
+        )
+        self.manifest.mark_applied(path, icon_file, self._io.snapshot(path))
+        self._made[normalize_path(str(app.path))] = path
+        return path
+
+    def _adopt_pins(self, groups: Sequence[ShortcutGroup], *, dry_run: bool) -> list[Path]:
+        """Take on Windows' own copies of our Store-app shortcuts. Returns the copies found.
+
+        Pinning our desktop shortcut makes Windows copy it into the taskbar folder.
+        The copy shows our icon but has no backup entry, and clearing its icon would
+        make Explorer draw a folder. So its original becomes the app's own icon.
+        """
+        found: list[Path] = []
+        for target in groups:
+            for s in target.own_shortcuts:
+                if (
+                    s.kind is ItemKind.SHORTCUT
+                    and s.info.store_app_id is not None
+                    and self.is_ours(s.info.icon)
+                    and self.manifest.get(s.path) is None
+                ):
+                    found.append(s.path)
+                    if not dry_run:
+                        icon = self._pin_icon(target)
+                        self._io.set_icon(s.path, icon)
+                        self.manifest.record_original(s.path, icon, self._io.snapshot(s.path))
+        return found
+
+    def _pin_icon(self, target: ShortcutGroup) -> IconLocation:
+        """The Store app's own icon as an .ico file that outlives Iconbloom's data folder."""
+        path = self.paths.pin_icons / f"{target.slug}.ico"
+        if not path.is_file():
+            prepared, _ = ops.prepare(self.original_icon(target).image)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(path, build_ico(prepared))
+        return IconLocation(str(path), 0)
+
     def _themed_icon(
         self, target: ShortcutGroup, choice: Choice, prepared: Image.Image | None, *, dry_run: bool
     ) -> Path:
@@ -493,5 +587,22 @@ def windows_service(paths: AppPaths | None = None) -> IconService:
         windows_icons=WINDOWS_ICONS,
         notify=notify_icons_changed,
         elevator=WindowsElevator(paths),
+        store_apps=WindowsStoreApps(),
         taskbar=TaskbarService(windows_taskbar_io(), TaskbarBackup(paths.taskbar)),
     )
+
+
+# Characters Windows doesn't allow in file names.
+_NOT_IN_FILE_NAMES = str.maketrans("", "", '<>:"/\\|?*' + "".join(map(chr, range(32))))
+
+
+def _free_link_path(folder: Path, name: str) -> Path:
+    """``folder/<name>.lnk``, or a variant of it when something else already has that name."""
+    clean = name.translate(_NOT_IN_FILE_NAMES).strip().rstrip(".") or "Store app"
+    path = folder / f"{clean}.lnk"
+    n = 1
+    while path.exists():
+        n += 1
+        suffix = "(Iconbloom)" if n == 2 else f"(Iconbloom {n - 1})"
+        path = folder / f"{clean} {suffix}.lnk"
+    return path

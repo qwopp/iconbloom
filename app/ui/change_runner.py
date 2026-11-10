@@ -3,6 +3,8 @@
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QMessageBox, QProgressDialog, QStatusBar, QWidget
@@ -15,6 +17,7 @@ from app.ui.notice import NoticeBar
 from platform_win.paths import AppPaths
 from platform_win.refresh import touches_taskbar
 from platform_win.shortcuts import ShortcutGroup
+from platform_win.store_apps import show_in_explorer
 
 # A change to run: given a progress callback (False from it means "stop"), returns its report.
 type Change = Callable[[Callable[[int, ShortcutGroup], bool]], ChangeReport]
@@ -96,6 +99,8 @@ class ChangeRunner:
                 self._show_skipped(result)
                 self.show_taskbar_notice(result)
                 on_done(result)
+                if result.created and not result.dry_run:
+                    self.show_pin_guide(result.created)
             if reload:
                 self._reload()
 
@@ -154,6 +159,18 @@ class ChangeRunner:
                 ],
             )
 
+    def show_pin_guide(self, created: Sequence[Path]) -> None:
+        """Store apps got new desktop shortcuts; Windows only lets the person pin them."""
+        box = QMessageBox(self._parent)
+        box.setWindowTitle("One more step for the taskbar")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(pin_guide_text([p.stem for p in created]))
+        show_me = box.addButton("Show me", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if box.clickedButton() is show_me:
+            show_in_explorer(created[0])
+
     def _show_skipped(self, report: ChangeReport) -> None:
         # Skipping shared shortcuts was the user's own choice; no need to repeat it.
         problems = [(p, why) for p, why in report.skipped if why != SHARED_REASON]
@@ -166,3 +183,19 @@ class ChangeRunner:
         if problems:
             reasons = "\n".join(f"{p.stem}: {why}" for p, why in problems[:SKIPPED_SHOWN])
             QMessageBox.information(self._parent, "Some items were left alone", reasons)
+
+
+def pin_guide_text(names: Sequence[str]) -> str:
+    """How to swap a Store app's taskbar pin for its new themed shortcut."""
+    listed = escape(" and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names))
+    them = "it" if len(names) == 1 else "each one"
+    is_are = "is" if len(names) == 1 else "are"
+    return (
+        f"<p><b>{listed}</b> {is_are} on your desktop with the new look. "
+        f"To put {them} on your taskbar:</p>"
+        f"<ol><li>Right-click {them} on your desktop and choose <b>Show more options</b>.</li>"
+        "<li>If you see <b>Unpin from taskbar</b>, click it to remove the old icon, "
+        "then right-click again.</li>"
+        "<li>Click <b>Pin to taskbar</b>.</li></ol>"
+        "<p>Windows doesn't let apps pin things themselves, so this one step is yours.</p>"
+    )
