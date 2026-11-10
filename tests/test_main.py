@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app import logs, main
+from app.changes import SKIPPED_EXIT
 from app.choices import Choice
 from app.service import IconService
 from app.taskbar import TaskbarChoice
@@ -79,3 +80,22 @@ def test_elevated_copy_refuses_a_linked_data_folder(tmp_path: Path) -> None:
     request = tmp_path / "request.json"
     request.write_text('{"action": "revert", "items": []}', encoding="utf-8")
     assert main.run_elevated_request(AppPaths(linked), request) == 2
+
+
+def test_revert_all_flag_reports_skips(desktop: FakeDesktop) -> None:
+    """The uninstaller keeps the backups unless this exits 0, so a skip must not be 0."""
+    desktop.make("Admin", folder=desktop.common)
+    service = desktop.service()
+    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"), include_shared=True)
+    assert len(service.manifest) == 1
+    desktop.decline_permission = True
+    assert main.main(["--revert-all"]) == SKIPPED_EXIT
+    assert len(service.manifest) == 1
+
+
+def test_uninstaller_deletes_data_only_after_a_clean_revert() -> None:
+    script = (Path(__file__).parents[1] / "installer" / "iconbloom.iss").read_text(encoding="utf-8")
+    revert = script.index("'--revert-all'")
+    gate = script.index("(ResultCode = 0) then", revert)
+    assert script.index("DelTree(DataDir", revert) > gate
+    assert script.count("DelTree(DataDir") == 1

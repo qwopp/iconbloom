@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
+from app.changes import SKIPPED_EXIT
 from app.choices import Choice
 from app.service import ChangeReport, IconService, windows_service
 from app.taskbar import TaskbarChoice, TaskbarService
@@ -153,7 +154,7 @@ def _report(report: ChangeReport) -> int:
         print(f"to theme its taskbar icon, pin {path} yourself (right-click > Pin to taskbar)")
     if not (report.written or report.changed or report.removed or report.skipped or report.taskbar):
         print("nothing to do")
-    return 0
+    return SKIPPED_EXIT if report.skipped and not report.dry_run else 0
 
 
 def _print_group(service: IconService, group: ShortcutGroup) -> None:
@@ -187,7 +188,11 @@ def _safe(name: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="iconbloom-cli", description="Theme shortcut icons.")
+    parser = argparse.ArgumentParser(
+        prog="iconbloom-cli",
+        description="Theme shortcut icons.",
+        epilog="Exit codes: 0 done, 1 error, 2 backup file damaged, 3 some items were skipped.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     def add(name: str, func: Command, help_text: str, *, changes: bool) -> argparse.ArgumentParser:
