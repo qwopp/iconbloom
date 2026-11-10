@@ -41,6 +41,8 @@ THUMBNAIL_PX = 128
 class Thumbnail:
     key: str
     image: QImage
+    # Which request for this key it answers; an older one is dropped.
+    token: int
 
 
 class ShortcutList(QWidget):
@@ -59,6 +61,11 @@ class ShortcutList(QWidget):
         self._service = service
         self._jobs = jobs
         self._scans_running = 0
+        # Bumped by every scan started and by invalidate(); only the newest scan's
+        # result is shown, so one that began before a change can't undo it on screen.
+        self._generation = 0
+        self._dropped_scan = False
+        self._thumb_tokens: dict[str, int] = {}
         self._groups: dict[str, ShortcutGroup] = {}
         self._items: dict[str, QStandardItem] = {}
 
@@ -146,12 +153,26 @@ class ShortcutList(QWidget):
             return
         self._start_scan(self._on_rescanned)
 
+    def invalidate(self) -> None:
+        """A change is starting: results of scans already running are out of date."""
+        self._generation += 1
+        self._dropped_scan = self._dropped_scan or self._scans_running > 0
+
+    def resume(self) -> None:
+        """The change finished: rescan if invalidate() threw a scan away."""
+        if self._dropped_scan:
+            self._dropped_scan = False
+            self.reload()
+
     def _start_scan(self, on_done: Callable[[object], None]) -> None:
         self._scans_running += 1
+        self._generation += 1
+        generation = self._generation
 
         def finished(result: object) -> None:
             self._scans_running -= 1
-            on_done(result)
+            if generation == self._generation:
+                on_done(result)
 
         def failed(_message: str) -> None:
             self._scans_running -= 1
@@ -220,6 +241,10 @@ class ShortcutList(QWidget):
     def _load_thumbnails(self, groups: Sequence[ShortcutGroup]) -> None:
         if not groups:
             return
+        tokens: dict[str, int] = {}
+        for target in groups:
+            tokens[target.key] = self._thumb_tokens.get(target.key, 0) + 1
+            self._thumb_tokens[target.key] = tokens[target.key]
 
         def work(report: Callable[[object], None]) -> None:
             for target in groups:
@@ -229,13 +254,15 @@ class ShortcutList(QWidget):
                     log.exception("could not load icon for %s", target.name)
                     continue
                 image.thumbnail((THUMBNAIL_PX, THUMBNAIL_PX))
-                report(Thumbnail(target.key, to_qimage(image)))
+                report(Thumbnail(target.key, to_qimage(image), tokens[target.key]))
 
         self._jobs.start(work, on_progress=self._on_thumbnail)
 
     def _on_thumbnail(self, payload: object) -> None:
         if not isinstance(payload, Thumbnail):
             return
+        if payload.token != self._thumb_tokens.get(payload.key):
+            return  # a newer thumbnail for this tile is on its way
         item = self._items.get(payload.key)
         if item is not None:
             pixmap = pixmap_at(payload.image, TileDelegate.ICON, self.devicePixelRatioF())

@@ -8,6 +8,9 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- A list refresh that started before a change (for example when switching back to the
+  window) no longer shows the old icons once the change is done. **Revert** also works on
+  apps marked "needs reapply".
 - Shared Start-menu and desktop shortcuts can be styled on standard (non-admin) accounts.
   When an administrator typed their password, the permission helper used the
   administrator's own Iconbloom folder and refused every change.
