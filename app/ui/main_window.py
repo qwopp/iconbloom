@@ -62,12 +62,14 @@ class MainWindow(QMainWindow):
         *,
         hard_refresh: Callable[[], None],
         updater: Updater | None = None,
+        wallpaper: Callable[[], Image.Image | None] = lambda: None,
     ) -> None:
         super().__init__()
         self.service = service
         self.settings = Settings.load(service.paths.settings)
         self.jobs = JobRunner(self)
         self._hard_refresh = hard_refresh
+        self._wallpaper = wallpaper
         self._theme_names = service.styles.theme_names()
         known = [theme_id for theme_id, _ in self._theme_names]
         theme = service.styles.theme(DEFAULT_THEME if DEFAULT_THEME in known else known[0])
@@ -295,7 +297,11 @@ class MainWindow(QMainWindow):
         if self.taskbar_page is None:
             theme_id = str(self.theme_box.currentData())
             self.taskbar_page = TaskbarPage(
-                taskbar, self.jobs, self.service.styles.theme(theme_id), self._taskbar_icons
+                taskbar,
+                self.jobs,
+                self.service.styles.theme(theme_id),
+                self._taskbar_icons,
+                self._wallpaper,
             )
             self.taskbar_page.said.connect(self._say)
             self.pages.addWidget(self.taskbar_page)

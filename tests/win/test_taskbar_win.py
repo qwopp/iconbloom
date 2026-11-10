@@ -47,3 +47,10 @@ def test_reads_the_real_taskbar() -> None:
 
 def test_broadcast_returns() -> None:
     tb.broadcast_setting_change("TraySettings")
+
+
+def test_reading_the_wallpaper_never_fails() -> None:
+    from platform_win.wallpaper import current_wallpaper
+
+    picture = current_wallpaper()
+    assert picture is None or picture.mode == "RGBA"

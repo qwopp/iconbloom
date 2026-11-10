@@ -52,8 +52,9 @@ DARK_QUESTION = (
 ACCENT_NOTE = "Also used as Windows' accent color in Start and Settings. Revert puts it back."
 DARK_NOTE = "Windows only colors the taskbar in dark mode, so Apply switches Windows to dark."
 
-# Loads the icons to pin in the picture, off the UI thread.
+# Load the icons to pin in the picture, and the user's wallpaper, off the UI thread.
 type IconLoader = Callable[[], Sequence[Image.Image]]
+type WallpaperLoader = Callable[[], Image.Image | None]
 
 
 class LookCard(QFrame):
@@ -100,6 +101,7 @@ class TaskbarPage(QWidget):
         jobs: JobRunner,
         theme: Theme,
         load_icons: IconLoader,
+        load_wallpaper: WallpaperLoader = lambda: None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -108,7 +110,10 @@ class TaskbarPage(QWidget):
         self._jobs = jobs
         self._theme = theme
         self._load_icons = load_icons
+        self._load_wallpaper = load_wallpaper
         self._icons: list[Image.Image] = []
+        # The user's own wallpaper when it can be read; otherwise each theme's gradient.
+        self._user_wallpaper: Image.Image | None = None
         self._wallpapers: dict[str, Image.Image] = {}
         self._current = service.current()
         self._windows_light = service.windows_is_light()
@@ -245,6 +250,11 @@ class TaskbarPage(QWidget):
             on_done=self._on_icons,
             on_failed=lambda message: log.warning("taskbar icons: %s", message),
         )
+        self._jobs.start(
+            lambda _progress: self._load_wallpaper(),
+            on_done=self._on_wallpaper,
+            on_failed=lambda message: log.warning("wallpaper: %s", message),
+        )
 
     def wanted(self) -> BarSpec:
         """The taskbar the controls describe."""
@@ -288,6 +298,10 @@ class TaskbarPage(QWidget):
             self._icons = [i for i in icons if isinstance(i, Image.Image)]  # pyright: ignore[reportUnknownVariableType]
         self._draw()
 
+    def _on_wallpaper(self, wallpaper: object) -> None:
+        self._user_wallpaper = wallpaper if isinstance(wallpaper, Image.Image) else None
+        self._draw()
+
     def _changed(self, *_args: object) -> None:
         wanted = self.wanted()
         self.apply_button.setEnabled(_differs(wanted, self._current))
@@ -320,6 +334,8 @@ class TaskbarPage(QWidget):
         return pixmap
 
     def _wallpaper(self) -> Image.Image:
+        if self._user_wallpaper is not None:
+            return self._user_wallpaper
         if self._theme.id not in self._wallpapers:
             self._wallpapers[self._theme.id] = gradient_wallpaper(_WALLPAPER, self._theme.palette)
         return self._wallpapers[self._theme.id]
