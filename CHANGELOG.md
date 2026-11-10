@@ -8,6 +8,9 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- Shared Start-menu and desktop shortcuts can be styled on standard (non-admin) accounts.
+  When an administrator typed their password, the permission helper used the
+  administrator's own Iconbloom folder and refused every change.
 - Styled shortcuts that you rename, move or pin can be reverted and restyled. Iconbloom
   takes on such copies and gives them back the original icon, and **Delete unused icon
   files** never deletes an icon a copy still shows.

@@ -9,6 +9,7 @@ import pytest
 from app import logs, main
 from app.changes import SKIPPED_EXIT
 from app.choices import Choice
+from app.elevation import ELEVATED_FLAG, REQUEST_FILE
 from app.service import IconService
 from app.taskbar import TaskbarChoice
 from platform_win.backup import BackupCorruptError
@@ -99,3 +100,30 @@ def test_uninstaller_deletes_data_only_after_a_clean_revert() -> None:
     gate = script.index("(ResultCode = 0) then", revert)
     assert script.index("DelTree(DataDir", revert) > gate
     assert script.count("DelTree(DataDir") == 1
+
+
+def test_elevated_copy_uses_the_requesting_users_folder(
+    desktop: FakeDesktop, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A standard user typing an admin's password runs the helper as that admin."""
+    user = AppPaths(tmp_path / "user" / "Iconbloom")
+    monkeypatch.setattr(main, "default_app_paths", lambda: AppPaths(tmp_path / "admin"))
+    seen: list[AppPaths] = []
+
+    def run(paths: AppPaths, request: Path) -> int:
+        seen.append(paths)
+        return 0
+
+    monkeypatch.setattr(main, "run_elevated_request", run)
+    assert main.main([ELEVATED_FLAG, str(user.root / REQUEST_FILE)]) == 0
+    assert seen == [user]
+    assert not (tmp_path / "admin").exists()
+
+
+@pytest.mark.parametrize("request_path", ["user/other.json", "elevated-request.json"])
+def test_elevated_copy_refuses_odd_request_paths(
+    desktop: FakeDesktop, tmp_path: Path, request_path: str
+) -> None:
+    """Only an absolute path to a file named like the app writes it is accepted."""
+    given = str(tmp_path / request_path) if "/" in request_path else request_path
+    assert main.main([ELEVATED_FLAG, given]) == 2

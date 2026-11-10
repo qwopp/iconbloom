@@ -7,7 +7,7 @@ from types import MappingProxyType
 
 from PIL import Image
 
-from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request
+from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request, requester_paths
 from app.service import IconService
 from app.taskbar import TaskbarService
 from platform_win import taskbar as tb
@@ -313,7 +313,10 @@ class FakeDesktop:
             raise ElevationDeclinedError
         flag, request = arguments
         assert flag == ELEVATED_FLAG
-        admin = IconService(self.paths, self.io, roots=[])
+        # Like app.main: the folder comes from the request, never the admin's own profile.
+        paths = requester_paths(Path(request))
+        assert paths is not None
+        admin = IconService(paths, self.io, roots=[])
         return handle_request(Path(request), admin, [self.common])
 
     def extract(
