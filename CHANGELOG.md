@@ -8,6 +8,10 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- Only one change runs at a time. While one is running the buttons that start another are
+  turned off and the window says it's working, so a quick double-click can no longer start
+  two changes that overwrite each other's backups. **Refresh Windows icons** and **Delete
+  unused icon files** no longer freeze the window.
 - One locked, read-only or damaged shortcut no longer stops a whole batch or **Revert all**:
   it is listed as skipped and everything else still changes. Styles applied before a
   problem are remembered for **Reapply my icons**, and one unreadable `.url` file no longer

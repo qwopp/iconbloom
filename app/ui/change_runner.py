@@ -45,6 +45,7 @@ class ChangeRunner:
         *,
         refresh_icons: Callable[[], None],
         reload: Callable[[], None],
+        on_busy: Callable[[bool], None] = lambda _busy: None,
     ) -> None:
         self._parent = parent
         self._jobs = jobs
@@ -54,6 +55,7 @@ class ChangeRunner:
         self._paths = paths
         self._refresh_icons = refresh_icons
         self._reload = reload
+        self._on_busy = on_busy
         self._running = 0
 
     @property
@@ -78,7 +80,7 @@ class ChangeRunner:
         dialog.setMinimumDuration(PROGRESS_DELAY_MS)
         stop = threading.Event()
         dialog.canceled.connect(stop.set)
-        self._running += 1
+        self._set_running(+1)
 
         def work(report: Callable[[object], None]) -> ChangeReport:
             def step(i: int, target: ShortcutGroup) -> bool:
@@ -93,7 +95,7 @@ class ChangeRunner:
                 dialog.setLabelText(f"{title}\n{item.name}")
 
         def finished(result: object) -> None:
-            self._running -= 1
+            self._set_running(-1)
             dialog.reset()
             if isinstance(result, ChangeReport):
                 self._show_skipped(result)
@@ -105,12 +107,18 @@ class ChangeRunner:
                 self._reload()
 
         def failed(message: str) -> None:
-            self._running -= 1
+            self._set_running(-1)
             dialog.reset()
             QMessageBox.warning(self._parent, "That didn't work", message)
             self._reload()
 
         self._jobs.start(work, on_done=finished, on_failed=failed, on_progress=on_progress)
+
+    def _set_running(self, step: int) -> None:
+        was = self.running
+        self._running += step
+        if self.running != was:
+            self._on_busy(self.running)
 
     def ask_about_shared(self, targets: Sequence[ShortcutGroup]) -> bool | None:
         """Whether to include shortcuts every user shares; None means cancel."""

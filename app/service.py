@@ -16,10 +16,12 @@ desktop instead (see platform_win/store_apps.py), recorded as "wasn't there" so
 revert removes it again.
 """
 
+import functools
 import logging
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Concatenate, Protocol
 
 from PIL import Image
 
@@ -70,6 +72,24 @@ log = logging.getLogger(__name__)
 # unreadable file, unreadable text, or an item in a state we won't touch.
 ITEM_ERRORS = (OSError, ValueError, ShortcutStateError)
 
+
+def _one_at_a_time[**P, R](
+    method: Callable[Concatenate["IconService", P], R],
+) -> Callable[Concatenate["IconService", P], R]:
+    """Run a change while holding the service's lock, so two never interleave.
+
+    Two at once would write the same backup file and could record a themed icon
+    as the original. The lock is re-entrant: apply calls apply_many, and so on.
+    """
+
+    @functools.wraps(method)
+    def locked(self: "IconService", *args: P.args, **kwargs: P.kwargs) -> R:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
 # Re-exported so callers can import everything about a change from one place.
 __all__ = [
     "DECLINED_REASON",
@@ -105,6 +125,7 @@ class IconService:
         store_apps: StoreApps | None = None,
     ) -> None:
         self.paths = paths.ensure()
+        self._lock = threading.RLock()
         self.taskbar = taskbar
         self._io = io
         self._roots = roots
@@ -243,6 +264,7 @@ class IconService:
             catch=False,
         )
 
+    @_one_at_a_time
     def apply_many(
         self,
         targets: Sequence[ShortcutGroup],
@@ -344,6 +366,7 @@ class IconService:
             self._notify(report.changed)
             log.info("applied styles to %d shortcuts", len(report.changed))
 
+    @_one_at_a_time
     def reapply(
         self,
         groups: Sequence[ShortcutGroup],
@@ -362,6 +385,7 @@ class IconService:
             progress=progress,
         )
 
+    @_one_at_a_time
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
         pins = self._adopt_pins([target], dry_run=dry_run)
         report = self._revert_paths([s.path for s in target.shortcuts], dry_run=dry_run)
@@ -382,6 +406,7 @@ class IconService:
             if applied and Path(applied).name.startswith(prefix) and not self._io.exists(path):
                 self.manifest.forget(path)
 
+    @_one_at_a_time
     def revert_all(self, *, dry_run: bool = False) -> ChangeReport:
         """Every icon, and the taskbar's settings, back to the originals."""
         store_groups = [g for g in self.scan() if g.primary.info.store_app_id is not None]
@@ -451,6 +476,7 @@ class IconService:
         report.skipped += result.skipped
         return report
 
+    @_one_at_a_time
     def apply_files(self, items: Sequence[tuple[Path, Path]]) -> ElevatedResult:
         """Inside the elevated copy: point already-checked shortcuts at icon files."""
         result = ElevatedResult()
@@ -463,6 +489,7 @@ class IconService:
                 result.changed.append(shortcut)
         return result
 
+    @_one_at_a_time
     def restore_icon_fields(self, shortcuts: Sequence[Path]) -> ElevatedResult:
         """Inside the elevated copy: put back the recorded icon, never whole files."""
         result = ElevatedResult()
@@ -482,9 +509,11 @@ class IconService:
                 result.changed.append(shortcut)
         return result
 
+    @_one_at_a_time
     def skip(self, target: ShortcutGroup) -> None:
         self.choices.skip(target.key)
 
+    @_one_at_a_time
     def cleanup(self, *, dry_run: bool = False) -> ChangeReport:
         """Delete generated .ico files that no shortcut points at any more."""
         report = ChangeReport(dry_run)

@@ -2,6 +2,7 @@
 
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -16,12 +17,18 @@ def atomic_write(path: Path, data: bytes) -> None:
     file is never empty or half-written.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("wb") as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    _replace(tmp, path)
+    # A unique name, so two writers of the same file never share a temp file.
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _replace(source: Path, target: Path) -> None:

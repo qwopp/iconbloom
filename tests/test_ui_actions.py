@@ -1,11 +1,14 @@
 """Applying, skipping, reverting and the permission prompt for shared shortcuts."""
 
+import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PySide6.QtWidgets import QFileDialog, QGridLayout
 from pytestqt.qtbot import QtBot
 
+from app.changes import ChangeReport
 from app.service import Status
 from engine.families import Family
 from engine.themes import Theme
@@ -237,7 +240,9 @@ def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
     harness.window.reapply_all()
     assert "Nothing needed reapplying" in harness.window.statusBar().currentMessage()
     harness.window.clean_up()
+    harness.settle()
     harness.window.refresh_icons()
+    harness.settle()
     assert harness.refreshes == 1
     harness.window.theme_box.setCurrentIndex(0)
     harness.wait_for_previews()
@@ -288,3 +293,32 @@ def test_instant_background_jobs_still_report(harness: Harness) -> None:
         harness.window.jobs.start(lambda _report, i=i: i, on_done=collect)
     harness.settle()
     assert sorted(results) == list(range(50))
+
+
+def test_one_change_at_a_time(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch, say_yes: None
+) -> None:
+    """A quick second click while a change runs must not start another one."""
+    window = harness.window
+    release = threading.Event()
+    calls: list[int] = []
+    real = window.service.apply_many
+
+    def slow(*args: Any, **kwargs: Any) -> ChangeReport:
+        calls.append(1)
+        release.wait(5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(window.service, "apply_many", slow)
+    window.apply_chosen()
+    window.apply_chosen()
+    window.revert_all()
+    window.clean_up()
+    assert not window.picker.apply_button.isEnabled()
+    assert not window.revert_all_button.isEnabled()
+    assert not any(a.isEnabled() for a in window.change_actions)
+    release.set()
+    harness.settle()
+    assert calls == [1]
+    assert window.picker.apply_button.isEnabled()
+    assert window.revert_all_button.isEnabled()

@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -46,3 +47,24 @@ def test_replace_gives_up_on_a_lasting_lock(
     monkeypatch.setattr(fileio, "_RETRY_DELAYS", (0.0,))
     with pytest.raises(PermissionError):
         fileio.atomic_write(tmp_path / "data.bin", b"x")
+
+
+def test_two_writers_of_one_file_both_succeed(tmp_path: Path) -> None:
+    target = tmp_path / "choices.json"
+    errors: list[BaseException] = []
+
+    def write(n: int) -> None:
+        try:
+            for _ in range(50):
+                fileio.atomic_write(target, str(n).encode())
+        except BaseException as exc:  # noqa: BLE001 - collected for the assert below
+            errors.append(exc)
+
+    workers = [threading.Thread(target=write, args=(n,)) for n in (1, 2)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert not errors
+    assert target.read_bytes() in (b"1", b"2")
+    assert [p.name for p in tmp_path.iterdir()] == ["choices.json"]
