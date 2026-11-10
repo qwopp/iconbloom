@@ -8,6 +8,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- Updates clean up after themselves: old installers and half-finished downloads are deleted,
+  **Cancel** really stops a download, and clicking **Update now** twice downloads once.
 - A list refresh that started before a change (for example when switching back to the
   window) no longer shows the old icons once the change is done. **Revert** also works on
   apps marked "needs reapply".

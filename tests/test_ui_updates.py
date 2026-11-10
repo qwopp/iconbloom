@@ -48,3 +48,28 @@ def test_update_downloads_installs_and_closes(harness: Harness) -> None:
     harness.qtbot.waitUntil(lambda: bool(harness.updater.launched), timeout=5_000)
     assert harness.updater.launched[0].name == "Iconbloom-Setup-9.9.9.exe"
     assert not harness.window.isVisible()
+
+
+def test_leftover_installers_are_cleared_at_startup(
+    tmp_path: Path, qtbot: QtBot, qapp: QApplication
+) -> None:
+    desktop = FakeDesktop(tmp_path)
+    folder = desktop.paths.root / "updates"
+    folder.mkdir(parents=True)
+    (folder / "Iconbloom-Setup-0.1.0.exe").write_bytes(b"an installer that already ran")
+    window = open_window(desktop, FakeUpdater(), qtbot)
+    qtbot.waitUntil(lambda: not any(folder.iterdir()), timeout=5_000)
+    window.close()
+
+
+def test_update_now_twice_downloads_once(harness: Harness) -> None:
+    harness.updater.release = RELEASE
+    harness.window.updates.check()
+    harness.qtbot.waitUntil(
+        lambda: "9.9.9 is ready" in harness.window.notice.label.text(), timeout=5_000
+    )
+    harness.window.updates.install()
+    harness.window.updates.install()
+    harness.qtbot.waitUntil(lambda: bool(harness.updater.launched), timeout=5_000)
+    harness.settle()
+    assert len(harness.updater.launched) == 1
