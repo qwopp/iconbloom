@@ -2,9 +2,10 @@
 
     uv run python -m engine.taskbar --theme mint_matcha -o taskbar.png
 
-A look is what Windows itself can do with a taskbar: an accent color (shown only
-in dark Windows mode, under white text) and the transparency effect. The looks
-come from the theme's palette, so every theme gets them without extra data.
+A look is a taskbar color Windows itself can show: an accent color (only in dark
+Windows mode, always under white text) or Windows' own. Transparency ("frosted
+glass") is a separate switch that works with every look. The looks come from the
+theme's palette, so every theme gets them without extra data.
 ``render_preview`` draws a mockup of the bottom of the screen; nothing here
 reads or changes Windows' settings.
 """
@@ -27,8 +28,9 @@ type Box = tuple[float, float, float, float]
 
 WHITE: RGB = (255, 255, 255)
 BLACK: RGB = (0, 0, 0)
-# The taskbar's clock is small, but WCAG's 3:1 for large text keeps pastels recognizable.
-READABLE_RATIO = 3.0
+# Between WCAG's 3:1 (large text) and 4.5:1 (small text): the small white clock stays clear
+# while pastels still read as their color instead of turning muddy.
+READABLE_RATIO = 3.5
 # Windows keeps eight shades of the accent color, lightest first.
 SHADES = 8
 # The shade the taskbar paints, measured on Windows 11 26H2.
@@ -65,7 +67,6 @@ class Look:
     label: str
     # None keeps Windows' own taskbar color (no accent on the taskbar).
     color: RGB | None
-    transparency: bool
 
     @property
     def show_accent(self) -> bool:
@@ -89,13 +90,11 @@ class BarSpec:
 
 
 def looks(palette: Mapping[str, RGB]) -> tuple[Look, ...]:
-    """Soft, deep, frosted and Windows' default, worked out from a theme palette."""
-    soft = readable_under_white(palette["main"])
+    """Soft, deep and Windows' default, worked out from a theme palette."""
     return (
-        Look("soft", "Soft", soft, False),
-        Look("deep", "Deep", readable_under_white(palette["ink"]), False),
-        Look("frosted", "Frosted", soft, True),
-        Look("windows", "Windows default", None, True),
+        Look("soft", "Soft", readable_under_white(palette["main"])),
+        Look("deep", "Deep", readable_under_white(palette["ink"])),
+        Look("windows", "Windows default", None),
     )
 
 
@@ -488,9 +487,10 @@ _SHEET_TEXT = (120, 60, 90)
 
 def sheet_rows(theme_looks: Sequence[Look]) -> list[tuple[str, BarSpec]]:
     """Every look, then the layout options on the first one."""
-    rows = [(look.label, BarSpec(look.color, look.transparency)) for look in theme_looks]
-    first = BarSpec(theme_looks[0].color, theme_looks[0].transparency)
+    rows = [(look.label, BarSpec(look.color, False)) for look in theme_looks]
+    first = BarSpec(theme_looks[0].color, False)
     rows += [
+        ("Frosted glass", replace(first, transparency=True)),
         ("Left aligned", replace(first, centered=False)),
         ("Smaller buttons", replace(first, small=True)),
         ("Search box, no Task view", replace(first, search=SearchMode.BOX, task_view=False)),

@@ -43,9 +43,9 @@ def _wallpaper() -> Image.Image:
 
 
 @pytest.mark.parametrize("theme_id", list_themes())
-def test_every_theme_has_four_readable_looks(theme_id: str) -> None:
+def test_every_theme_has_three_readable_looks(theme_id: str) -> None:
     found = tb.looks(load_theme(theme_id).palette)
-    assert [look.id for look in found] == ["soft", "deep", "frosted", "windows"]
+    assert [look.id for look in found] == ["soft", "deep", "windows"]
     for look in found:
         if look.color is None:
             assert not look.show_accent
@@ -54,14 +54,10 @@ def test_every_theme_has_four_readable_looks(theme_id: str) -> None:
             assert tb.contrast(look.color, tb.WHITE) >= tb.READABLE_RATIO
 
 
-def test_frosted_is_soft_with_transparency() -> None:
-    soft, deep, frosted, windows = tb.looks(_palette())
-    assert frosted.color == soft.color
-    assert frosted.transparency
-    assert not soft.transparency
-    assert not deep.transparency
+def test_soft_and_deep_differ_and_windows_keeps_its_own_color() -> None:
+    soft, deep, windows = tb.looks(_palette())
+    assert soft.color != deep.color
     assert windows.color is None
-    assert windows.transparency
 
 
 def test_contrast_bounds() -> None:
@@ -180,14 +176,14 @@ def test_windows_10_has_no_search_button() -> None:
 
 
 def _golden_cases() -> dict[str, tb.BarSpec]:
-    soft, deep, frosted, windows = tb.looks(_palette())
-    base = tb.BarSpec(soft.color, soft.transparency)
+    soft, deep, windows = tb.looks(_palette())
+    base = tb.BarSpec(soft.color, False)
     return {
         "soft": base,
-        "deep": tb.BarSpec(deep.color, deep.transparency),
-        "frosted": tb.BarSpec(frosted.color, frosted.transparency),
-        "windows": tb.BarSpec(windows.color, windows.transparency),
-        "windows_light": tb.BarSpec(windows.color, windows.transparency, light=True),
+        "deep": tb.BarSpec(deep.color, False),
+        "frosted": replace(base, transparency=True),
+        "windows": tb.BarSpec(windows.color, True),
+        "windows_light": tb.BarSpec(windows.color, True, light=True),
         "left": replace(base, centered=False),
         "small": replace(base, small=True),
         "search_box": replace(base, search=tb.SearchMode.BOX, task_view=False),
