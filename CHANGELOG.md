@@ -8,6 +8,10 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- One locked, read-only or damaged shortcut no longer stops a whole batch or **Revert all**:
+  it is listed as skipped and everything else still changes. Styles applied before a
+  problem are remembered for **Reapply my icons**, and one unreadable `.url` file no longer
+  empties the list.
 - Uninstalling keeps your backups when any icon couldn't be put back (for example when the
   permission prompt was declined), instead of deleting them and leaving blank icons. The
   command line also exits with code 3 when it skipped something.

@@ -11,7 +11,7 @@ from platform_win.shortcuts import (
     is_noise,
     scan,
 )
-from tests.fakes import FakeLinkIO
+from tests.fakes import FakeDesktop, FakeLinkIO
 
 
 @pytest.fixture
@@ -131,3 +131,11 @@ def test_groups_know_where_they_appear(tmp_path: Path, link_io: FakeLinkIO) -> N
     link_io.create(roots[2].path / "Paint.lnk", r"C:\Paint\paint.exe")
     (paint,) = scan(roots, link_io)
     assert paint.places == {Place.DESKTOP, Place.START_MENU}
+
+
+def test_one_unreadable_text_file_does_not_break_the_scan(tmp_path: Path) -> None:
+    env = FakeDesktop(tmp_path)
+    env.make("Paint")
+    (env.desktop / "Broken.url").write_bytes(b"\xff\xfe[\x00I\x00n")  # UTF-16, cut mid-character
+    names = [g.name for g in env.service().scan()]
+    assert names == ["Paint"]
