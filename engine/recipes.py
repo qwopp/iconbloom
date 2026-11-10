@@ -31,6 +31,8 @@ type Json = str | int | float | bool | list[Json] | dict[str, Json] | None
 
 AUTO_COLOR = "auto"
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Theme and recipe ids: they end up in file names.
+ID_PATTERN = re.compile(r"[a-z0-9_]+")
 
 
 class RecipeError(ValueError):
@@ -47,6 +49,9 @@ class Param:
     choices: tuple[str, ...] = ()
     # Largest random nudge a shuffled render may add to a number parameter.
     jitter: float = 0.0
+    # How many colors a "colors" parameter takes (per option, when it lists several).
+    min_len: int = 1
+    max_len: int | None = None
 
 
 @dataclass(frozen=True)
@@ -66,7 +71,7 @@ OPS: Mapping[str, OpDef] = {
     "tint": OpDef(
         ops.tint,
         {
-            "stops": Param("colors", required=True),
+            "stops": Param("colors", required=True, min_len=2),
             "strength": Param("number", 1.0),
         },
     ),
@@ -80,7 +85,7 @@ OPS: Mapping[str, OpDef] = {
     "recolor": OpDef(
         ops.recolor,
         {
-            "stops": Param("colors", required=True),
+            "stops": Param("colors", required=True, min_len=2),
             "strength": Param("number", 1.0),
         },
     ),
@@ -91,7 +96,7 @@ OPS: Mapping[str, OpDef] = {
     "gradient_fill": OpDef(
         ops.gradient_fill,
         {
-            "stops": Param("colors", required=True),
+            "stops": Param("colors", required=True, min_len=2, max_len=2),
             "angle": Param("number", 90.0, low=-360, high=360, jitter=20),
             "knockout": Param("bool", True),
         },
@@ -103,7 +108,7 @@ OPS: Mapping[str, OpDef] = {
     "tile": OpDef(
         ops.tile,
         {
-            "fill": Param("colors", required=True),
+            "fill": Param("colors", required=True, max_len=2),
             "shape": Param("choice", "squircle", choices=_SHAPES),
             "angle": Param("number", 90.0, low=-360, high=360, jitter=20),
             "scale": Param("number", 0.7, low=0.3, high=1.0),
@@ -178,6 +183,8 @@ def parse_recipe(raw: Json, palette: Mapping[str, ops.RGB], assets: Sequence[str
     recipe_id = data.get("id")
     if not isinstance(recipe_id, str) or not recipe_id:
         raise RecipeError("recipe is missing a string 'id'")
+    if not ID_PATTERN.fullmatch(recipe_id):
+        raise RecipeError(f"recipe id {recipe_id!r} may only use a-z, 0-9 and _")
     where = f"recipe '{recipe_id}'"
     unknown = sorted(set(data) - _RECIPE_FIELDS)
     if unknown:
@@ -187,7 +194,7 @@ def parse_recipe(raw: Json, palette: Mapping[str, ops.RGB], assets: Sequence[str
     raw_steps = data.get("ops")
     if not isinstance(label, str):
         raise RecipeError(f"{where}: 'label' must be a string")
-    if family not in set(Family):
+    if not isinstance(family, str) or family not in set(Family):
         known = ", ".join(Family)
         raise RecipeError(f"{where}: 'family' must be one of {known}")
     if not isinstance(raw_steps, list) or not raw_steps:
@@ -262,7 +269,7 @@ def _check_value(
     if spec.kind == "color":
         _check_color(value, where, palette)
     elif spec.kind == "colors":
-        _check_colors(value, where, palette)
+        _check_colors(value, where, palette, spec)
     elif spec.kind == "asset":
         if value not in assets:
             raise RecipeError(f"{where}: unknown asset {value!r}")
@@ -285,19 +292,27 @@ def _check_color(value: Json, where: str, palette: Mapping[str, ops.RGB]) -> Non
         raise RecipeError(f"{where}: {value!r} is not a palette name or #RRGGBB color")
 
 
-def _check_colors(value: Json, where: str, palette: Mapping[str, ops.RGB]) -> None:
-    if isinstance(value, str):
-        _check_color(value, where, palette)
-        return
-    if not isinstance(value, list) or not value:
-        raise RecipeError(f"{where}: expected a color or a list of colors")
-    if all(isinstance(v, list) for v in value):
+def _check_colors(value: Json, where: str, palette: Mapping[str, ops.RGB], spec: Param) -> None:
+    if isinstance(value, list) and value and all(isinstance(v, list) for v in value):
         # A list of lists is a set of stop lists to choose between.
         for option in value:
-            _check_colors(option, where, palette)
+            _check_colors(option, where, palette, spec)
         return
-    for color in value:
+    if isinstance(value, str):
+        colors: list[Json] = [value]
+    elif isinstance(value, list) and value:
+        colors = list(value)
+    else:
+        raise RecipeError(f"{where}: expected a color or a list of colors")
+    for color in colors:
         _check_color(color, where, palette)
+    low, high = spec.min_len, spec.max_len
+    if len(colors) < low or (high is not None and len(colors) > high):
+        if high is None:
+            wanted = f"at least {low}"
+        else:
+            wanted = f"exactly {low}" if low == high else f"{low} to {high}"
+        raise RecipeError(f"{where}: needs {wanted} colors, got {len(colors)}")
 
 
 def parse_hex(value: str) -> ops.RGB:

@@ -13,7 +13,7 @@ from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 
 from engine import ops
-from engine.recipes import Json, Recipe, RecipeError, parse_hex, parse_recipe
+from engine.recipes import ID_PATTERN, Json, Recipe, RecipeError, parse_hex, parse_recipe
 
 THEMES_DIR = Path(__file__).resolve().parent.parent / "themes"
 THEME_FILE = "theme.json"
@@ -57,8 +57,8 @@ def list_themes(themes_dir: Path = THEMES_DIR) -> list[str]:
 def theme_name(theme_id: str, themes_dir: Path = THEMES_DIR) -> str:
     """Display name without loading assets or recipes, for menus."""
     try:
-        raw: Json = json.loads((themes_dir / theme_id / THEME_FILE).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = _read_json(themes_dir / theme_id / THEME_FILE)
+    except ThemeError:
         return theme_id
     name = raw.get("name") if isinstance(raw, dict) else None
     return name if isinstance(name, str) else theme_id
@@ -67,6 +67,8 @@ def theme_name(theme_id: str, themes_dir: Path = THEMES_DIR) -> str:
 def load_theme(theme_id: str, themes_dir: Path = THEMES_DIR) -> Theme:
     folder = themes_dir / theme_id
     path = folder / THEME_FILE
+    if not ID_PATTERN.fullmatch(theme_id):
+        raise ThemeError(f"{folder}: theme folder names may only use a-z, 0-9 and _")
     raw = _read_json(path)
     try:
         return _build(theme_id, folder, raw, load_library(themes_dir))
@@ -93,9 +95,14 @@ def load_library(themes_dir: Path = THEMES_DIR) -> dict[str, dict[str, Json]]:
 
 def _read_json(path: Path) -> Json:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: Notepad and PowerShell often start the file with a byte-order mark.
+        return json.loads(path.read_bytes().decode("utf-8-sig"))
     except FileNotFoundError as exc:
         raise ThemeError(f"{path}: file not found") from exc
+    except OSError as exc:
+        raise ThemeError(f"{path}: can't be read ({exc})") from exc
+    except UnicodeDecodeError as exc:
+        raise ThemeError(f"{path}: isn't UTF-8 text; save it as UTF-8") from exc
     except json.JSONDecodeError as exc:
         raise ThemeError(f"{path}: invalid JSON ({exc})") from exc
 
@@ -126,7 +133,7 @@ def _build(theme_id: str, folder: Path, raw: Json, library: Mapping[str, dict[st
     name = raw.get("name", theme_id)
     if not isinstance(name, str):
         raise ThemeError("'name' must be a string")
-    palette = _palette(raw.get("palette"))
+    palette = with_standard_names(_palette(raw.get("palette")))
     if "decor" in raw:  # only scripts/render_assets.py reads it; check it here all the same
         _palette(raw["decor"], "decor")
     assets = _assets(folder, raw.get("assets", {}))
@@ -141,6 +148,27 @@ def _build(theme_id: str, folder: Path, raw: Json, library: Mapping[str, dict[st
     if duplicates:
         raise ThemeError(f"duplicate recipe id(s): {', '.join(duplicates)}")
     return Theme(id=theme_id, name=name, palette=palette, assets=assets, recipes=recipes)
+
+
+def with_standard_names(palette: Mapping[str, ops.RGB]) -> dict[str, ops.RGB]:
+    """Fill in any of the seven standard names a theme left out, as shades of ``main``.
+
+    The library recipes and the Taskbar page use those names, so a theme that only
+    picks one color still gets every style.
+    """
+    main = palette.get("main")
+    if main is None:
+        raise ThemeError("'palette' needs at least a 'main' color")
+    white, black = (255, 255, 255), (0, 0, 0)
+    derived = {
+        "light": ops.mix(main, white, 0.6),
+        "deep": ops.mix(main, black, 0.3),
+        "ink": ops.mix(main, black, 0.75),
+        "accent": ops.mix(main, white, 0.25),
+        "peach": ops.mix(main, (255, 190, 150), 0.5),
+        "cream": ops.mix(main, white, 0.88),
+    }
+    return derived | dict(palette)
 
 
 def _palette(raw: Json, field: str = "palette") -> dict[str, ops.RGB]:
@@ -165,6 +193,8 @@ def _assets(folder: Path, raw: Json) -> dict[str, Image.Image]:
         if not isinstance(filename, str):
             raise ThemeError(f"asset '{key}' must be a file name")
         path = folder / filename
+        if not path.resolve().is_relative_to(folder.resolve()):
+            raise ThemeError(f"asset '{key}': {filename} must be inside the theme folder")
         try:
             with Image.open(path) as img:
                 assets[key] = img.convert("RGBA")
@@ -172,4 +202,6 @@ def _assets(folder: Path, raw: Json) -> dict[str, Image.Image]:
             raise ThemeError(f"asset '{key}': {filename} not found") from exc
         except UnidentifiedImageError as exc:
             raise ThemeError(f"asset '{key}': {filename} is not an image") from exc
+        except OSError as exc:  # a folder, a damaged PNG, no permission...
+            raise ThemeError(f"asset '{key}': {filename} can't be read ({exc})") from exc
     return assets

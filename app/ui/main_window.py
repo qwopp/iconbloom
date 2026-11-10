@@ -41,7 +41,7 @@ from app.ui.style_picker import StylePicker
 from app.ui.taskbar_page import TaskbarPage
 from app.ui.update_flow import UpdateFlow
 from app.updates import Updater
-from engine.themes import DEFAULT_THEME
+from engine.themes import DEFAULT_THEME, Theme, ThemeError
 from platform_win.shortcuts import Place
 
 log = logging.getLogger(__name__)
@@ -71,8 +71,8 @@ class MainWindow(QMainWindow):
         self._hard_refresh = hard_refresh
         self._wallpaper = wallpaper
         self._theme_names = service.styles.theme_names()
-        known = [theme_id for theme_id, _ in self._theme_names]
-        theme = service.styles.theme(DEFAULT_THEME if DEFAULT_THEME in known else known[0])
+        theme, broken = self._first_working_theme()
+        self._theme_id = theme.id
 
         self.setWindowTitle("Iconbloom")
         self.setWindowIcon(QIcon(str(APP_ICON)))
@@ -100,6 +100,11 @@ class MainWindow(QMainWindow):
             close_app=self.close,
         )
         self._build(theme.id)
+        if broken:
+            self.notice.show_message(
+                f"The theme “{broken[0]}” couldn't be loaded, so another one is showing. "
+                "Its file has a mistake; the log says which."
+            )
         self._connect()
         self.set_dark_mode(self._wants_dark_mode(), save=False)
 
@@ -278,14 +283,40 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         self.picker.update_actions(self.shortcuts.selected_groups())
 
+    def _first_working_theme(self) -> tuple[Theme, list[str]]:
+        """The default theme, or the first that loads; and the names of any that didn't."""
+        ids = [theme_id for theme_id, _ in self._theme_names]
+        names = dict(self._theme_names)
+        if DEFAULT_THEME in ids:
+            ids.remove(DEFAULT_THEME)
+            ids.insert(0, DEFAULT_THEME)
+        broken: list[str] = []
+        for theme_id in ids:
+            try:
+                return self.service.styles.theme(theme_id), broken
+            except (ThemeError, OSError) as exc:
+                log.error("theme %s can't be loaded: %s", theme_id, exc)
+                broken.append(names[theme_id])
+        raise ThemeError("no theme could be loaded")
+
     def _on_theme_changed(self) -> None:
         theme_id = self.theme_box.currentData()
-        if isinstance(theme_id, str):
-            theme = guarded(self, lambda: self.service.styles.theme(theme_id))
-            if theme is not None:
-                self.picker.set_theme(theme)
-                if self.taskbar_page is not None:
-                    self.taskbar_page.set_theme(theme)
+        if not isinstance(theme_id, str) or theme_id == self._theme_id:
+            return
+
+        def switch() -> bool:
+            theme = self.service.styles.theme(theme_id)
+            self.picker.set_theme(theme)
+            if self.taskbar_page is not None:
+                self.taskbar_page.set_theme(theme)
+            return True
+
+        if guarded(self, switch):
+            self._theme_id = theme_id
+        else:
+            # Stay on the theme that works, and show it as the one picked.
+            with QSignalBlocker(self.theme_box):
+                self.theme_box.setCurrentIndex(self.theme_box.findData(self._theme_id))
 
     # ---- pages --------------------------------------------------------------
 
@@ -298,14 +329,18 @@ class MainWindow(QMainWindow):
         if taskbar is None:
             return
         if self.taskbar_page is None:
-            theme_id = str(self.theme_box.currentData())
-            self.taskbar_page = TaskbarPage(
-                taskbar,
-                self.jobs,
-                self.service.styles.theme(theme_id),
-                self._taskbar_icons,
-                self._wallpaper,
+            theme = guarded(self, lambda: self.service.styles.theme(self._theme_id))
+            if theme is None:
+                return
+            page = guarded(
+                self,
+                lambda: TaskbarPage(
+                    taskbar, self.jobs, theme, self._taskbar_icons, self._wallpaper
+                ),
             )
+            if page is None:
+                return
+            self.taskbar_page = page
             self.taskbar_page.said.connect(self._say)
             self.pages.addWidget(self.taskbar_page)
         self.page_buttons[1].setChecked(True)

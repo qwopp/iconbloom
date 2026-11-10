@@ -34,14 +34,14 @@ def test_clear_and_clear_all(tmp_path: Path) -> None:
 
 
 def test_file_tags_differ_per_look() -> None:
-    assert Choice("t", "r").file_tag == "t_r"
-    assert Choice("t", "r", seed=2).file_tag == "t_r_s2"
-    assert Choice("", "custom", custom_image="abc.png").file_tag == "custom_abc"
+    assert Choice("t", "r").file_tag == "t-r"
+    assert Choice("t", "r", seed=2).file_tag == "t-r-s2"
+    assert Choice("", "custom", custom_image="abc.png").file_tag == "custom-abc"
     styled = Choice("t", "r", 2, custom_image="abc.png")
     assert styled.uses_own_image
     assert not styled.as_is
     assert Choice.custom("abc.png").as_is
-    assert styled.file_tag == "custom_abc_t_r_s2"
+    assert styled.file_tag == "custom-abc-t-r-s2"
 
 
 def test_styled_own_image_round_trips(tmp_path: Path) -> None:
@@ -100,3 +100,9 @@ def test_older_files_take_own_images_from_applied_choices(tmp_path: Path) -> Non
     # Once saved with images, going back to the app's icon sticks.
     store.set_image("cat", None)
     assert ChoiceStore(path).image("cat") is None
+
+
+def test_file_tags_never_collide() -> None:
+    """Ids may contain "_", so the parts are joined with "-"."""
+    assert Choice("mint", "matcha_tint").file_tag != Choice("mint_matcha", "tint").file_tag
+    assert Choice("t", "r_s5").file_tag != Choice("t", "r", seed=5).file_tag

@@ -46,11 +46,12 @@ class Choice:
     @property
     def file_tag(self) -> str:
         """Part of the generated .ico name; differs whenever the picture would."""
-        style = f"{self.theme}_{self.recipe}" + (f"_s{self.seed}" if self.seed else "")
+        # "-" never appears in an id (a-z, 0-9 and _ only), so no two looks share a tag.
+        style = f"{self.theme}-{self.recipe}" + (f"-s{self.seed}" if self.seed else "")
         if self.custom_image is None:
             return style
-        image = f"{CUSTOM_RECIPE}_{Path(self.custom_image).stem}"
-        return image if self.as_is else f"{image}_{style}"
+        image = f"{CUSTOM_RECIPE}-{Path(self.custom_image).stem}"
+        return image if self.as_is else f"{image}-{style}"
 
 
 class ChoiceStore:

@@ -6,10 +6,17 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from engine import ops
+from engine import ops, taskbar
 from engine.families import Family
 from engine.recipes import render
-from engine.themes import DEFAULT_THEME, ThemeError, list_themes, load_theme
+from engine.themes import (
+    DEFAULT_THEME,
+    THEMES_DIR,
+    ThemeError,
+    list_themes,
+    load_theme,
+    theme_name,
+)
 from tests.conftest import REPRESENTATIVE_SAMPLES, load_sample, sample_names
 
 STYLES_PER_THEME = 20
@@ -139,6 +146,28 @@ def test_asset_loading(tmp_path: Path) -> None:
         ({"recipes": [{"use": "nope"}]}, "no library recipe called 'nope'"),
         ({"colors": {}}, "unknown field"),
         ({"decor": {"fill": "pink"}}, "decor color 'fill'"),
+        ({"palette": {"deep": "#112233"}}, "needs at least a 'main' color"),
+        ({"assets": {"bow": "../outside.png"}}, "must be inside the theme folder"),
+        ({"recipes": [_RECIPE | {"family": ["mono"]}]}, "'family' must be one of"),
+        ({"recipes": [_RECIPE | {"id": "My Style"}]}, "may only use a-z, 0-9 and _"),
+        ({"recipes": [_RECIPE | {"ops": [{"op": "tint", "stops": "main"}]}]}, "at least 2"),
+        ({"recipes": [_RECIPE | {"ops": [{"op": "tint", "stops": ["main"]}]}]}, "at least 2"),
+        (
+            {
+                "recipes": [
+                    _RECIPE | {"ops": [{"op": "tint", "stops": [["main"], ["ink", "main"]]}]}
+                ]
+            },
+            "at least 2",
+        ),
+        (
+            {"recipes": [_RECIPE | {"ops": [{"op": "gradient_fill", "stops": ["main"] * 3}]}]},
+            "exactly 2",
+        ),
+        (
+            {"recipes": [_RECIPE | {"ops": [{"op": "tile", "fill": ["main", "main", "main"]}]}]},
+            "1 to 2",
+        ),
     ],
 )
 def test_bad_theme_is_reported(tmp_path: Path, change: dict[str, object], message: str) -> None:
@@ -186,9 +215,10 @@ def test_recipes_come_from_the_library(tmp_path: Path) -> None:
 
 
 def test_library_recipes_use_the_theme_palette(tmp_path: Path) -> None:
-    _write_library(tmp_path, [_RECIPE | {"id": "inky", "ops": [{"op": "mono", "color": "ink"}]}])
+    recipe = _RECIPE | {"id": "inky", "ops": [{"op": "mono", "color": "glitter"}]}
+    _write_library(tmp_path, [recipe])
     _write_theme(tmp_path, _valid() | {"recipes": ["inky"]})
-    with pytest.raises(ThemeError, match=r"recipe 'inky'.*'ink'"):
+    with pytest.raises(ThemeError, match=r"recipe 'inky'.*'glitter'"):
         load_theme("t", tmp_path)
 
 
@@ -213,3 +243,56 @@ def test_bad_library_is_reported(tmp_path: Path, library: str, message: str) -> 
     _write_theme(tmp_path, _valid())
     with pytest.raises(ThemeError, match=message):
         load_theme("t", tmp_path)
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "cp1252"])
+def test_a_theme_not_saved_as_utf8_is_reported(tmp_path: Path, encoding: str) -> None:
+    folder = tmp_path / "t"
+    folder.mkdir()
+    text = json.dumps(_valid() | {"name": "Pinkë"}, ensure_ascii=False)
+    (folder / "theme.json").write_bytes(text.encode(encoding))
+    with pytest.raises(ThemeError, match="save it as UTF-8"):
+        load_theme("t", tmp_path)
+    assert theme_name("t", tmp_path) == "t"
+
+
+def test_a_utf8_theme_with_a_byte_order_mark_loads(tmp_path: Path) -> None:
+    folder = tmp_path / "t"
+    folder.mkdir()
+    (folder / "theme.json").write_bytes(json.dumps(_valid()).encode("utf-8-sig"))
+    assert load_theme("t", tmp_path).name == "Test"
+
+
+def test_an_asset_that_is_a_folder_is_reported(tmp_path: Path) -> None:
+    _write_theme(tmp_path, _valid() | {"assets": {"bow": "bow.png"}})
+    (tmp_path / "t" / "bow.png").mkdir()
+    with pytest.raises(ThemeError, match="asset 'bow'"):
+        load_theme("t", tmp_path)
+
+
+def test_theme_folder_names_are_checked(tmp_path: Path) -> None:
+    with pytest.raises(ThemeError, match="may only use"):
+        load_theme("My Theme", tmp_path)
+
+
+def test_one_color_is_enough_for_every_library_style(tmp_path: Path) -> None:
+    """Library recipes and the Taskbar page use seven names; the rest come from main."""
+    bundled = load_theme(DEFAULT_THEME)
+    library = json.loads((THEMES_DIR / "_library" / "recipes.json").read_text(encoding="utf-8"))
+    (tmp_path / "_library").mkdir()
+    (tmp_path / "_library" / "recipes.json").write_text(json.dumps(library), encoding="utf-8")
+    theme = {
+        "name": "One color",
+        "palette": {"main": "#3FA7D6"},
+        "assets": {name: f"{name}.png" for name in bundled.assets},
+        "recipes": [r["id"] for r in library["recipes"]],
+    }
+    _write_theme(tmp_path, theme)
+    for name in bundled.assets:
+        bundled.assets[name].save(tmp_path / "t" / f"{name}.png")
+    one = load_theme("t", tmp_path)
+    icon, _ = ops.prepare(load_sample("multicolor"))
+    for recipe in one.recipes:
+        render(recipe, icon, one)
+    taskbar.looks(one.palette)
+    taskbar.gradient_wallpaper((64, 36), one.palette)
