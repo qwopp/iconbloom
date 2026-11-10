@@ -144,8 +144,45 @@ def test_fit_output_sizes_any_result_alike() -> None:
     framed = Image.new("RGBA", (256, 256), (*PINK, 255))
     small = ops.prepare(Image.new("RGBA", (10, 10), (*PINK, 255)), fill=0.4)[0]
     for img in (framed, small):
-        left, top, right, bottom = ops.fit_output(img).getbbox() or (0, 0, 0, 0)
+        left, top, right, bottom = ops.fit_output(img, ops.OUTPUT_FILL).getbbox() or (0, 0, 0, 0)
         assert right - left == bottom - top == round(ops.CANVAS * ops.OUTPUT_FILL)
+
+
+def test_prepare_remembers_how_much_of_its_frame_the_original_filled() -> None:
+    full, _ = ops.prepare(Image.new("RGBA", (64, 64), (*PINK, 255)))
+    assert ops.target_fill(full) == ops.MAX_FILL
+    padded = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    padded.paste((*PINK, 255), (20, 20, 80, 80))
+    icon, _ = ops.prepare(padded)
+    assert icon.info[ops.SOURCE_FILL] == pytest.approx(0.6)
+    assert ops.target_fill(icon) == ops.OUTPUT_FILL
+
+
+def test_fit_output_never_clips_a_soft_edge() -> None:
+    glow = ops.glow(ops.prepare(Image.new("RGBA", (64, 64), (*PINK, 255)))[0], color=PINK)
+    out = ops.fit_output(glow, ops.MAX_FILL)
+    alpha = np.asarray(out.getchannel("A"))
+    assert not alpha[: ops.PAD].any()
+    assert not alpha[-ops.PAD :].any()
+    assert alpha[ops.PAD : ops.PAD + 3].any() or alpha[:, ops.PAD : ops.PAD + 3].any()
+
+
+def test_16_bit_grayscale_keeps_its_shading() -> None:
+    ramp = np.tile(np.linspace(0, 65535, 64, dtype=np.uint16), (64, 1))
+    sixteen = Image.fromarray(ramp)
+    assert sixteen.mode.startswith("I;16")
+    icon, _ = ops.prepare(sixteen)
+    gray = np.asarray(icon.convert("L"))
+    row = gray[ops.CANVAS // 2][gray[ops.CANVAS // 2] > 0]
+    assert row.max() - row.min() > 150
+
+
+def test_an_image_that_vanishes_at_icon_size_is_refused() -> None:
+    faint = Image.new("RGBA", (4000, 4000), (0, 0, 0, 0))
+    faint.putpixel((2000, 2000), (0, 0, 0, 255))
+    faint.putpixel((10, 10), (0, 0, 0, 255))
+    with pytest.raises(ValueError, match="too thin or faint"):
+        ops.prepare(faint)
 
 
 def test_prepare_large_icon_is_not_flagged_upscaled() -> None:

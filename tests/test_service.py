@@ -556,3 +556,17 @@ def test_changes_from_two_threads_take_turns(env: FakeDesktop) -> None:
         worker.join()
     assert not overlaps
     assert all(service.status(g) is Status.THEMED for g in service.scan())
+
+
+def test_a_sideways_phone_photo_is_used_upright(env: FakeDesktop, tmp_path: Path) -> None:
+    photo = Image.new("RGB", (80, 40), (220, 60, 120))
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation: stored sideways, shown turned 90 degrees
+    path = tmp_path / "cat.jpg"
+    photo.save(path, exif=exif)
+    service = env.service()
+    choice = service.styles.store_custom_image(path)
+    assert choice.custom_image is not None
+    source = service.styles.custom_source(choice.custom_image)
+    left, top, right, bottom = source.getbbox() or (0, 0, 0, 0)
+    assert bottom - top > right - left  # tall, as the phone showed it

@@ -8,11 +8,16 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Added
 
+- **Use my own image** also takes JPEG, WebP and GIF files, and phone photos come out the
+  right way up.
 - A theme only needs a `main` color: any of the seven standard palette colors it leaves out
   are mixed from it, so every library style and the Taskbar page work with it.
 
 ### Fixed
 
+- Icons that fill their whole square, like most game icons, are no longer shrunk: every
+  style is now at least as big as the original. Glow styles are no longer smaller than the
+  rest, and an image too faint to show at icon size gets a clear message.
 - A mistake in a custom theme no longer stops Iconbloom from opening or crashes the Taskbar
   page: the window falls back to a theme that works and says which one failed. Theme files
   saved with a byte-order mark load, other encodings get a clear message, and wrong color
