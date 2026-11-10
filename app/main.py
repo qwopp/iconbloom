@@ -14,7 +14,7 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.changes import SKIPPED_EXIT
-from app.elevation import ELEVATED_FLAG, handle_request
+from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
 from app.ui import UI_DIR, palette
@@ -97,12 +97,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(ELEVATED_FLAG, type=Path, metavar="REQUEST", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.elevated is not None:
+        return run_elevated(args.elevated)
     paths = default_app_paths().ensure()
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
-    if args.elevated is not None:
-        return run_elevated_request(paths, args.elevated)
     return revert_everything(paths) if args.revert_all else run_window(paths)
+
+
+def run_elevated(request: Path) -> int:
+    """The elevated copy works in the requesting user's folder, not its own account's."""
+    paths = requester_paths(request)
+    if paths is None:
+        setup_logging(default_app_paths().ensure().logs)
+        log.error("elevated request refused: %s is not a request file", request)
+        return 2
+    setup_logging(paths.ensure().logs)
+    sys.excepthook = log_uncaught
+    return run_elevated_request(paths, request)
 
 
 if __name__ == "__main__":

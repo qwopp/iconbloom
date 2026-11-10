@@ -18,7 +18,7 @@ from typing import Literal, Protocol
 
 from platform_win.elevate import is_inside, run_elevated
 from platform_win.fileio import write_json
-from platform_win.paths import AppPaths
+from platform_win.paths import AppPaths, is_network_path
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +134,18 @@ def handle_request(request_path: Path, work: ElevatedWork, shared: Sequence[Path
         },
     )
     return 0
+
+
+def requester_paths(request: Path) -> AppPaths | None:
+    """The data folder of the user who asked, from where their request file sits.
+
+    The elevated copy may run as a different account (a standard user typing an
+    administrator's password), so its own %LOCALAPPDATA% would be the wrong
+    folder: wrong backups, wrong icons, and a result the app never finds.
+    """
+    if request.name != REQUEST_FILE or not request.is_absolute() or is_network_path(str(request)):
+        return None
+    return AppPaths(request.parent)
 
 
 def _check(
