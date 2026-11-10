@@ -221,7 +221,7 @@ def render(
             if name in step.params or spec.default is not None
         }
         out = op_def.func(out, **kwargs)
-    return out
+    return ops.fit_output(out)
 
 
 def _parse_step(

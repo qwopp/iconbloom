@@ -52,7 +52,8 @@ def build_sheet(
         score = analyze.colorfulness(icon)
         caption = f"{name}\ncolor {score:.0f}" + ("\n(upscaled)" if upscaled else "")
         draw.multiline_text((GAP, y + CELL // 2), caption, fill=TEXT, font=font, anchor="lm")
-        renders = [(icon, icon)] + [
+        shown = ops.fit_output(icon)  # the same size as the styles
+        renders = [(shown, shown)] + [
             (
                 render(recipe, icon, theme, seed=seed),
                 render(recipe, icon, theme, seed=seed, simplified=True),

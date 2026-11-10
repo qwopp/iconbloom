@@ -134,6 +134,20 @@ def test_prepare_centers_and_fills_canvas() -> None:
     assert abs((top + bottom) - ops.CANVAS) <= 1
 
 
+def test_prepare_takes_a_fill() -> None:
+    canvas, _ = ops.prepare(Image.new("RGBA", (40, 20), (*PINK, 255)), fill=0.5)
+    left, _, right, _ = canvas.getbbox() or (0, 0, 0, 0)
+    assert right - left == round(ops.CANVAS * 0.5)
+
+
+def test_fit_output_sizes_any_result_alike() -> None:
+    framed = Image.new("RGBA", (256, 256), (*PINK, 255))
+    small = ops.prepare(Image.new("RGBA", (10, 10), (*PINK, 255)), fill=0.4)[0]
+    for img in (framed, small):
+        left, top, right, bottom = ops.fit_output(img).getbbox() or (0, 0, 0, 0)
+        assert right - left == bottom - top == round(ops.CANVAS * ops.OUTPUT_FILL)
+
+
 def test_prepare_large_icon_is_not_flagged_upscaled() -> None:
     _, upscaled = ops.prepare(Image.new("RGBA", (256, 256), (*PINK, 255)))
     assert not upscaled

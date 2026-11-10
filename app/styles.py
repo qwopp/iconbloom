@@ -50,7 +50,7 @@ class Styles:
         if choice.custom_image is not None:
             prepared = self.custom_source(choice.custom_image)
             if choice.as_is:
-                own = prepared.copy()  # the cached image stays untouched
+                own = ops.fit_output(prepared)
                 return own, own
         if prepared is None:
             raise ValueError(f"rendering {choice.file_tag} needs the original icon")

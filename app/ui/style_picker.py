@@ -279,7 +279,9 @@ class StylePicker(QWidget):
             previews = (
                 []
                 if image is None
-                else [Preview("Your image", Choice.custom(image), to_qimage(source))]
+                else [
+                    Preview("Your image", Choice.custom(image), to_qimage(ops.fit_output(source)))
+                ]
             )
             previews += [
                 Preview(
@@ -290,7 +292,8 @@ class StylePicker(QWidget):
                 )
                 for recipe in analyze.order_recipes(theme.recipes, source)
             ]
-            return PreviewSet(target.key, icon, to_qimage(icon), upscaled, previews)
+            shown = to_qimage(ops.fit_output(icon))  # the same size as the styles
+            return PreviewSet(target.key, icon, shown, upscaled, previews)
 
         self._token += 1
         token = self._token

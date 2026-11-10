@@ -28,6 +28,9 @@ PAD = 2
 # Share of the canvas the prepared icon fills. The rest is headroom for
 # outlines, glows and shadows added by later ops.
 CONTENT_FILL = 0.78
+# Share of the canvas every finished style is fitted to, framed or not, so a theme's
+# icons all come out one size, about as big as a normal Windows icon.
+OUTPUT_FILL = 0.92
 # Supersampling factor for drawn shapes, which Pillow does not anti-alias.
 _SUPERSAMPLE = 4
 _ALPHA_VISIBLE = 8
@@ -65,7 +68,9 @@ _LOGO_MIN_SHARE = 0.03
 _LOGO_MAX_SHARE = 0.7
 
 
-def prepare(icon: Image.Image, size: int = CANVAS) -> tuple[Image.Image, bool]:
+def prepare(
+    icon: Image.Image, size: int = CANVAS, *, fill: float = CONTENT_FILL
+) -> tuple[Image.Image, bool]:
     """Center an icon of any size on a square transparent canvas, ready for ops.
 
     Returns the canvas and whether the icon had to be enlarged a lot, in which
@@ -76,7 +81,7 @@ def prepare(icon: Image.Image, size: int = CANVAS) -> tuple[Image.Image, bool]:
     if bbox is None:
         raise ValueError("icon has no visible pixels")
     content = rgba.crop(bbox)
-    target = round(size * CONTENT_FILL)
+    target = round(size * fill)
     scale = target / max(content.size)
     upscaled = max(content.size) * 2 <= target
     new_size = (max(1, round(content.width * scale)), max(1, round(content.height * scale)))
@@ -91,6 +96,11 @@ def prepare(icon: Image.Image, size: int = CANVAS) -> tuple[Image.Image, bool]:
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     canvas.alpha_composite(content, ((size - new_size[0]) // 2, (size - new_size[1]) // 2))
     return canvas, upscaled
+
+
+def fit_output(img: Image.Image) -> Image.Image:
+    """Fit a finished style to ``OUTPUT_FILL``, whatever frame or outline it added."""
+    return _finish(prepare(img, img.width, fill=OUTPUT_FILL)[0])
 
 
 def tint(img: Image.Image, *, stops: Sequence[RGB], strength: float = 1.0) -> Image.Image:
