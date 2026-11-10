@@ -308,15 +308,17 @@ def scan(
         for path in _items(root):
             try:
                 info = io.read(path)
-            except OSError:
-                continue  # unreadable or half-written; leave it alone
+            except (OSError, ValueError) as exc:
+                # Unreadable, half-written or not valid text; leave it out, not the whole list.
+                log.warning("skipped %s while scanning: %s", path, exc)
+                continue
             shortcut = Shortcut(path=path, source=root.source, info=info)
             if not is_noise(shortcut.name, info.target):
                 shortcuts.append(shortcut)
     for icon in windows_icons:
         try:
             info = io.read(icon.path)
-        except OSError:
+        except (OSError, ValueError):
             continue
         shortcuts.append(Shortcut(icon.path, Source.WINDOWS, info, label=icon.name))
     covered = {group_key(s) for s in shortcuts}

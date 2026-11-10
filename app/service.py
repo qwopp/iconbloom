@@ -66,6 +66,10 @@ from platform_win.taskbar import windows_taskbar_io
 
 log = logging.getLogger(__name__)
 
+# What one item can fail with without stopping the rest of a batch: a locked or
+# unreadable file, unreadable text, or an item in a state we won't touch.
+ITEM_ERRORS = (OSError, ValueError, ShortcutStateError)
+
 # Re-exported so callers can import everything about a change from one place.
 __all__ = [
     "DECLINED_REASON",
@@ -258,33 +262,36 @@ class IconService:
         report = ChangeReport(dry_run)
         shared: list[ElevatedItem] = []
         chosen: dict[Path, tuple[ShortcutGroup, Choice]] = {}
-        for i, target in enumerate(targets):
-            if progress is not None and not progress(i, target):
-                break
-            choice = choice_for(target)
-            if choice is None:
-                continue
-            if not target.own_shortcuts and not include_shared:
-                report.skipped += [(s.path, SHARED_REASON) for s in target.shortcuts]
-                continue
-            try:
-                icon_file = self._themed_icon(
-                    target, choice, (prepared or {}).get(target.key), dry_run=dry_run
-                )
-            except Exception as exc:
-                if not catch:
-                    raise
-                log.exception("could not theme %s", target.name)
-                report.skipped.append((target.primary.path, str(exc)))
-                continue
-            report.written.append(icon_file)
-            queue = shared if include_shared else None
-            touched = self._point_at(target, icon_file, report, queue, dry_run=dry_run)
-            chosen.update(dict.fromkeys(touched, (target, choice)))
-        if shared:
-            report.extend(self._elevated("apply", shared, dry_run=dry_run))
-        if not dry_run:
-            self._remember_choices(report, chosen)
+        try:
+            for i, target in enumerate(targets):
+                if progress is not None and not progress(i, target):
+                    break
+                choice = choice_for(target)
+                if choice is None:
+                    continue
+                if not target.own_shortcuts and not include_shared:
+                    report.skipped += [(s.path, SHARED_REASON) for s in target.shortcuts]
+                    continue
+                try:
+                    icon_file = self._themed_icon(
+                        target, choice, (prepared or {}).get(target.key), dry_run=dry_run
+                    )
+                except Exception as exc:
+                    if not catch:
+                        raise
+                    log.exception("could not theme %s", target.name)
+                    report.skipped.append((target.primary.path, str(exc)))
+                    continue
+                report.written.append(icon_file)
+                queue = shared if include_shared else None
+                touched = self._point_at(target, icon_file, report, queue, dry_run=dry_run)
+                chosen.update(dict.fromkeys(touched, (target, choice)))
+            if shared:
+                report.extend(self._elevated("apply", shared, dry_run=dry_run))
+        finally:
+            # Whatever was changed before a failure is still remembered for Reapply.
+            if not dry_run:
+                self._remember_choices(report, chosen)
         return report
 
     def _point_at(
@@ -311,7 +318,9 @@ class IconService:
                     report.created.append(path)
                 else:
                     self._apply_one(path, icon_file, dry_run=dry_run)
-            except ShortcutStateError as exc:
+            except ITEM_ERRORS as exc:
+                if not isinstance(exc, ShortcutStateError):
+                    log.warning("could not change %s: %s", path, exc)
                 report.skipped.append((path, str(exc)))
                 continue
             report.changed.append(path)
@@ -328,8 +337,9 @@ class IconService:
         self, report: ChangeReport, chosen: Mapping[Path, tuple[ShortcutGroup, Choice]]
     ) -> None:
         for path in report.changed:
-            target, choice = chosen[path]
-            self.choices.set(target.key, choice)
+            if path in chosen:
+                target, choice = chosen[path]
+                self.choices.set(target.key, choice)
         if report.changed:
             self._notify(report.changed)
             log.info("applied styles to %d shortcuts", len(report.changed))
@@ -382,7 +392,11 @@ class IconService:
         if not dry_run:
             self.choices.clear_all()
         if self.taskbar is not None:
-            report.taskbar += self.taskbar.revert(dry_run=dry_run)
+            try:
+                report.taskbar += self.taskbar.revert(dry_run=dry_run)
+            except OSError as exc:
+                log.warning("could not restore the taskbar settings: %s", exc)
+                report.skipped.append((self.paths.taskbar, f"taskbar settings: {exc}"))
         return report
 
     def _revert_paths(self, paths: Sequence[Path], *, dry_run: bool) -> ChangeReport:
@@ -393,8 +407,13 @@ class IconService:
                 continue
             if self.is_shared(path) and self._io.exists(path):
                 shared.append(ElevatedItem(path))
-            elif self._revert_one(path, dry_run=dry_run):
-                report.changed.append(path)
+                continue
+            try:
+                if self._revert_one(path, dry_run=dry_run):
+                    report.changed.append(path)
+            except ITEM_ERRORS as exc:
+                log.warning("could not revert %s: %s", path, exc)
+                report.skipped.append((path, str(exc)))
         if shared:
             report.extend(self._elevated("revert", shared, dry_run=dry_run))
         if not dry_run and report.changed:
@@ -421,6 +440,10 @@ class IconService:
         except ElevationDeclinedError:
             report.skipped += [(i.shortcut, DECLINED_REASON) for i in items]
             return report
+        except OSError as exc:
+            log.warning("the permission helper failed: %s", exc)
+            report.skipped += [(i.shortcut, f"the permission helper failed: {exc}") for i in items]
+            return report
         finally:
             # The elevated copy wrote to backup.json; pick up its entries.
             self.manifest.reload()
@@ -434,7 +457,7 @@ class IconService:
         for shortcut, icon_file in items:
             try:
                 self._apply_one(shortcut, icon_file, dry_run=False)
-            except (ShortcutStateError, OSError) as exc:
+            except ITEM_ERRORS as exc:
                 result.skipped.append((shortcut, str(exc)))
             else:
                 result.changed.append(shortcut)
@@ -453,7 +476,7 @@ class IconService:
                 continue
             try:
                 self._revert_one(shortcut, dry_run=False, whole_file=False)
-            except OSError as exc:
+            except ITEM_ERRORS as exc:
                 result.skipped.append((shortcut, str(exc)))
             else:
                 result.changed.append(shortcut)
@@ -525,11 +548,15 @@ class IconService:
                     and self.is_ours(s.info.icon)
                     and self.manifest.get(s.path) is None
                 ):
-                    found.append(s.path)
                     if not dry_run:
-                        icon = self._pin_icon(target)
-                        self._io.set_icon(s.path, icon)
-                        self.manifest.record_original(s.path, icon, self._io.snapshot(s.path))
+                        try:
+                            icon = self._pin_icon(target)
+                            self._io.set_icon(s.path, icon)
+                            self.manifest.record_original(s.path, icon, self._io.snapshot(s.path))
+                        except (*ITEM_ERRORS, ExtractionError) as exc:
+                            log.warning("could not take on the pinned copy %s: %s", s.path, exc)
+                            continue
+                    found.append(s.path)
         return found
 
     def _pin_icon(self, target: ShortcutGroup) -> IconLocation:

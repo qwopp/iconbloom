@@ -76,10 +76,11 @@ def test_backup_is_on_disk_before_the_shortcut_changes(
     service = env.service()
 
     def crash(path: Path, icon: IconLocation) -> None:
-        raise OSError("simulated crash while saving the shortcut")
+        # Not an OSError: that is one locked item, which a batch skips and goes on.
+        raise RuntimeError("simulated crash while saving the shortcut")
 
     monkeypatch.setattr(env.link_io, "set_icon", crash)
-    with pytest.raises(OSError, match="simulated crash"):
+    with pytest.raises(RuntimeError, match="simulated crash"):
         service.apply(_group(service, "Paint"), CHOICE)
 
     # A fresh process sees the recorded original and the untouched shortcut.
@@ -101,10 +102,10 @@ def test_crash_after_shortcut_saved_still_reverts(
     service = env.service()
 
     def crash(path: Path, icon_file: Path, state: bytes | None) -> None:
-        raise OSError("simulated crash before the hash was noted")
+        raise RuntimeError("simulated crash before the hash was noted")
 
     monkeypatch.setattr(service.manifest, "mark_applied", crash)
-    with pytest.raises(OSError, match="simulated crash"):
+    with pytest.raises(RuntimeError, match="simulated crash"):
         service.apply(_group(service, "Paint"), CHOICE)
     monkeypatch.undo()
 
@@ -406,3 +407,66 @@ def test_custom_image_must_have_visible_pixels(env: FakeDesktop, tmp_path: Path)
     Image.new("RGBA", (16, 16)).save(blank)
     with pytest.raises(ValueError, match="no visible pixels"):
         env.service().styles.store_custom_image(blank)
+
+
+def _lock(env: FakeDesktop, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Make one shortcut fail to save, like a read-only or locked file on Windows."""
+    real_set, real_restore = env.link_io.set_icon, env.link_io.restore
+
+    def set_icon(path: Path, icon: IconLocation) -> None:
+        if path.stem == name:
+            raise PermissionError(f"{path} is read-only")
+        real_set(path, icon)
+
+    def restore(path: Path, state: bytes | None) -> None:
+        if path.stem == name:
+            raise PermissionError(f"{path} is read-only")
+        real_restore(path, state)
+
+    monkeypatch.setattr(env.link_io, "set_icon", set_icon)
+    monkeypatch.setattr(env.link_io, "restore", restore)
+
+
+def test_a_locked_shortcut_does_not_stop_the_batch(
+    env: FakeDesktop, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("Alpha", "Locked", "Gamma"):
+        env.make(name)
+    service = env.service()
+    _lock(env, monkeypatch, "Locked")
+    report = service.apply_many(service.scan(), lambda g: CHOICE)
+    assert sorted(p.stem for p in report.changed) == ["Alpha", "Gamma"]
+    assert [p.stem for p, _ in report.skipped] == ["Locked"]
+    assert service.status(_group(service, "Gamma")) is Status.THEMED
+    assert service.choices.get(_group(service, "Gamma").key) == CHOICE
+
+
+def test_revert_all_goes_on_past_a_locked_shortcut(
+    env: FakeDesktop, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("Alpha", "Locked", "Gamma"):
+        env.make(name)
+    service = env.service()
+    service.apply_many(service.scan(), lambda g: CHOICE)
+    _lock(env, monkeypatch, "Locked")
+    report = service.revert_all()
+    assert [p.stem for p, _ in report.skipped] == ["Locked"]
+    assert service.status(_group(service, "Alpha")) is Status.ORIGINAL
+    assert service.status(_group(service, "Gamma")) is Status.ORIGINAL
+
+
+def test_a_failing_permission_helper_skips_only_shared_items(
+    env: FakeDesktop, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env.make("Paint")
+    env.make("Admin", folder=env.common)
+    service = env.service()
+
+    def broken(action: object, items: object) -> object:
+        raise OSError("the helper ended with exit code 3")
+
+    monkeypatch.setattr(service, "_elevator", broken)
+    report = service.apply_many(service.scan(), lambda g: CHOICE, include_shared=True)
+    assert [p.stem for p in report.changed] == ["Paint"]
+    assert "permission helper failed" in report.skipped[0][1]
+    assert service.choices.get(_group(service, "Paint").key) == CHOICE
