@@ -61,6 +61,9 @@ class TaskbarService:
             light=state.light_windows and state.accent is None,
         )
 
+    def windows_is_light(self) -> bool:
+        return self._io.read().light_windows
+
     def needs_dark_windows(self, wanted: BarSpec) -> bool:
         """Windows only colors the taskbar in dark mode, so applying ``wanted`` switches it."""
         return wanted.color is not None and self._io.read().light_windows

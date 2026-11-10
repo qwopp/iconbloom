@@ -8,11 +8,15 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Added
 
-- Taskbar looks for every theme (soft, deep and Windows' default, each with or without frosted
-  glass) and a preview of the taskbar in them:
-  `uv run python -m engine.taskbar --theme mint_matcha`.
-- `iconbloom-cli taskbar apply --look deep --frosted --left` gives the taskbar a theme's look,
-  and `taskbar revert` puts it back. **Revert all** and uninstalling put the taskbar back too.
+- A **Taskbar** page (switch at the top of the window) gives the taskbar itself your theme's
+  look, with a live preview: a soft or deep theme color or Windows' own, frosted glass,
+  centered or left, smaller buttons, the search box, Task view and hiding automatically.
+  Everything changes instantly through Windows' own settings, with no Explorer restart.
+  Colors are darkened just enough for the white clock to stay readable.
+- **Revert** on the page, **Revert all** and uninstalling put the taskbar back the way it was.
+  Anything you changed yourself in Windows' Settings since stays as you set it.
+- From the command line: `iconbloom-cli taskbar apply --look deep --frosted --left`,
+  `iconbloom-cli taskbar revert`, and `python -m engine.taskbar` to preview a theme's looks.
 
 ## [0.6.1] - 2026-11-09
 
