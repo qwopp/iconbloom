@@ -2,6 +2,7 @@
 
 A theme is a folder under `themes/` that contains a `theme.json` and the PNG decorations it
 uses. Iconbloom lists every such folder in its theme dropdown. You don't need to write any code.
+Folder names and recipe ids use only `a-z`, `0-9` and `_`, and `theme.json` is saved as UTF-8.
 
 ```
 themes/
@@ -56,7 +57,8 @@ A full recipe has an `id` (unique, used in file names), a `label` (shown under t
 ## The library
 
 `_library/recipes.json` holds the shared recipes; read it for the ids. They are written in
-seven palette names, so a theme that uses them defines all seven:
+seven palette names. Only `main` is required: any you leave out is mixed from `main`, so a
+one-color theme still gets every style.
 
 | Name | Role |
 |---|---|

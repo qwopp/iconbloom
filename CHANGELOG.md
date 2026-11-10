@@ -6,8 +6,17 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A theme only needs a `main` color: any of the seven standard palette colors it leaves out
+  are mixed from it, so every library style and the Taskbar page work with it.
+
 ### Fixed
 
+- A mistake in a custom theme no longer stops Iconbloom from opening or crashes the Taskbar
+  page: the window falls back to a theme that works and says which one failed. Theme files
+  saved with a byte-order mark load, other encodings get a clear message, and wrong color
+  counts are reported when the theme loads instead of when it draws.
 - Updates clean up after themselves: old installers and half-finished downloads are deleted,
   **Cancel** really stops a download, and clicking **Update now** twice downloads once.
 - A list refresh that started before a change (for example when switching back to the
