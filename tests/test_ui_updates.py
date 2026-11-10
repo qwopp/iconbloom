@@ -59,6 +59,7 @@ def test_leftover_installers_are_cleared_at_startup(
     (folder / "Iconbloom-Setup-0.1.0.exe").write_bytes(b"an installer that already ran")
     window = open_window(desktop, FakeUpdater(), qtbot)
     qtbot.waitUntil(lambda: not any(folder.iterdir()), timeout=5_000)
+    qtbot.waitUntil(lambda: not window.jobs.busy, timeout=5_000)  # let the first scan land
     window.close()
 
 
