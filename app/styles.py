@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 from app.choices import Choice
 from engine import ops
 from engine.ico import build_ico
-from engine.recipes import render
+from engine.recipes import RENDER_VERSION, render
 from engine.themes import THEMES_DIR, Theme, list_themes, load_theme, theme_name
 from platform_win.fileio import atomic_write
 from platform_win.paths import AppPaths
@@ -80,7 +80,9 @@ class Styles:
         return Choice.custom(name)
 
     def icon_path(self, slug: str, choice: Choice) -> Path:
-        return self._paths.icons / f"{slug}_{choice.file_tag}.ico"
+        # The render version is in the name: a redrawn icon at the old path would keep
+        # showing the old picture from Windows' icon cache.
+        return self._paths.icons / f"{slug}_{choice.file_tag}-r{RENDER_VERSION}.ico"
 
     def write_icon(
         self,

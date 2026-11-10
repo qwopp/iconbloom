@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from engine.recipes import RENDER_VERSION
 from platform_win.fileio import write_json
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class ChoiceStore:
         # The user's own image per app, shown in the picker until they go back to the
         # app's icon. Kept apart from choices so a revert doesn't forget it.
         self._images: dict[str, str] = {}
+        # Which RENDER_VERSION drew each app's icon; files from before this was kept say 1.
+        self._drawn: dict[str, int] = {}
         self._load()
 
     def get(self, key: str) -> Choice | None:
@@ -72,8 +75,13 @@ class ChoiceStore:
 
     def set(self, key: str, choice: Choice) -> None:
         self._choices[key] = choice
+        self._drawn[key] = RENDER_VERSION
         self._skipped.discard(key)
         self._save()
+
+    def drawn_with(self, key: str) -> int:
+        """The RENDER_VERSION that drew this app's current icon."""
+        return self._drawn.get(key, 1)
 
     def clear(self, key: str) -> None:
         if self._choices.pop(key, None) is not None or key in self._skipped:
@@ -114,6 +122,7 @@ class ChoiceStore:
                 raise ValueError("unknown version")
             self._choices = {k: Choice(**v) for k, v in raw["choices"].items()}
             self._skipped = set(raw["skipped"])
+            self._drawn = {str(k): int(v) for k, v in raw.get("drawn", {}).items()}
             if "images" in raw:
                 self._images = {str(k): str(v) for k, v in raw["images"].items()}
             else:
@@ -127,7 +136,7 @@ class ChoiceStore:
             aside = self._path.with_name(f"{self._path.name}.unreadable-{stamp}")
             self._path.replace(aside)
             log.warning("could not read %s (%s); moved it to %s", self._path, exc, aside.name)
-            self._choices, self._skipped, self._images = {}, set(), {}
+            self._choices, self._skipped, self._images, self._drawn = {}, set(), {}, {}
 
     def _save(self) -> None:
         payload = {
@@ -135,5 +144,6 @@ class ChoiceStore:
             "choices": {k: asdict(v) for k, v in self._choices.items()},
             "skipped": sorted(self._skipped),
             "images": self._images,
+            "drawn": {k: v for k, v in self._drawn.items() if k in self._choices},
         }
         write_json(self._path, payload)

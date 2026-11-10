@@ -8,6 +8,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Added
 
+- After an update that changes how icons are drawn, Iconbloom offers to **Redraw my icons**
+  so icons you styled earlier get the new look, such as keeping their full size.
 - **Use my own image** also takes JPEG, WebP and GIF files, and phone photos come out the
   right way up.
 - A theme only needs a `main` color: any of the seven standard palette colors it leaves out

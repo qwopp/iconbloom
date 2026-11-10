@@ -21,6 +21,8 @@ class Settings:
     shared_shortcuts: str = "ask"
     # True or False once chosen in More > Dark mode; until then, follow Windows.
     dark_mode: bool | None = None
+    # The RENDER_VERSION whose "redraw your icons" notice the user said Not now to.
+    redraw_declined: int = 0
 
     @classmethod
     def load(cls, path: Path) -> "Settings":

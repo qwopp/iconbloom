@@ -10,6 +10,7 @@ from PIL import Image
 
 from app.choices import Choice
 from app.service import DECLINED_REASON, SHARED_REASON, IconService, Status
+from engine.recipes import RENDER_VERSION
 from engine.themes import DEFAULT_THEME
 from platform_win.backup import BackupCorruptError
 from platform_win.shortcuts import IconLocation, ShortcutGroup
@@ -570,3 +571,21 @@ def test_a_sideways_phone_photo_is_used_upright(env: FakeDesktop, tmp_path: Path
     source = service.styles.custom_source(choice.custom_image)
     left, top, right, bottom = source.getbbox() or (0, 0, 0, 0)
     assert bottom - top > right - left  # tall, as the phone showed it
+
+
+def test_icons_drawn_by_an_older_version_can_be_redrawn(env: FakeDesktop) -> None:
+    lnk = env.make("Paint")
+    service = env.service()
+    service.apply(_group(service, "Paint"), CHOICE)
+    first = env.link_io.read(lnk).icon
+    assert service.drawn_before(service.scan()) == []
+    # As if an older Iconbloom had drawn it.
+    key = _group(service, "Paint").key
+    service.choices._drawn[key] = 1  # pyright: ignore[reportPrivateUsage]
+    assert [g.name for g in service.drawn_before(service.scan())] == ["Paint"]
+    report = service.redraw(service.scan())
+    assert report.changed == [lnk]
+    assert service.drawn_before(service.scan()) == []
+    assert service.status(_group(service, "Paint")) is Status.THEMED
+    assert f"-r{RENDER_VERSION}" in env.link_io.read(lnk).icon.path
+    assert first.path == env.link_io.read(lnk).icon.path  # same version, same file name

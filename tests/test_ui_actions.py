@@ -322,3 +322,18 @@ def test_one_change_at_a_time(
     assert calls == [1]
     assert window.picker.apply_button.isEnabled()
     assert window.revert_all_button.isEnabled()
+
+
+def test_old_icons_are_offered_a_redraw_once(harness: Harness) -> None:
+    window = harness.window
+    window.picker.choose(window.picker.cards[3])
+    window.apply_chosen()
+    harness.settle()
+    key = next(g.key for g in window.shortcuts.groups if g.name == "Arcade")
+    window.service.choices._drawn[key] = 1  # pyright: ignore[reportPrivateUsage]
+    window._on_scanned(4)  # pyright: ignore[reportPrivateUsage]
+    assert "draws icons better now" in window.notice.label.text()
+    window.redraw_old()
+    harness.settle()
+    assert window.service.drawn_before(window.shortcuts.groups) == []
+    assert harness.status("Arcade") is Status.THEMED
