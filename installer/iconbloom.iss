@@ -98,3 +98,10 @@ begin
              mbError, MB_OK);
   end;
 end;
+
+// "Fix reset icons at sign-in" would otherwise start an Iconbloom.exe that's gone.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Iconbloom');
+end;

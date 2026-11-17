@@ -219,6 +219,15 @@ class MainWindow(QMainWindow):
             action.triggered.connect(without_arguments(slot))
             self.change_actions.append(action)
         self.more_menu.addSeparator()
+        self.sign_in_action = self.more_menu.addAction("Fix reset icons at sign-in")
+        self.sign_in_action.setCheckable(True)
+        self.sign_in_action.setToolTip(
+            "When you sign in to Windows, quietly put back icons an app update reset, "
+            "without opening Iconbloom"
+        )
+        self.sign_in_action.setVisible(self.service.sign_in is not None)
+        self._show_sign_in()
+        self.sign_in_action.toggled.connect(self._on_sign_in_toggled)
         self.dark_mode_action = self.more_menu.addAction("Dark mode")
         self.dark_mode_action.setCheckable(True)
         self.dark_mode_action.setToolTip("Switch Iconbloom's window between light and dark")
@@ -614,6 +623,7 @@ class MainWindow(QMainWindow):
 
     def _after_revert_all(self, report: ChangeReport) -> None:
         self._say(_reverted(report))
+        self._show_sign_in()  # Revert all stops it too
         if self.taskbar_page is not None:
             self.taskbar_page.refresh()
 
@@ -668,6 +678,19 @@ class MainWindow(QMainWindow):
             lambda _progress: self.service.cleanup(),
             lambda report: self._say(f"Removed {count(report.removed, 'unused icon file')}"),
         )
+
+    def _on_sign_in_toggled(self, on: bool) -> None:
+        sign_in = self.service.sign_in
+        if sign_in is not None:
+            guarded(self, lambda: sign_in.set(on))
+        self._show_sign_in()
+
+    def _show_sign_in(self) -> None:
+        """Tick the item to match Windows' startup list, which the person can also edit."""
+        sign_in = self.service.sign_in
+        on = guarded(self, sign_in.is_on) if sign_in is not None else False
+        with QSignalBlocker(self.sign_in_action):
+            self.sign_in_action.setChecked(bool(on))
 
     def _on_reapply_toggled(self, enabled: bool) -> None:
         self.settings.reapply_at_start = enabled

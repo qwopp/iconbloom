@@ -25,6 +25,7 @@ from platform_win.shortcuts import (
     Source,
     desktop_folders_root,
 )
+from platform_win.startup import FIX_ICONS_FLAG, SignInRun
 from platform_win.store_apps import StoreApp, StoreAppIO
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
@@ -235,6 +236,9 @@ class FakeDesktop:
         self.attributes = FakeAttributes()
         self.registry = FakeRegistry()
         self.taskbar = FakeTaskbar()
+        # HKCU's Run key, for running at sign-in.
+        self.run_key = FakeUserRegistry()
+        self.sign_in = SignInRun(self.run_key, f'"Iconbloom.exe" {FIX_ICONS_FLAG}')
         self.store_apps = FakeStoreApps(store_apps or {})
         self.io = ItemRouter(
             shortcut=self.link_io,
@@ -304,6 +308,7 @@ class FakeDesktop:
             elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
             taskbar=self.taskbar.service(self.paths.taskbar),
             store_apps=self.store_apps,
+            sign_in=self.sign_in,
         )
 
     def _launch_elevated(self, arguments: Sequence[str]) -> int:

@@ -75,6 +75,8 @@ load and are tested on any OS.
   the taskbar otherwise redraws long-standing pins from pictures saved there.
 - `wallpaper.py`: the wallpaper picture for the taskbar preview, or None when the desktop
   has no file to read (a solid color, Wallpaper Engine...).
+- `startup.py`: the opt-in Run-key value that starts `Iconbloom.exe --fix-icons` at sign-in.
+  That run, and a window, take lock files so they never write the backup at the same time.
 - `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
   restored shortcuts, choices and settings.

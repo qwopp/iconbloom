@@ -2,6 +2,7 @@
 
 uv run python -m app.main               # the picker window
 uv run python -m app.main --revert-all  # undo everything, no window (used by the uninstaller)
+uv run python -m app.main --fix-icons   # put back icons app updates reset, no window (at sign-in)
 """
 
 import argparse
@@ -10,6 +11,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from PySide6.QtCore import QLockFile
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -24,9 +26,17 @@ from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_redirected
 from platform_win.refresh import hard_refresh
+from platform_win.startup import FIX_ICONS_FLAG
 from platform_win.wallpaper import current_wallpaper
 
 log = logging.getLogger("iconbloom")
+
+# The sign-in run and a window are two processes that would both write the backup.
+# A window holds WINDOW_LOCK while open, and the sign-in run leaves the work to it;
+# the sign-in run holds FIX_LOCK while it works, and a window opening then waits for it.
+WINDOW_LOCK = "window.lock"
+FIX_LOCK = "fix.lock"
+FIX_WAIT_MS = 30_000
 
 
 def load_style(app: QApplication) -> None:
@@ -38,6 +48,13 @@ def load_style(app: QApplication) -> None:
 
 
 def run_window(paths: AppPaths) -> int:
+    window_lock = QLockFile(str(paths.root / WINDOW_LOCK))
+    window_lock.tryLock(0)  # held by another window already: that's fine
+    fixing = QLockFile(str(paths.root / FIX_LOCK))
+    if fixing.tryLock(FIX_WAIT_MS):
+        fixing.unlock()
+    else:
+        log.warning("the sign-in run is still working; opening anyway")
     app = QApplication(sys.argv)
     app.setApplicationName("Iconbloom")
     load_style(app)
@@ -75,6 +92,31 @@ def revert_everything(paths: AppPaths) -> int:
     return SKIPPED_EXIT if report.skipped else 0
 
 
+def fix_reset_icons(paths: AppPaths) -> int:
+    """At sign-in: put back the user's own icons an app update reset, then exit.
+    Never a window, a dialog or a permission prompt."""
+    fixing = QLockFile(str(paths.root / FIX_LOCK))
+    if not fixing.tryLock(0):
+        return 0
+    try:
+        window = QLockFile(str(paths.root / WINDOW_LOCK))
+        if not window.tryLock(0):
+            log.info("fix-icons: a window is open and does this itself")
+            return 0
+        window.unlock()
+        service = windows_service(paths)
+        report = service.reapply(service.reset_by_apps(service.scan()))
+    except BackupCorruptError as exc:
+        log.error("fix-icons refused: %s", exc)
+        return 2
+    finally:
+        fixing.unlock()
+    log.info("fix-icons put back %d icons", len(report.changed))
+    for path, reason in report.skipped:
+        log.info("fix-icons left %s: %s", path, reason)
+    return 0
+
+
 def run_elevated_request(paths: AppPaths, request: Path) -> int:
     """The elevated copy: carry out one request from the normal app, then exit."""
     redirected = [f for f in (paths.root, paths.originals, paths.icons) if is_redirected(f)]
@@ -95,6 +137,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--revert-all", action="store_true", help="restore every original icon and exit"
     )
+    parser.add_argument(
+        FIX_ICONS_FLAG, action="store_true", help="put back icons app updates reset and exit"
+    )
     parser.add_argument(ELEVATED_FLAG, type=Path, metavar="REQUEST", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.elevated is not None:
@@ -102,7 +147,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths = default_app_paths().ensure()
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
-    return revert_everything(paths) if args.revert_all else run_window(paths)
+    if args.revert_all:
+        return revert_everything(paths)
+    if args.fix_icons:
+        return fix_reset_icons(paths)
+    return run_window(paths)
 
 
 def run_elevated(request: Path) -> int:

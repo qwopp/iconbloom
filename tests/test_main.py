@@ -5,15 +5,18 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QLockFile
 
 from app import logs, main
 from app.changes import SKIPPED_EXIT
 from app.choices import Choice
 from app.elevation import ELEVATED_FLAG, REQUEST_FILE
-from app.service import IconService
+from app.service import IconService, Status
 from app.taskbar import TaskbarChoice
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import AppPaths
+from platform_win.shortcuts import IconLocation
+from platform_win.startup import FIX_ICONS_FLAG, RUN_KEY, VALUE_NAME
 from tests.fakes import FakeDesktop
 
 
@@ -127,3 +130,50 @@ def test_elevated_copy_refuses_odd_request_paths(
     """Only an absolute path to a file named like the app writes it is accepted."""
     given = str(tmp_path / request_path) if "/" in request_path else request_path
     assert main.main([ELEVATED_FLAG, given]) == 2
+
+
+def _styled_then_reset(desktop: FakeDesktop) -> Path:
+    """Paint styled, then its updater rewrote the shortcut with its own icon."""
+    lnk = desktop.make("Paint")
+    service = desktop.service()
+    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
+    desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))
+    return lnk
+
+
+def test_fix_icons_flag_puts_back_reset_icons(desktop: FakeDesktop) -> None:
+    lnk = _styled_then_reset(desktop)
+    assert main.main([FIX_ICONS_FLAG]) == 0
+    service = desktop.service()
+    assert service.status(service.scan()[0]) is Status.THEMED
+    assert service.is_ours(desktop.link_io.read(lnk).icon)
+    # It cleans up after itself, so a window can open straight after.
+    assert QLockFile(str(desktop.paths.root / main.FIX_LOCK)).tryLock(0)
+
+
+def test_fix_icons_leaves_the_work_to_an_open_window(desktop: FakeDesktop) -> None:
+    lnk = _styled_then_reset(desktop)
+    window = QLockFile(str(desktop.paths.root / main.WINDOW_LOCK))
+    assert window.tryLock(0)
+    try:
+        assert main.main([FIX_ICONS_FLAG]) == 0
+    finally:
+        window.unlock()
+    assert not desktop.service().is_ours(desktop.link_io.read(lnk).icon)
+
+
+def test_fix_icons_refuses_on_corrupt_backup(
+    desktop: FakeDesktop, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(paths: AppPaths) -> IconService:
+        raise BackupCorruptError("backup.json is damaged")
+
+    monkeypatch.setattr(main, "windows_service", broken)
+    assert main.main([FIX_ICONS_FLAG]) == 2
+    assert QLockFile(str(desktop.paths.root / main.FIX_LOCK)).tryLock(0)
+
+
+def test_uninstaller_stops_the_sign_in_run() -> None:
+    script = (Path(__file__).parents[1] / "installer" / "iconbloom.iss").read_text(encoding="utf-8")
+    step = script.index("usPostUninstall")
+    assert script.index(f"'{RUN_KEY}', '{VALUE_NAME}'", step) > step

@@ -125,6 +125,14 @@ jobs:
           if ((Get-FileHash $startLink).Hash -ne $styled) { throw "the update replaced the Start menu shortcut" }
           if (-not (Test-Path (Join-Path $folder "Iconbloom.lnk"))) { throw "the moved shortcut is gone" }
 
+          # The sign-in run finishes on its own, with no window to close.
+          $exe = "$env:LOCALAPPDATA\Programs\Iconbloom\Iconbloom.exe"
+          $fix = Start-Process $exe -ArgumentList "--fix-icons" -PassThru
+          if (-not $fix.WaitForExit(60000)) { throw "--fix-icons was still running after a minute" }
+          if ($fix.ExitCode -ne 0) { throw "--fix-icons exited with $($fix.ExitCode)" }
+          $run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          Set-ItemProperty $run -Name Iconbloom -Value "`"$exe`" --fix-icons"
+
           # Uninstall removes the shortcuts it made. The uninstaller hands off to a temp copy
           # and returns at once, so wait for the result.
           Start-Process "$env:LOCALAPPDATA\Programs\Iconbloom\unins000.exe" `
@@ -132,6 +140,10 @@ jobs:
           $deadline = (Get-Date).AddSeconds(60)
           while (Test-Path $startLink) {
             if ((Get-Date) -gt $deadline) { throw "uninstall left the Start menu shortcut" }
+            Start-Sleep -Seconds 2
+          }
+          while ($null -ne (Get-ItemProperty $run -Name Iconbloom -ErrorAction SilentlyContinue)) {
+            if ((Get-Date) -gt $deadline) { throw "uninstall left Iconbloom starting at sign-in" }
             Start-Sleep -Seconds 2
           }
           Remove-Item -Recurse -Force $folder

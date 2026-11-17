@@ -65,6 +65,7 @@ from platform_win.shortcuts import (
     normalize_path,
     scan,
 )
+from platform_win.startup import SignInRun, windows_sign_in_run
 from platform_win.store_apps import StoreApp, StoreApps, WindowsStoreApps
 from platform_win.taskbar import windows_taskbar_io
 
@@ -125,8 +126,11 @@ class IconService:
         elevator: Elevator | None = None,
         taskbar: TaskbarService | None = None,
         store_apps: StoreApps | None = None,
+        sign_in: SignInRun | None = None,
     ) -> None:
         self.paths = paths.ensure()
+        # Running at sign-in to put back reset icons; None where it isn't offered.
+        self.sign_in = sign_in
         self._lock = threading.RLock()
         self.taskbar = taskbar
         self._io = io
@@ -458,6 +462,12 @@ class IconService:
             except OSError as exc:
                 log.warning("could not restore the taskbar settings: %s", exc)
                 report.skipped.append((self.paths.taskbar, f"taskbar settings: {exc}"))
+        if self.sign_in is not None and not dry_run:
+            # Nothing is styled any more, so there's nothing to keep putting back.
+            try:
+                self.sign_in.set(False)
+            except OSError as exc:
+                log.warning("could not stop running at sign-in: %s", exc)
         return report
 
     def _revert_paths(self, paths: Sequence[Path], *, dry_run: bool) -> ChangeReport:
@@ -725,6 +735,7 @@ def windows_service(paths: AppPaths | None = None) -> IconService:
         elevator=WindowsElevator(paths),
         store_apps=WindowsStoreApps(),
         taskbar=TaskbarService(windows_taskbar_io(), TaskbarBackup(paths.taskbar)),
+        sign_in=windows_sign_in_run(),
     )
 
 

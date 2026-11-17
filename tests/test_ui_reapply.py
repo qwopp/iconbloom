@@ -67,3 +67,19 @@ def test_shared_shortcuts_are_offered_not_changed(harness: Harness) -> None:
     put_back.click()
     harness.qtbot.waitUntil(lambda: harness.status("Admin Tool") is Status.THEMED, timeout=10_000)
     window.close()
+
+
+def test_fix_at_sign_in_is_off_until_ticked_and_revert_all_unticks_it(
+    harness: Harness, say_yes: None
+) -> None:
+    window = harness.window
+    action = window.sign_in_action
+    assert action.isVisible()
+    assert not action.isChecked()  # off by default
+    action.trigger()
+    assert harness.desktop.sign_in.is_on()
+
+    window.revert_all()
+    harness.settle()
+    assert not harness.desktop.sign_in.is_on()
+    assert not action.isChecked()
