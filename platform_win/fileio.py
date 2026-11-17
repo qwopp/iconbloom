@@ -1,9 +1,13 @@
-"""Crash-safe file writes shared by everything that saves user state."""
+"""Crash-safe file writes shared by everything that saves user state, and the lock
+that keeps two Iconbloom processes from changing that state at once."""
 
 import json
 import os
+import sys
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 # About 2 seconds in total before giving up and reporting the error.
@@ -50,3 +54,36 @@ def _replace(source: Path, target: Path) -> None:
 def write_json(path: Path, payload: object) -> None:
     text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     atomic_write(path, text.encode("utf-8"))
+
+
+@contextmanager
+def file_lock(path: Path) -> Iterator[None]:
+    """Hold ``path`` exclusively across processes, waiting for whoever has it.
+
+    The system releases it when its holder exits or crashes, so it can never get stuck.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        if sys.platform == "win32":
+            import msvcrt
+
+            while True:
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    pass  # LK_LOCK gives up after about 10 seconds; keep waiting
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)

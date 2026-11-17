@@ -1,7 +1,5 @@
 """Running at sign-in: one value in the user's Run key, and Revert all removes it."""
 
-from pathlib import Path
-
 from app.choices import Choice
 from platform_win import startup
 from platform_win.startup import FIX_ICONS_FLAG, RUN_KEY, VALUE_NAME, SignInRun
@@ -26,8 +24,7 @@ def test_only_the_built_app_offers_it() -> None:
     assert startup.windows_sign_in_run() is None  # running from source: no exe to start
 
 
-def test_revert_all_stops_the_sign_in_run(tmp_path: Path) -> None:
-    env = FakeDesktop(tmp_path)
+def test_revert_all_stops_the_sign_in_run(env: FakeDesktop) -> None:
     env.make("Paint")
     service = env.service()
     service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))

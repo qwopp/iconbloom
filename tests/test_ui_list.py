@@ -11,7 +11,7 @@ from pytestqt.qtbot import QtBot
 from app.changes import Status
 from app.ui.shortcut_list import Thumbnail
 from app.ui.widgets import STATUS_ROLE
-from platform_win.shortcuts import IconLocation, Place, ShortcutGroup
+from platform_win.shortcuts import Place, ShortcutGroup
 from tests.ui_harness import Harness
 
 
@@ -121,13 +121,8 @@ def test_a_scan_from_before_a_change_does_not_undo_it(
 
 def test_needs_reapply_can_be_reverted(harness: Harness) -> None:
     window = harness.window
-    harness.select("Arcade")
-    window.picker.choose(window.picker.cards[3])
-    window.apply_chosen()
-    harness.settle()
-    # An app update rewrites the shortcut with its own icon again.
-    lnk = harness.lnk("Arcade")
-    harness.desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Arcade.exe", 0))
+    harness.style("Arcade")
+    harness.update_resets(harness.lnk("Arcade"))
     window.shortcuts.reload()
     harness.settle()
     harness.select("Arcade")

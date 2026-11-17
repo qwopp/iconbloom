@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import __version__
-from app.changes import REVERTIBLE, SHARED_REASON, ChangeReport, Status
+from app.changes import REVERTIBLE, SHARED_REASON, ChangeReport
 from app.service import IconService
 from app.settings import Settings
 from app.ui import UI_DIR, palette
@@ -75,7 +75,6 @@ class MainWindow(QMainWindow):
         theme, broken = self._first_working_theme()
         self._theme_id = theme.id
         self._redraw_offered = False
-        self._start_pass_done = False
 
         self.setWindowTitle("Iconbloom")
         self.setWindowIcon(QIcon(str(APP_ICON)))
@@ -265,6 +264,10 @@ class MainWindow(QMainWindow):
         self.theme_box.currentIndexChanged.connect(self._on_theme_changed)
         self.shortcuts.current_changed.connect(self._on_current_changed)
         self.shortcuts.selection_changed.connect(self._update_actions)
+        # Once per launch, before the redraw offer can take the notice bar.
+        self.shortcuts.scanned.connect(
+            self._reapply_at_start, Qt.ConnectionType.SingleShotConnection
+        )
         self.shortcuts.scanned.connect(self._on_scanned)
         self.picker.chosen_changed.connect(self._update_actions)
         self.picker.activated.connect(self.apply_chosen)
@@ -299,31 +302,42 @@ class MainWindow(QMainWindow):
     def _on_scanned(self, found: int) -> None:
         if not found:
             self.picker.show_message("No icons found on your desktop or Start menu.")
-        self._reapply_at_start()
         self._offer_redraw()
 
     def _reapply_at_start(self) -> None:
-        """Once per launch: put back styles that app updates reset since last time."""
-        if self._start_pass_done or not self.settings.reapply_at_start or self.changes.running:
+        """Put back styles that app updates reset since last time. Unasked, so it never
+        brings up a permission prompt or a dialog, and never makes a new shortcut."""
+        if not self.settings.reapply_at_start:
             return
-        self._start_pass_done = True
-        lost = self.service.reset_by_apps(self.shortcuts.groups)
+        lost = self.service.needs_reapply(self.shortcuts.groups, recreate_deleted=False)
         if not lost:
             return
-        # Never a permission prompt nobody asked for: shared shortcuts are only offered.
+
+        def done(report: ChangeReport) -> None:
+            for target in lost:
+                self.shortcuts.refresh_group(target)
+            self._after_start_pass(report)
+
         self.changes.run(
             "Putting your icons back…",
             lost,
-            lambda progress: self.service.reapply(lost, progress=progress),
-            self._after_start_pass,
-            reload=True,
+            lambda progress: self.service.reapply(lost, recreate_deleted=False, progress=progress),
+            done,
             quiet=True,
         )
 
     def _after_start_pass(self, report: ChangeReport) -> None:
-        if report.changed:
-            self._say(f"Put back {count(report.changed, 'icon')} an app update had reset")
         shared = {p for p, why in report.skipped if why == SHARED_REASON}
+        stuck = [p for p, why in report.skipped if why != SHARED_REASON]
+        said: list[str] = []
+        if report.changed:
+            said.append(f"Put back {count(report.changed, 'icon')} an app update had reset.")
+        if stuck:
+            said.append(
+                f"Couldn't change {count(stuck, 'icon')}: More > Reapply my icons says why."
+            )
+        if said:
+            self._say(" ".join(said))
         if shared and not self.notice.isVisible():
             self.notice.show_message(
                 f"An app update reset {count(shared, 'shortcut')} that every user on this "
@@ -351,7 +365,7 @@ class MainWindow(QMainWindow):
 
     def _decline_redraw(self) -> None:
         self.settings.redraw_declined = RENDER_VERSION
-        guarded(self, lambda: self.settings.save(self.service.paths.settings))
+        self._save_settings()
 
     def redraw_old(self) -> None:
         if not self._idle():
@@ -630,7 +644,7 @@ class MainWindow(QMainWindow):
     def reapply_all(self) -> None:
         if not self._idle():
             return
-        lost = [g for g in self.shortcuts.groups if self.service.status(g) is Status.NEEDS_REAPPLY]
+        lost = self.service.needs_reapply(self.shortcuts.groups)
         if not lost:
             self._say("Nothing needed reapplying")
             return
@@ -683,23 +697,27 @@ class MainWindow(QMainWindow):
         sign_in = self.service.sign_in
         if sign_in is not None:
             guarded(self, lambda: sign_in.set(on))
-        self._show_sign_in()
+            self._show_sign_in()
 
     def _show_sign_in(self) -> None:
         """Tick the item to match Windows' startup list, which the person can also edit."""
         sign_in = self.service.sign_in
-        on = guarded(self, sign_in.is_on) if sign_in is not None else False
+        if sign_in is None:
+            return
         with QSignalBlocker(self.sign_in_action):
-            self.sign_in_action.setChecked(bool(on))
+            self.sign_in_action.setChecked(bool(guarded(self, sign_in.is_on)))
+
+    def _save_settings(self) -> None:
+        guarded(self, lambda: self.settings.save(self.service.paths.settings))
 
     def _on_reapply_toggled(self, enabled: bool) -> None:
         self.settings.reapply_at_start = enabled
-        guarded(self, lambda: self.settings.save(self.service.paths.settings))
+        self._save_settings()
 
     def _on_update_toggled(self, enabled: bool) -> None:
         self.settings.check_for_updates = enabled
         self.settings.update_check_chosen = True
-        guarded(self, lambda: self.settings.save(self.service.paths.settings))
+        self._save_settings()
         if enabled:
             self.updates.check()
 
@@ -717,7 +735,7 @@ class MainWindow(QMainWindow):
             self.dark_mode_action.setChecked(dark)
         if save:
             self.settings.dark_mode = dark
-            guarded(self, lambda: self.settings.save(self.service.paths.settings))
+            self._save_settings()
 
     def _say(self, message: str) -> None:
         self.statusBar().showMessage(message, STATUS_MESSAGE_MS)

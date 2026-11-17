@@ -263,6 +263,12 @@ class FakeDesktop:
         self._default = default
         self._unreadable = set(unreadable)
 
+    def drawn_by_old_version(self, key: str) -> None:
+        """As if an older Iconbloom had drawn this app's icon (render version 1)."""
+        raw = json.loads(self.paths.choices.read_text(encoding="utf-8"))
+        raw["drawn"][key] = 1
+        self.paths.choices.write_text(json.dumps(raw), encoding="utf-8")
+
     def make(self, name: str, folder: Path | None = None, icon: str = "") -> Path:
         path = (folder or self.desktop) / f"{name}.lnk"
         self.link_io.create(path, rf"C:\Apps\{name}.exe", IconLocation(icon, 1 if icon else 0))
@@ -321,7 +327,7 @@ class FakeDesktop:
         # Like app.main: the folder comes from the request, never the admin's own profile.
         paths = requester_paths(Path(request))
         assert paths is not None
-        admin = IconService(paths, self.io, roots=[])
+        admin = IconService(paths, self.io, roots=[], process_lock=False)
         return handle_request(Path(request), admin, [self.common])
 
     def extract(

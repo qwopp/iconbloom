@@ -45,7 +45,7 @@ from engine.themes import THEMES_DIR
 from platform_win.backup import UNKNOWN, BackupManifest, TaskbarBackup, state_hash
 from platform_win.elevate import ElevationDeclinedError, is_inside
 from platform_win.extract import ExtractedIcon, ExtractionError, extract_icon, read_icon_file
-from platform_win.fileio import atomic_write
+from platform_win.fileio import atomic_write, file_lock
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_network_path
 from platform_win.refresh import notify_icons_changed
@@ -83,12 +83,23 @@ def _one_at_a_time[**P, R](
 
     Two at once would write the same backup file and could record a themed icon
     as the original. The lock is re-entrant: apply calls apply_many, and so on.
+    The outermost call also takes the lock file every Iconbloom process shares
+    (the window, the CLI, the sign-in run) and re-reads what another may have changed.
     """
 
     @functools.wraps(method)
     def locked(self: "IconService", *args: P.args, **kwargs: P.kwargs) -> R:
         with self._lock:
-            return method(self, *args, **kwargs)
+            if self._depth or not self._process_lock:
+                return method(self, *args, **kwargs)
+            with file_lock(self.paths.lock):
+                self.manifest.reload()
+                self.choices.reload()
+                self._depth += 1
+                try:
+                    return method(self, *args, **kwargs)
+                finally:
+                    self._depth -= 1
 
     return locked
 
@@ -127,11 +138,16 @@ class IconService:
         taskbar: TaskbarService | None = None,
         store_apps: StoreApps | None = None,
         sign_in: SignInRun | None = None,
+        process_lock: bool = True,
     ) -> None:
+        """``process_lock`` is False only for the elevated helper, which works for a
+        process that already holds the lock while it waits for the helper."""
         self.paths = paths.ensure()
         # Running at sign-in to put back reset icons; None where it isn't offered.
         self.sign_in = sign_in
         self._lock = threading.RLock()
+        self._process_lock = process_lock
+        self._depth = 0
         self.taskbar = taskbar
         self._io = io
         self._roots = roots
@@ -151,8 +167,11 @@ class IconService:
         self.manifest = BackupManifest(paths.manifest, paths.originals)
         self.choices = ChoiceStore(paths.choices)
 
-    def scan(self) -> list[ShortcutGroup]:
-        return scan(self._roots, self._io, self._windows_icons, self._store_shortcuts())
+    def scan(self, *, store_apps: bool = True) -> list[ShortcutGroup]:
+        """Everything Iconbloom can style. ``store_apps=False`` skips listing Store apps
+        that have no shortcut yet, a slow walk of Windows' app list."""
+        listed = self._store_shortcuts() if store_apps else []
+        return scan(self._roots, self._io, self._windows_icons, listed)
 
     def _store_shortcuts(self) -> list[Shortcut]:
         if self._store_apps is None or self._desktop is None:
@@ -404,9 +423,10 @@ class IconService:
         include_shared: bool = False,
         dry_run: bool = False,
         progress: Progress | None = None,
+        recreate_deleted: bool = True,
     ) -> ChangeReport:
         """Re-theme every shortcut that lost its chosen icon, e.g. after an app update."""
-        lost = [g for g in groups if self.status(g) is Status.NEEDS_REAPPLY]
+        lost = self.needs_reapply(groups, recreate_deleted=recreate_deleted)
         return self.apply_many(
             lost,
             lambda g: self.choices.get(g.key),
@@ -415,15 +435,17 @@ class IconService:
             progress=progress,
         )
 
-    def reset_by_apps(self, groups: Sequence[ShortcutGroup]) -> list[ShortcutGroup]:
-        """Styled apps whose own shortcut lost its icon (Chrome rewrites its shortcuts on
-        every update), safe to put back without asking. A Store app that no longer has a
-        shortcut is left out: putting it back would make a new one the person deleted."""
+    def needs_reapply(
+        self, groups: Sequence[ShortcutGroup], *, recreate_deleted: bool = True
+    ) -> list[ShortcutGroup]:
+        """Styled apps that lost their style, usually to an app update (Chrome rewrites
+        its shortcuts at every one). ``recreate_deleted=False`` leaves out Store apps
+        whose shortcut is gone: putting those back would undo the person's deleting it."""
         return [
             g
             for g in groups
             if self.status(g) is Status.NEEDS_REAPPLY
-            and all(s.kind is not ItemKind.STORE_APP for s in g.shortcuts)
+            and (recreate_deleted or all(s.kind is not ItemKind.STORE_APP for s in g.shortcuts))
         ]
 
     @_one_at_a_time

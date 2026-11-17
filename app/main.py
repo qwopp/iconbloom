@@ -8,14 +8,13 @@ uv run python -m app.main --fix-icons   # put back icons app updates reset, no w
 import argparse
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.changes import SKIPPED_EXIT
+from app.changes import SKIPPED_EXIT, ChangeReport
 from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
@@ -31,13 +30,6 @@ from platform_win.wallpaper import current_wallpaper
 
 log = logging.getLogger("iconbloom")
 
-# The sign-in run and a window are two processes that would both write the backup.
-# A window holds WINDOW_LOCK while open, and the sign-in run leaves the work to it;
-# the sign-in run holds FIX_LOCK while it works, and a window opening then waits for it.
-WINDOW_LOCK = "window.lock"
-FIX_LOCK = "fix.lock"
-FIX_WAIT_MS = 30_000
-
 
 def load_style(app: QApplication) -> None:
     """Fonts and the light stylesheet, which dialogs before the window use too.
@@ -48,13 +40,6 @@ def load_style(app: QApplication) -> None:
 
 
 def run_window(paths: AppPaths) -> int:
-    window_lock = QLockFile(str(paths.root / WINDOW_LOCK))
-    window_lock.tryLock(0)  # held by another window already: that's fine
-    fixing = QLockFile(str(paths.root / FIX_LOCK))
-    if fixing.tryLock(FIX_WAIT_MS):
-        fixing.unlock()
-    else:
-        log.warning("the sign-in run is still working; opening anyway")
     app = QApplication(sys.argv)
     app.setApplicationName("Iconbloom")
     load_style(app)
@@ -75,45 +60,45 @@ def run_window(paths: AppPaths) -> int:
     return app.exec()
 
 
-def revert_everything(paths: AppPaths) -> int:
+def _run_headless(
+    paths: AppPaths, name: str, change: Callable[[IconService], ChangeReport]
+) -> ChangeReport | None:
+    """A change with no window: what it left alone goes to the log. None means the
+    backup is damaged, so nothing was changed."""
     try:
-        report = windows_service(paths).revert_all()
+        report = change(windows_service(paths))
     except BackupCorruptError as exc:
-        log.error("revert-all refused: %s", exc)
+        log.error("%s refused: %s", name, exc)
+        return None
+    for path, reason in report.skipped:
+        log.warning("%s skipped %s: %s", name, path, reason)
+    return report
+
+
+def revert_everything(paths: AppPaths) -> int:
+    report = _run_headless(paths, "revert-all", lambda service: service.revert_all())
+    if report is None:
         return 2
     log.info(
         "revert-all restored %d shortcuts and taskbar settings %s",
         len(report.changed),
         report.taskbar,
     )
-    for path, reason in report.skipped:
-        log.warning("revert-all skipped %s: %s", path, reason)
     # The uninstaller deletes the backups only on 0, so anything left themed must not be 0.
     return SKIPPED_EXIT if report.skipped else 0
 
 
 def fix_reset_icons(paths: AppPaths) -> int:
     """At sign-in: put back the user's own icons an app update reset, then exit.
-    Never a window, a dialog or a permission prompt."""
-    fixing = QLockFile(str(paths.root / FIX_LOCK))
-    if not fixing.tryLock(0):
-        return 0
-    try:
-        window = QLockFile(str(paths.root / WINDOW_LOCK))
-        if not window.tryLock(0):
-            log.info("fix-icons: a window is open and does this itself")
-            return 0
-        window.unlock()
-        service = windows_service(paths)
-        report = service.reapply(service.reset_by_apps(service.scan()))
-    except BackupCorruptError as exc:
-        log.error("fix-icons refused: %s", exc)
+    Never a window, a dialog or a permission prompt, and never a new shortcut."""
+    report = _run_headless(
+        paths,
+        "fix-icons",
+        lambda service: service.reapply(service.scan(store_apps=False), recreate_deleted=False),
+    )
+    if report is None:
         return 2
-    finally:
-        fixing.unlock()
     log.info("fix-icons put back %d icons", len(report.changed))
-    for path, reason in report.skipped:
-        log.info("fix-icons left %s: %s", path, reason)
     return 0
 
 
@@ -125,7 +110,7 @@ def run_elevated_request(paths: AppPaths, request: Path) -> int:
         log.error("elevated request refused: %s is a link", redirected[0])
         return 2
     try:
-        service = IconService(paths, windows_item_io(), roots=[])
+        service = IconService(paths, windows_item_io(), roots=[], process_lock=False)
         return handle_request(request, service, shared_folders())
     except BackupCorruptError as exc:
         log.error("elevated request refused: %s", exc)
