@@ -17,6 +17,7 @@ from app.service import IconService, Status
 from app.ui import palette
 from app.ui.main_window import MainWindow
 from app.updates import Progress, Release, Updater
+from platform_win.shortcuts import IconLocation
 from tests.fakes import FakeDesktop
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
@@ -104,6 +105,25 @@ class Harness:
             lambda: not self.window.jobs.busy and bool(picker.cards),
             timeout=15_000,
         )
+
+    def style(self, name: str) -> None:
+        """Select ``name`` and apply the fourth style to it."""
+        self.select(name)
+        self.window.picker.choose(self.window.picker.cards[3])
+        self.window.apply_chosen()
+        self.settle()
+
+    def update_resets(self, lnk: Path) -> None:
+        """What an app's updater does: rewrite its shortcut with the app's own icon."""
+        self.desktop.link_io.set_icon(lnk, IconLocation(rf"C:\Apps\{lnk.stem}.exe", 0))
+
+    def reopen(self) -> MainWindow:
+        """Start Iconbloom again on the same desktop and wait until it has settled."""
+        window = open_window(self.desktop, self.updater, self.qtbot)
+        rows = self.window.shortcuts.model.rowCount()
+        self.qtbot.waitUntil(lambda: window.shortcuts.model.rowCount() == rows, timeout=10_000)
+        self.qtbot.waitUntil(lambda: not window.jobs.busy, timeout=15_000)
+        return window
 
     def status(self, name: str) -> Status:
         return self.service.status(next(g for g in self.service.scan() if g.name == name))

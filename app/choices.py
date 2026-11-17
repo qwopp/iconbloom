@@ -65,7 +65,7 @@ class ChoiceStore:
         self._images: dict[str, str] = {}
         # Which RENDER_VERSION drew each app's icon; files from before this was kept say 1.
         self._drawn: dict[str, int] = {}
-        self._load()
+        self.reload()
 
     def get(self, key: str) -> Choice | None:
         return self._choices.get(key)
@@ -113,30 +113,31 @@ class ChoiceStore:
         self._skipped.add(key)
         self._save()
 
-    def _load(self) -> None:
+    def reload(self) -> None:
+        """Read the file again; another Iconbloom process may have changed it. All four
+        maps are swapped in at once, so the window never sees half of the file."""
         if not self._path.exists():
             return
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
             if raw.get("version") != CHOICES_VERSION:
                 raise ValueError("unknown version")
-            self._choices = {k: Choice(**v) for k, v in raw["choices"].items()}
-            self._skipped = set(raw["skipped"])
-            self._drawn = {str(k): int(v) for k, v in raw.get("drawn", {}).items()}
+            choices = {k: Choice(**v) for k, v in raw["choices"].items()}
+            skipped = set(raw["skipped"])
+            drawn = {str(k): int(v) for k, v in raw.get("drawn", {}).items()}
             if "images" in raw:
-                self._images = {str(k): str(v) for k, v in raw["images"].items()}
+                images = {str(k): str(v) for k, v in raw["images"].items()}
             else:
                 # Older files only had applied choices; their own images carry over.
-                self._images = {
-                    k: c.custom_image for k, c in self._choices.items() if c.custom_image
-                }
+                images = {k: c.custom_image for k, c in choices.items() if c.custom_image}
         except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
             # Losing choices only means "Reapply" forgets them; never block the app.
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
             aside = self._path.with_name(f"{self._path.name}.unreadable-{stamp}")
             self._path.replace(aside)
             log.warning("could not read %s (%s); moved it to %s", self._path, exc, aside.name)
-            self._choices, self._skipped, self._images, self._drawn = {}, set(), {}, {}
+            choices, skipped, images, drawn = {}, set[str](), {}, {}
+        self._choices, self._skipped, self._images, self._drawn = choices, skipped, images, drawn
 
     def _save(self) -> None:
         payload = {

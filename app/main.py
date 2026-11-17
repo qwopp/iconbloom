@@ -2,18 +2,19 @@
 
 uv run python -m app.main               # the picker window
 uv run python -m app.main --revert-all  # undo everything, no window (used by the uninstaller)
+uv run python -m app.main --fix-icons   # put back icons app updates reset, no window (at sign-in)
 """
 
 import argparse
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.changes import SKIPPED_EXIT
+from app.changes import SKIPPED_EXIT, ChangeReport
 from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
@@ -24,6 +25,7 @@ from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_redirected
 from platform_win.refresh import hard_refresh
+from platform_win.startup import FIX_ICONS_FLAG
 from platform_win.wallpaper import current_wallpaper
 
 log = logging.getLogger("iconbloom")
@@ -58,21 +60,46 @@ def run_window(paths: AppPaths) -> int:
     return app.exec()
 
 
-def revert_everything(paths: AppPaths) -> int:
+def _run_headless(
+    paths: AppPaths, name: str, change: Callable[[IconService], ChangeReport]
+) -> ChangeReport | None:
+    """A change with no window: what it left alone goes to the log. None means the
+    backup is damaged, so nothing was changed."""
     try:
-        report = windows_service(paths).revert_all()
+        report = change(windows_service(paths))
     except BackupCorruptError as exc:
-        log.error("revert-all refused: %s", exc)
+        log.error("%s refused: %s", name, exc)
+        return None
+    for path, reason in report.skipped:
+        log.warning("%s skipped %s: %s", name, path, reason)
+    return report
+
+
+def revert_everything(paths: AppPaths) -> int:
+    report = _run_headless(paths, "revert-all", lambda service: service.revert_all())
+    if report is None:
         return 2
     log.info(
         "revert-all restored %d shortcuts and taskbar settings %s",
         len(report.changed),
         report.taskbar,
     )
-    for path, reason in report.skipped:
-        log.warning("revert-all skipped %s: %s", path, reason)
     # The uninstaller deletes the backups only on 0, so anything left themed must not be 0.
     return SKIPPED_EXIT if report.skipped else 0
+
+
+def fix_reset_icons(paths: AppPaths) -> int:
+    """At sign-in: put back the user's own icons an app update reset, then exit.
+    Never a window, a dialog or a permission prompt, and never a new shortcut."""
+    report = _run_headless(
+        paths,
+        "fix-icons",
+        lambda service: service.reapply(service.scan(store_apps=False), recreate_deleted=False),
+    )
+    if report is None:
+        return 2
+    log.info("fix-icons put back %d icons", len(report.changed))
+    return 0
 
 
 def run_elevated_request(paths: AppPaths, request: Path) -> int:
@@ -83,7 +110,7 @@ def run_elevated_request(paths: AppPaths, request: Path) -> int:
         log.error("elevated request refused: %s is a link", redirected[0])
         return 2
     try:
-        service = IconService(paths, windows_item_io(), roots=[])
+        service = IconService(paths, windows_item_io(), roots=[], process_lock=False)
         return handle_request(request, service, shared_folders())
     except BackupCorruptError as exc:
         log.error("elevated request refused: %s", exc)
@@ -95,6 +122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--revert-all", action="store_true", help="restore every original icon and exit"
     )
+    parser.add_argument(
+        FIX_ICONS_FLAG, action="store_true", help="put back icons app updates reset and exit"
+    )
     parser.add_argument(ELEVATED_FLAG, type=Path, metavar="REQUEST", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.elevated is not None:
@@ -102,7 +132,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths = default_app_paths().ensure()
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
-    return revert_everything(paths) if args.revert_all else run_window(paths)
+    if args.revert_all:
+        return revert_everything(paths)
+    if args.fix_icons:
+        return fix_reset_icons(paths)
+    return run_window(paths)
 
 
 def run_elevated(request: Path) -> int:

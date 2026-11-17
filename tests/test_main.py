@@ -14,6 +14,8 @@ from app.service import IconService
 from app.taskbar import TaskbarChoice
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import AppPaths
+from platform_win.shortcuts import IconLocation
+from platform_win.startup import FIX_ICONS_FLAG
 from tests.fakes import FakeDesktop
 
 
@@ -127,3 +129,22 @@ def test_elevated_copy_refuses_odd_request_paths(
     """Only an absolute path to a file named like the app writes it is accepted."""
     given = str(tmp_path / request_path) if "/" in request_path else request_path
     assert main.main([ELEVATED_FLAG, given]) == 2
+
+
+def test_fix_icons_flag_puts_back_reset_icons(desktop: FakeDesktop) -> None:
+    lnk = desktop.make("Paint")
+    service = desktop.service()
+    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
+    desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))  # an app update
+    assert main.main([FIX_ICONS_FLAG]) == 0
+    assert service.is_ours(desktop.link_io.read(lnk).icon)
+
+
+def test_fix_icons_refuses_on_corrupt_backup(
+    desktop: FakeDesktop, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(paths: AppPaths) -> IconService:
+        raise BackupCorruptError("backup.json is damaged")
+
+    monkeypatch.setattr(main, "windows_service", broken)
+    assert main.main([FIX_ICONS_FLAG]) == 2

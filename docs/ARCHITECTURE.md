@@ -75,9 +75,10 @@ load and are tested on any OS.
   the taskbar otherwise redraws long-standing pins from pictures saved there.
 - `wallpaper.py`: the wallpaper picture for the taskbar preview, or None when the desktop
   has no file to read (a solid color, Wallpaper Engine...).
+- `startup.py`: the opt-in Run-key value that starts `Iconbloom.exe --fix-icons` at sign-in.
 - `elevate.py`: starts an elevated copy of the app through Windows' permission prompt.
 - `fileio.py`: the one crash-safe write (temp file, fsync, rename) used for the manifest,
-  restored shortcuts, choices and settings.
+  restored shortcuts, choices and settings, and the lock file every change holds.
 - `paths.py`: where Iconbloom's data and Windows' shortcut folders are, and checks for
   network paths and links.
 
@@ -87,7 +88,8 @@ load and are tested on any OS.
   revert and reapply. Every change follows the same order: write the `.ico`, save the backup
   entry, point the item at the `.ico`, then note the item's new state. Revert restores the
   saved state if nothing else has touched the item since, and otherwise only its icon.
-  Revert all also reverts the taskbar. Changes take one lock, so two never interleave, and
+  Revert all also reverts the taskbar. Changes take one lock, shared by every Iconbloom process (window, CLI, sign-in run), so two
+  never interleave, and
   one failing item is skipped, not fatal. Copies of styled items (renamed, moved, pinned)
   are taken on with the original icon of the item they came from.
 - `taskbar.py`: `TaskbarService`, the taskbar's apply and revert, in the same order as

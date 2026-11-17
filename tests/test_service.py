@@ -262,7 +262,7 @@ def test_reapply_after_app_update_rewrites_shortcut(
     env.link_io.create(lnk, r"C:\Apps\Paint.exe", IconLocation(r"C:\Apps\paint-v2.ico", 0))
     updated = lnk.read_bytes()
     assert service.status(_group(service, "Paint")) is Status.NEEDS_REAPPLY
-    assert [g.name for g in service.reset_by_apps(service.scan())] == ["Paint"]
+    assert [g.name for g in service.needs_reapply(service.scan())] == ["Paint"]
 
     report = service.reapply(service.scan())
     assert report.changed == [lnk]
@@ -580,9 +580,9 @@ def test_icons_drawn_by_an_older_version_can_be_redrawn(env: FakeDesktop) -> Non
     service.apply(_group(service, "Paint"), CHOICE)
     first = env.link_io.read(lnk).icon
     assert service.drawn_before(service.scan()) == []
-    # As if an older Iconbloom had drawn it.
     key = _group(service, "Paint").key
-    service.choices._drawn[key] = 1  # pyright: ignore[reportPrivateUsage]
+    env.drawn_by_old_version(key)
+    service.choices.reload()
     assert [g.name for g in service.drawn_before(service.scan())] == ["Paint"]
     report = service.redraw(service.scan())
     assert report.changed == [lnk]
@@ -590,3 +590,30 @@ def test_icons_drawn_by_an_older_version_can_be_redrawn(env: FakeDesktop) -> Non
     assert service.status(_group(service, "Paint")) is Status.THEMED
     assert f"-r{RENDER_VERSION}" in env.link_io.read(lnk).icon.path
     assert first.path == env.link_io.read(lnk).icon.path  # same version, same file name
+
+
+def test_two_processes_take_turns_and_see_each_others_changes(env: FakeDesktop) -> None:
+    """The window and the sign-in run are separate processes writing the same backup."""
+    env.make("Paint")
+    window, sign_in = env.service(), env.service()
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def hold(_i: int, _g: ShortcutGroup) -> bool:
+        started.set()
+        return release.wait(5)
+
+    first = threading.Thread(
+        target=lambda: window.apply_many(window.scan(), lambda _g: CHOICE, progress=hold)
+    )
+    first.start()
+    assert started.wait(5)
+    second = threading.Thread(target=lambda: (sign_in.cleanup(), finished.set()))
+    second.start()
+    assert not finished.wait(0.3)  # waits its turn
+    release.set()
+    first.join(5)
+    second.join(5)
+    assert finished.is_set()
+    # It read the backup again once it got the lock, so the new icon counts as in use.
+    assert sign_in.choices.get(_group(sign_in, "Paint").key) == CHOICE
+    assert len(sign_in.manifest) == 1

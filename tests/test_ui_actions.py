@@ -330,7 +330,8 @@ def test_old_icons_are_offered_a_redraw_once(harness: Harness) -> None:
     window.apply_chosen()
     harness.settle()
     key = next(g.key for g in window.shortcuts.groups if g.name == "Arcade")
-    window.service.choices._drawn[key] = 1  # pyright: ignore[reportPrivateUsage]
+    harness.desktop.drawn_by_old_version(key)
+    window.service.choices.reload()
     window._on_scanned(4)  # pyright: ignore[reportPrivateUsage]
     assert "draws icons better now" in window.notice.label.text()
     window.redraw_old()

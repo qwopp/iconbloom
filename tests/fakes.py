@@ -25,6 +25,7 @@ from platform_win.shortcuts import (
     Source,
     desktop_folders_root,
 )
+from platform_win.startup import FIX_ICONS_FLAG, SignInRun
 from platform_win.store_apps import StoreApp, StoreAppIO
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
@@ -235,6 +236,9 @@ class FakeDesktop:
         self.attributes = FakeAttributes()
         self.registry = FakeRegistry()
         self.taskbar = FakeTaskbar()
+        # HKCU's Run key, for running at sign-in.
+        self.run_key = FakeUserRegistry()
+        self.sign_in = SignInRun(self.run_key, f'"Iconbloom.exe" {FIX_ICONS_FLAG}')
         self.store_apps = FakeStoreApps(store_apps or {})
         self.io = ItemRouter(
             shortcut=self.link_io,
@@ -258,6 +262,12 @@ class FakeDesktop:
         self._icons = dict(icons or {})
         self._default = default
         self._unreadable = set(unreadable)
+
+    def drawn_by_old_version(self, key: str) -> None:
+        """As if an older Iconbloom had drawn this app's icon (render version 1)."""
+        raw = json.loads(self.paths.choices.read_text(encoding="utf-8"))
+        raw["drawn"][key] = 1
+        self.paths.choices.write_text(json.dumps(raw), encoding="utf-8")
 
     def make(self, name: str, folder: Path | None = None, icon: str = "") -> Path:
         path = (folder or self.desktop) / f"{name}.lnk"
@@ -304,6 +314,7 @@ class FakeDesktop:
             elevator=WindowsElevator(self.paths, launch=self._launch_elevated),
             taskbar=self.taskbar.service(self.paths.taskbar),
             store_apps=self.store_apps,
+            sign_in=self.sign_in,
         )
 
     def _launch_elevated(self, arguments: Sequence[str]) -> int:
@@ -316,7 +327,7 @@ class FakeDesktop:
         # Like app.main: the folder comes from the request, never the admin's own profile.
         paths = requester_paths(Path(request))
         assert paths is not None
-        admin = IconService(paths, self.io, roots=[])
+        admin = IconService(paths, self.io, roots=[], process_lock=False)
         return handle_request(Path(request), admin, [self.common])
 
     def extract(

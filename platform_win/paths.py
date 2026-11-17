@@ -60,6 +60,11 @@ class AppPaths:
         return self.root / "settings.json"
 
     @property
+    def lock(self) -> Path:
+        """Held during every change, so the window, the CLI and the sign-in run take turns."""
+        return self.root / "service.lock"
+
+    @property
     def taskbar(self) -> Path:
         """The taskbar settings before Iconbloom changed them; absent when it hasn't."""
         return self.root / "taskbar.json"
