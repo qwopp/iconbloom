@@ -6,6 +6,12 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- When Iconbloom opens, it puts your styles back on icons an app update reset (Chrome resets
+  its icon at every update). Untick **Reapply reset icons** to stop it. Shortcuts every user
+  shares are only offered, so no permission prompt appears unasked.
+
 ## [0.9.0] - 2026-11-10
 
 ### Added

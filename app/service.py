@@ -411,6 +411,17 @@ class IconService:
             progress=progress,
         )
 
+    def reset_by_apps(self, groups: Sequence[ShortcutGroup]) -> list[ShortcutGroup]:
+        """Styled apps whose own shortcut lost its icon (Chrome rewrites its shortcuts on
+        every update), safe to put back without asking. A Store app that no longer has a
+        shortcut is left out: putting it back would make a new one the person deleted."""
+        return [
+            g
+            for g in groups
+            if self.status(g) is Status.NEEDS_REAPPLY
+            and all(s.kind is not ItemKind.STORE_APP for s in g.shortcuts)
+        ]
+
     @_one_at_a_time
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
         copies = self._adopt_copies([target], dry_run=dry_run)

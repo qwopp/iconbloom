@@ -21,6 +21,9 @@ class Settings:
     shared_shortcuts: str = "ask"
     # True or False once chosen in More > Dark mode; until then, follow Windows.
     dark_mode: bool | None = None
+    # At start, put chosen styles back on icons an app update reset (Chrome does this
+    # every update). Shared shortcuts are only offered, never changed without asking.
+    reapply_at_start: bool = True
     # The RENDER_VERSION whose "redraw your icons" notice the user said Not now to.
     redraw_declined: int = 0
 
