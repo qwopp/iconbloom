@@ -14,18 +14,19 @@ FIX_ICONS_FLAG = "--fix-icons"
 
 
 class SignInRun:
-    def __init__(self, registry: UserRegistry, command: str) -> None:
+    def __init__(self, registry: UserRegistry, command: str, name: str = VALUE_NAME) -> None:
         self._registry = registry
         self._command = command
+        self._name = name
 
     def is_on(self) -> bool:
-        return self._registry.read(RUN_KEY, VALUE_NAME) is not None
+        return self._registry.read(RUN_KEY, self._name) is not None
 
     def set(self, on: bool) -> None:
         if on:
-            self._registry.write(RUN_KEY, VALUE_NAME, (REG_SZ, self._command))
+            self._registry.write(RUN_KEY, self._name, (REG_SZ, self._command))
         else:
-            self._registry.delete(RUN_KEY, VALUE_NAME)
+            self._registry.delete(RUN_KEY, self._name)
 
 
 def windows_sign_in_run() -> SignInRun | None:

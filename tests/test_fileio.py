@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -68,3 +70,42 @@ def test_two_writers_of_one_file_both_succeed(tmp_path: Path) -> None:
     assert not errors
     assert target.read_bytes() in (b"1", b"2")
     assert [p.name for p in tmp_path.iterdir()] == ["choices.json"]
+
+
+def test_a_second_process_waits_for_the_lock(tmp_path: Path) -> None:
+    """The window and the sign-in run are separate processes, not threads."""
+    lock = tmp_path / "service.lock"
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; from platform_win.fileio import file_lock\n"
+            "with file_lock(Path(sys.argv[1])):\n"
+            "    print('locked', flush=True); sys.stdin.readline()",
+            str(lock),
+        ],
+        cwd=Path(__file__).parents[1],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdin is not None
+    assert holder.stdout is not None
+    try:
+        assert holder.stdout.readline().strip() == "locked"
+        got_it = threading.Event()
+
+        def take() -> None:
+            with fileio.file_lock(lock):
+                got_it.set()
+
+        waiter = threading.Thread(target=take)
+        waiter.start()
+        assert not got_it.wait(0.5)  # the other process has it
+        holder.stdin.write("\n")
+        holder.stdin.flush()
+        assert got_it.wait(15)
+        waiter.join(5)
+    finally:
+        holder.kill()
+        holder.wait(5)
