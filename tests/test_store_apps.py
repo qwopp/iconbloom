@@ -230,6 +230,9 @@ def test_reapply_brings_back_a_deleted_desktop_shortcut(env: FakeDesktop) -> Non
     assert service.status(_group(service, "Outlook")) is Status.NEEDS_REAPPLY
     report = service.reapply(groups)
     assert report.created == [env.desktop / "Outlook.lnk"]
+    (env.desktop / "Outlook.lnk").unlink()
+    # Only the person's own Reapply brings it back, never the pass at every start.
+    assert service.reset_by_apps(service.scan()) == []
 
 
 def test_kind_of_knows_store_apps() -> None:

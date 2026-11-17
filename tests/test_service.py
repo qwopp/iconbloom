@@ -262,6 +262,7 @@ def test_reapply_after_app_update_rewrites_shortcut(
     env.link_io.create(lnk, r"C:\Apps\Paint.exe", IconLocation(r"C:\Apps\paint-v2.ico", 0))
     updated = lnk.read_bytes()
     assert service.status(_group(service, "Paint")) is Status.NEEDS_REAPPLY
+    assert [g.name for g in service.reset_by_apps(service.scan())] == ["Paint"]
 
     report = service.reapply(service.scan())
     assert report.changed == [lnk]

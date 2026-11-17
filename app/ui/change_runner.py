@@ -70,10 +70,13 @@ class ChangeRunner:
         on_done: Callable[[ChangeReport], None],
         *,
         reload: bool = False,
+        quiet: bool = False,
     ) -> None:
         """Run a change on the thread pool, so a permission prompt never freezes the window.
 
         A progress dialog with a Stop button appears if it takes more than a moment.
+        ``quiet`` is for changes the person didn't start: items left alone are only
+        mentioned in the status bar, so one stuck shortcut can't pop up a box every launch.
         """
         dialog = QProgressDialog(title, "Stop", 0, max(len(targets), 1), self._parent)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -98,7 +101,7 @@ class ChangeRunner:
             self._set_running(-1)
             dialog.reset()
             if isinstance(result, ChangeReport):
-                self._show_skipped(result)
+                self._show_skipped(result, quiet=quiet)
                 self.show_taskbar_notice(result)
                 on_done(result)
                 if result.created and not result.dry_run:
@@ -179,7 +182,7 @@ class ChangeRunner:
         if box.clickedButton() is show_me:
             show_in_explorer(created[0])
 
-    def _show_skipped(self, report: ChangeReport) -> None:
+    def _show_skipped(self, report: ChangeReport, *, quiet: bool = False) -> None:
         # Skipping shared shortcuts was the user's own choice; no need to repeat it.
         problems = [(p, why) for p, why in report.skipped if why != SHARED_REASON]
         declined = [p for p, why in problems if why == DECLINED_REASON]
@@ -188,7 +191,12 @@ class ChangeRunner:
             self._status.showMessage(
                 f"Left {count(declined, 'shared shortcut')} as they were", 5000
             )
-        if problems:
+        if problems and quiet:
+            self._status.showMessage(
+                f"Couldn't change {count(problems, 'icon')}; More > Reapply my icons shows why",
+                10000,
+            )
+        elif problems:
             reasons = "\n".join(f"{p.stem}: {why}" for p, why in problems[:SKIPPED_SHOWN])
             QMessageBox.information(self._parent, "Some items were left alone", reasons)
 

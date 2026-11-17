@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import __version__
-from app.changes import REVERTIBLE, ChangeReport, Status
+from app.changes import REVERTIBLE, SHARED_REASON, ChangeReport, Status
 from app.service import IconService
 from app.settings import Settings
 from app.ui import UI_DIR, palette
@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         theme, broken = self._first_working_theme()
         self._theme_id = theme.id
         self._redraw_offered = False
+        self._start_pass_done = False
 
         self.setWindowTitle("Iconbloom")
         self.setWindowIcon(QIcon(str(APP_ICON)))
@@ -233,6 +234,14 @@ class MainWindow(QMainWindow):
 
     def _build_status_bar(self) -> None:
         bar = self.statusBar()
+        self.reapply_box = QCheckBox("Reapply reset icons")
+        self.reapply_box.setToolTip(
+            "When Iconbloom starts, put your styles back on icons an app update reset. "
+            "Chrome, for one, resets its icon every time it updates."
+        )
+        self.reapply_box.setChecked(self.settings.reapply_at_start)
+        self.reapply_box.toggled.connect(self._on_reapply_toggled)
+        bar.addPermanentWidget(self.reapply_box)
         self.update_box = QCheckBox("Check for updates")
         self.update_box.setToolTip(
             "Ask GitHub for a newer version when Iconbloom starts. It's the only time "
@@ -281,7 +290,38 @@ class MainWindow(QMainWindow):
     def _on_scanned(self, found: int) -> None:
         if not found:
             self.picker.show_message("No icons found on your desktop or Start menu.")
+        self._reapply_at_start()
         self._offer_redraw()
+
+    def _reapply_at_start(self) -> None:
+        """Once per launch: put back styles that app updates reset since last time."""
+        if self._start_pass_done or not self.settings.reapply_at_start or self.changes.running:
+            return
+        self._start_pass_done = True
+        lost = self.service.reset_by_apps(self.shortcuts.groups)
+        if not lost:
+            return
+        # Never a permission prompt nobody asked for: shared shortcuts are only offered.
+        self.changes.run(
+            "Putting your icons back…",
+            lost,
+            lambda progress: self.service.reapply(lost, progress=progress),
+            self._after_start_pass,
+            reload=True,
+            quiet=True,
+        )
+
+    def _after_start_pass(self, report: ChangeReport) -> None:
+        if report.changed:
+            self._say(f"Put back {count(report.changed, 'icon')} an app update had reset")
+        shared = {p for p, why in report.skipped if why == SHARED_REASON}
+        if shared and not self.notice.isVisible():
+            self.notice.show_message(
+                f"An app update reset {count(shared, 'shortcut')} that every user on this "
+                f"PC shares. Putting {'it' if len(shared) == 1 else 'them'} back needs "
+                "administrator permission.",
+                [("Put back", self.reapply_all, "Reapply your styles to the reset icons")],
+            )
 
     def _offer_redraw(self) -> None:
         """Once per version: icons styled by an older Iconbloom can be drawn again."""
@@ -628,6 +668,10 @@ class MainWindow(QMainWindow):
             lambda _progress: self.service.cleanup(),
             lambda report: self._say(f"Removed {count(report.removed, 'unused icon file')}"),
         )
+
+    def _on_reapply_toggled(self, enabled: bool) -> None:
+        self.settings.reapply_at_start = enabled
+        guarded(self, lambda: self.settings.save(self.service.paths.settings))
 
     def _on_update_toggled(self, enabled: bool) -> None:
         self.settings.check_for_updates = enabled
