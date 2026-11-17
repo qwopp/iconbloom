@@ -6,6 +6,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-17
+
 ### Added
 
 - When Iconbloom opens, it puts your styles back on icons an app update reset (Chrome resets
@@ -275,7 +277,8 @@ First release.
 - Opt-in update check, off by default.
 - Per-user installer and portable zip, with SHA-256 checksums.
 
-[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/qwopp/iconbloom/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/qwopp/iconbloom/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/qwopp/iconbloom/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/qwopp/iconbloom/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/qwopp/iconbloom/compare/v0.7.0...v0.8.0
