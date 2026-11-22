@@ -2,7 +2,8 @@
 
 uv run python -m app.main               # the picker window
 uv run python -m app.main --revert-all  # undo everything, no window (used by the uninstaller)
-uv run python -m app.main --fix-icons   # put back icons app updates reset, no window (at sign-in)
+uv run python -m app.main --fix-icons   # put back icons app updates reset, no window (at sign-in);
+                                        # with the option on, keeps doing it until sign-out
 """
 
 import argparse
@@ -10,36 +11,46 @@ import logging
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-
-from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QApplication, QMessageBox
+from typing import TYPE_CHECKING
 
 from app.changes import SKIPPED_EXIT, ChangeReport
 from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
+from app.keeper import keep_icons
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
-from app.ui import UI_DIR, palette
-from app.ui.main_window import MainWindow
+from platform_win import watch
 from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_redirected
-from platform_win.refresh import hard_refresh
 from platform_win.startup import FIX_ICONS_FLAG
-from platform_win.wallpaper import current_wallpaper
+
+# Qt is loaded only for the window (see pyproject's ruff ignores).
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication
 
 log = logging.getLogger("iconbloom")
 
 
-def load_style(app: QApplication) -> None:
+def load_style(app: "QApplication") -> None:
     """Fonts and the light stylesheet, which dialogs before the window use too.
     The window switches to dark mode itself if that's the user's setting."""
+    from PySide6.QtGui import QFontDatabase
+
+    from app.ui import UI_DIR, palette
+
     for font in (UI_DIR / "fonts").glob("*.ttf"):
         QFontDatabase.addApplicationFont(str(font))
     palette.apply(app, palette.LIGHT)
 
 
 def run_window(paths: AppPaths) -> int:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from app.ui.main_window import MainWindow
+    from platform_win.refresh import hard_refresh
+    from platform_win.wallpaper import current_wallpaper
+
     app = QApplication(sys.argv)
     app.setApplicationName("Iconbloom")
     load_style(app)
@@ -89,16 +100,37 @@ def revert_everything(paths: AppPaths) -> int:
 
 
 def fix_reset_icons(paths: AppPaths) -> int:
-    """At sign-in: put back the user's own icons an app update reset, then exit.
+    """At sign-in: put back the user's own icons an app update reset. With the option
+    on, keep doing it whenever a shortcut folder changes, until sign-out or a stop.
     Never a window, a dialog or a permission prompt, and never a new shortcut."""
-    report = _run_headless(
-        paths,
-        "fix-icons",
-        lambda service: service.reapply(service.scan(store_apps=False), recreate_deleted=False),
-    )
-    if report is None:
+    keeper = watch.first_keeper()  # held until this returns
+    if keeper is None:
+        log.info("fix-icons: another copy is already keeping icons")
+        return 0
+    try:
+        service = windows_service(paths)
+    except BackupCorruptError as exc:
+        log.error("fix-icons refused: %s", exc)
         return 2
-    log.info("fix-icons put back %d icons", len(report.changed))
+
+    def fix() -> None:
+        report = service.reapply(service.scan(store_apps=False), recreate_deleted=False)
+        for path, reason in report.skipped:
+            log.warning("fix-icons skipped %s: %s", path, reason)
+        if report.changed:
+            log.info("fix-icons put back %d icons", len(report.changed))
+
+    sign_in = service.sign_in
+    try:
+        if sign_in is None or not sign_in.is_on():
+            fix()  # asked for once, from the command line
+        else:
+            folders = service.own_folders()
+            log.info("fix-icons: keeping icons, watching %d folders", len(folders))
+            keep_icons(fix, watch.windows_folder_watch(folders), sign_in.is_on)
+    except BackupCorruptError as exc:
+        log.error("fix-icons stopped: %s", exc)
+        return 2
     return 0
 
 

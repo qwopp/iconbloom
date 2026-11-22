@@ -24,6 +24,8 @@ class Settings:
     # At start, put chosen styles back on icons an app update reset (Chrome does this
     # every update). Shared shortcuts are only offered, never changed without asking.
     reapply_at_start: bool = True
+    # True once the user said Not now to fixing reset icons automatically.
+    auto_fix_declined: bool = False
     # The RENDER_VERSION whose "redraw your icons" notice the user said Not now to.
     redraw_declined: int = 0
 

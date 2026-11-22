@@ -238,7 +238,15 @@ class FakeDesktop:
         self.taskbar = FakeTaskbar()
         # HKCU's Run key, for running at sign-in.
         self.run_key = FakeUserRegistry()
-        self.sign_in = SignInRun(self.run_key, f'"Iconbloom.exe" {FIX_ICONS_FLAG}')
+        # How often the copy that keeps icons fixed was started and asked to stop.
+        self.keeper_starts = 0
+        self.keeper_stops = 0
+        self.sign_in = SignInRun(
+            self.run_key,
+            f'"Iconbloom.exe" {FIX_ICONS_FLAG}',
+            start=self._start_keeper,
+            stop=self._stop_keeper,
+        )
         self.store_apps = FakeStoreApps(store_apps or {})
         self.io = ItemRouter(
             shortcut=self.link_io,
@@ -262,6 +270,12 @@ class FakeDesktop:
         self._icons = dict(icons or {})
         self._default = default
         self._unreadable = set(unreadable)
+
+    def _start_keeper(self) -> None:
+        self.keeper_starts += 1
+
+    def _stop_keeper(self) -> None:
+        self.keeper_stops += 1
 
     def drawn_by_old_version(self, key: str) -> None:
         """As if an older Iconbloom had drawn this app's icon (render version 1)."""

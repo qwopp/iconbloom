@@ -12,7 +12,9 @@
 
 [Setup]
 ; Close a running Iconbloom before replacing its files (the updater has usually closed it).
-CloseApplications=yes
+; "force", because the copy that keeps icons fixed has no window to close politely; it is
+; asked to stop first (StopKeepingIcons), so this is only the backup.
+CloseApplications=force
 AppId={{{#AppGuid}}
 AppName=Iconbloom
 AppVersion={#AppVersion}
@@ -51,10 +53,60 @@ Name: "{userdesktop}\Iconbloom"; Filename: "{app}\Iconbloom.exe"; Tasks: desktop
 Filename: "{app}\Iconbloom.exe"; Description: "Open Iconbloom"; Flags: nowait postinstall skipifsilent
 ; In-app updates install silently; reopen Iconbloom when they finish.
 Filename: "{app}\Iconbloom.exe"; Flags: nowait; Check: WizardSilent
+; With "Fix reset icons automatically" on, keep fixing them: setup stopped that copy.
+Filename: "{app}\Iconbloom.exe"; Parameters: "--fix-icons"; Flags: nowait; Check: KeepsIcons
 
 [Code]
+const
+  EVENT_MODIFY_STATE = $0002;
+  SYNCHRONIZE = $00100000;
+  RUN_KEY = 'Software\Microsoft\Windows\CurrentVersion\Run';
+
 var
   AlreadyInstalled: Boolean;
+
+function WinOpenEvent(dwDesiredAccess: DWORD; bInheritHandle: BOOL; lpName: String): THandle;
+  external 'OpenEventW@kernel32.dll stdcall';
+function WinSetEvent(hEvent: THandle): BOOL;
+  external 'SetEvent@kernel32.dll stdcall';
+function WinCloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+function WinOpenMutex(dwDesiredAccess: DWORD; bInheritHandle: BOOL; lpName: String): THandle;
+  external 'OpenMutexW@kernel32.dll stdcall';
+function WinWaitForSingleObject(hHandle: THandle; dwMilliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+
+// The copy that keeps icons fixed runs from {app}, so ask it to exit before its files
+// are replaced or removed, and wait until it has (platform_win/watch.py names both: it
+// owns the mutex until it exits).
+procedure StopKeepingIcons();
+var
+  Event, Keeper: THandle;
+begin
+  Keeper := WinOpenMutex(SYNCHRONIZE, False, 'Local\Iconbloom.KeepingIcons');
+  Event := WinOpenEvent(EVENT_MODIFY_STATE, False, 'Local\Iconbloom.StopKeepingIcons');
+  if Event <> 0 then
+  begin
+    WinSetEvent(Event);
+    WinCloseHandle(Event);
+  end;
+  if Keeper <> 0 then
+  begin
+    WinWaitForSingleObject(Keeper, 5000);
+    WinCloseHandle(Keeper);
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopKeepingIcons();
+  Result := '';
+end;
+
+function KeepsIcons(): Boolean;
+begin
+  Result := RegValueExists(HKCU, RUN_KEY, 'Iconbloom');
+end;
 
 // Looked up before anything is installed: by the time [Icons] runs, this install's own
 // uninstall entry may already exist.
@@ -79,6 +131,11 @@ var
   DataDir: String;
 begin
   Result := True;
+  StopKeepingIcons();
+  // A copy still starting up when asked (or a window left open) would keep its files in
+  // use. Setup has CloseApplications for that; the uninstaller closes them itself.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Iconbloom.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
   DataDir := ExpandConstant('{localappdata}\Iconbloom');
   if not DirExists(DataDir) then
     exit;
@@ -99,9 +156,9 @@ begin
   end;
 end;
 
-// "Fix reset icons at sign-in" would otherwise start an Iconbloom.exe that's gone.
+// "Fix reset icons automatically" would otherwise start an Iconbloom.exe that's gone.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
-    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Iconbloom');
+    RegDeleteValue(HKCU, RUN_KEY, 'Iconbloom');
 end;

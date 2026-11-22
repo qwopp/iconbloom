@@ -6,6 +6,14 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **More → Fix reset icons automatically** (was "Fix reset icons at sign-in") now keeps
+  going after sign-in: it puts icons back moments after an app update resets them, without
+  Iconbloom being open. It also notices when Windows' Startup apps page has switched it
+  off, and ticking it turns it back on. After Iconbloom puts reset icons back, it offers to
+  do this for you.
+
 ### Fixed
 
 - Apps whose updates move their program, like Roblox (a new folder for every version), keep

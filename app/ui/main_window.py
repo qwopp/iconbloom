@@ -218,15 +218,16 @@ class MainWindow(QMainWindow):
             action.triggered.connect(without_arguments(slot))
             self.change_actions.append(action)
         self.more_menu.addSeparator()
-        self.sign_in_action = self.more_menu.addAction("Fix reset icons at sign-in")
+        self.sign_in_action = self.more_menu.addAction("Fix reset icons automatically")
         self.sign_in_action.setCheckable(True)
         self.sign_in_action.setToolTip(
-            "When you sign in to Windows, quietly put back icons an app update reset, "
-            "without opening Iconbloom"
+            "Starts with Windows and quietly puts back icons an app update reset, moments "
+            "after it happens, without opening Iconbloom"
         )
         self.sign_in_action.setVisible(self.service.sign_in is not None)
         self._show_sign_in()
         self.sign_in_action.toggled.connect(self._on_sign_in_toggled)
+        self._start_keeper()
         self.dark_mode_action = self.more_menu.addAction("Dark mode")
         self.dark_mode_action.setCheckable(True)
         self.dark_mode_action.setToolTip("Switch Iconbloom's window between light and dark")
@@ -345,6 +346,36 @@ class MainWindow(QMainWindow):
                 "administrator permission.",
                 [("Put back", self.reapply_all, "Reapply your styles to the reset icons")],
             )
+        elif report.changed:
+            self._offer_fixing_automatically()
+
+    def _offer_fixing_automatically(self) -> None:
+        """After an update reset icons: Iconbloom could have put them back by itself."""
+        sign_in = self.service.sign_in
+        if (
+            sign_in is None
+            or self.settings.auto_fix_declined
+            or self.notice.isVisible()
+            or guarded(self, sign_in.is_on) is not False
+        ):
+            return
+
+        def decline() -> None:
+            self.settings.auto_fix_declined = True
+            self._save_settings()
+
+        self.notice.show_message(
+            "Iconbloom can put icons back by itself from now on, moments after an app "
+            "update resets them, without being open.",
+            [
+                (
+                    "Fix automatically",
+                    lambda: self.sign_in_action.setChecked(True),
+                    "Same as More > Fix reset icons automatically",
+                ),
+                ("Not now", decline, "Don't offer this again"),
+            ],
+        )
 
     def _offer_redraw(self) -> None:
         """Once per version: icons styled by an older Iconbloom can be drawn again."""
@@ -699,6 +730,16 @@ class MainWindow(QMainWindow):
             guarded(self, lambda: sign_in.set(on))
             self._show_sign_in()
 
+    def _start_keeper(self) -> None:
+        """With the option on, make sure it's running now, not only from the next sign-in:
+        after an update, say, which stopped it to replace its files."""
+        sign_in = self.service.sign_in
+        if sign_in is not None:
+            try:
+                sign_in.run_now()
+            except OSError:
+                log.exception("could not start fixing reset icons")
+
     def _show_sign_in(self) -> None:
         """Tick the item to match Windows' startup list, which the person can also edit."""
         sign_in = self.service.sign_in
@@ -743,6 +784,7 @@ class MainWindow(QMainWindow):
     @override
     def closeEvent(self, event: QCloseEvent) -> None:
         self._select_timer.stop()
+        self.shortcuts.stop()
         self.jobs.shutdown()
         super().closeEvent(event)
 
