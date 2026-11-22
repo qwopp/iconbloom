@@ -62,6 +62,7 @@ from platform_win.shortcuts import (
     Source,
     WindowsIcon,
     default_roots,
+    key_program,
     normalize_path,
     scan,
 )
@@ -194,7 +195,7 @@ class IconService:
         return bool(icon.path) and normalize_path(icon.path).startswith(self._icons_prefix)
 
     def status(self, target: ShortcutGroup) -> Status:
-        chosen = self.choices.get(target.key) is not None
+        chosen = self._chosen(target) is not None
         if any(self.is_ours(s.info.icon) for s in target.shortcuts):
             # Some of the group lost the style (an update recreated one shortcut, say).
             own = target.own_shortcuts
@@ -209,16 +210,53 @@ class IconService:
 
     def own_image(self, target: ShortcutGroup) -> str | None:
         """The user's own image for this app, if they picked one and it's still there."""
-        name = self.choices.image(target.key)
+        name = self.choices.image(self._choice_key(target))
         if name is not None and not (self.paths.custom_images / name).is_file():
             log.warning("own image %s for %s is gone; using the app's icon", name, target.name)
-            self.choices.set_image(target.key, None)
+            self.choices.set_image(self._choice_key(target), None)
             return None
         return name
 
     def set_own_image(self, target: ShortcutGroup, image_name: str | None) -> None:
         """Style this app from ``image_name`` from now on (None: the app's icon again)."""
+        self._follow_move(target)
         self.choices.set_image(target.key, image_name)
+
+    def _chosen(self, target: ShortcutGroup) -> Choice | None:
+        return self.choices.get(self._choice_key(target))
+
+    def _choice_key(self, target: ShortcutGroup) -> str:
+        """Where this app's choice is kept: its own key, or the one it had before an
+        update moved its program."""
+        return self._moved_from(target) or target.key
+
+    def _moved_from(self, target: ShortcutGroup) -> str | None:
+        """The key this app was styled under before an update moved its program.
+
+        Roblox puts every version in a new folder and points its shortcuts there, so
+        its key changes at each update. A shortcut file we styled that now starts a
+        program of the same name is still the same app.
+        """
+        if self.choices.get(target.key) is not None or self.choices.is_skipped(target.key):
+            return None
+        program = key_program(target.key)
+        if program is None:
+            return None
+        for shortcut in target.own_shortcuts:
+            entry = self.manifest.get(shortcut.path)
+            if entry is None or not entry.applied_icon:
+                continue
+            old = self.choices.key_for_slug(_slug_of_icon(entry.applied_icon))
+            if old is not None and old != target.key and key_program(old) == program:
+                return old
+        return None
+
+    def _follow_move(self, target: ShortcutGroup) -> None:
+        """Keep a moved app's choice under its new key from now on."""
+        old = self._moved_from(target)
+        if old is not None:
+            log.info("%s's program moved; its style moves with it", target.name)
+            self.choices.rename(old, target.key)
 
     def is_untouched(self, target: ShortcutGroup) -> bool:
         """Hasn't been themed or skipped yet."""
@@ -313,6 +351,8 @@ class IconService:
             for i, target in enumerate(targets):
                 if progress is not None and not progress(i, target):
                     break
+                if not dry_run:
+                    self._follow_move(target)
                 choice = choice_for(target)
                 if choice is None:
                     continue
@@ -396,7 +436,8 @@ class IconService:
         return [
             g
             for g in groups
-            if self.status(g) in REVERTIBLE and self.choices.drawn_with(g.key) < RENDER_VERSION
+            if self.status(g) in REVERTIBLE
+            and self.choices.drawn_with(self._choice_key(g)) < RENDER_VERSION
         ]
 
     @_one_at_a_time
@@ -410,7 +451,7 @@ class IconService:
         """Draw these apps' chosen styles again with this version's look."""
         return self.apply_many(
             self.drawn_before(groups),
-            lambda g: self.choices.get(g.key),
+            self._chosen,
             include_shared=include_shared,
             progress=progress,
         )
@@ -429,7 +470,7 @@ class IconService:
         lost = self.needs_reapply(groups, recreate_deleted=recreate_deleted)
         return self.apply_many(
             lost,
-            lambda g: self.choices.get(g.key),
+            self._chosen,
             include_shared=include_shared,
             dry_run=dry_run,
             progress=progress,
@@ -450,12 +491,15 @@ class IconService:
 
     @_one_at_a_time
     def revert(self, target: ShortcutGroup, *, dry_run: bool = False) -> ChangeReport:
+        moved_from = self._moved_from(target)  # read before the backup entries go
         copies = self._adopt_copies([target], dry_run=dry_run)
         report = self._revert_paths([s.path for s in target.shortcuts], dry_run=dry_run)
         if dry_run:
             report.changed += copies
         else:
             self.choices.clear(target.key)
+            if moved_from is not None:
+                self.choices.clear(moved_from)
             self._forget_deleted(target)
         return report
 
@@ -678,7 +722,7 @@ class IconService:
         Without one (its backup is gone), an empty location: Windows then shows the
         program's own icon.
         """
-        slug = Path(icon.path).name.partition("_")[0]
+        slug = _slug_of_icon(icon.path)
         for entry in self.manifest:
             applied = entry.applied_icon
             if (
@@ -763,6 +807,11 @@ def windows_service(paths: AppPaths | None = None) -> IconService:
 
 # Characters Windows doesn't allow in file names.
 _NOT_IN_FILE_NAMES = str.maketrans("", "", '<>:"/\\|?*' + "".join(map(chr, range(32))))
+
+
+def _slug_of_icon(icon_file: str) -> str:
+    """The slug of the app an icon file of ours was made for (``<slug>_<style>.ico``)."""
+    return Path(icon_file).name.partition("_")[0]
 
 
 def _free_link_path(folder: Path, name: str) -> Path:

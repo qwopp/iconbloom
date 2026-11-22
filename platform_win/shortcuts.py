@@ -189,7 +189,7 @@ class ShortcutGroup:
     @property
     def slug(self) -> str:
         """Short stable id used in generated file names."""
-        return hashlib.sha256(self.key.encode()).hexdigest()[:12]
+        return slug_of(self.key)
 
 
 @dataclass(frozen=True)
@@ -380,6 +380,9 @@ def _display_order(target: ShortcutGroup) -> tuple[int, bool, str]:
     )
 
 
+_TARGET_PREFIX = "target:"
+
+
 def group_key(shortcut: Shortcut) -> str:
     """Shortcuts with the same target and arguments are the same app.
 
@@ -389,7 +392,19 @@ def group_key(shortcut: Shortcut) -> str:
     target = shortcut.info.target.strip()
     if not target:
         return "lnk:" + normalize_path(str(shortcut.path))
-    return f"target:{_normal_target(target)}|{shortcut.info.arguments.strip().casefold()}"
+    return f"{_TARGET_PREFIX}{_normal_target(target)}|{shortcut.info.arguments.strip().casefold()}"
+
+
+def slug_of(key: str) -> str:
+    """The short stable id of an app key; every icon file made for the app starts with it."""
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def key_program(key: str) -> str | None:
+    """The file name of the program a ``target:`` key runs, such as ``chrome.exe``."""
+    if not key.startswith(_TARGET_PREFIX):
+        return None
+    return ntpath.basename(key.removeprefix(_TARGET_PREFIX).partition("|")[0]) or None
 
 
 def _normal_target(target: str) -> str:
