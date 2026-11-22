@@ -96,7 +96,9 @@ load and are tested on any OS.
   one failing item is skipped, not fatal. Copies of styled items (renamed, moved, pinned)
   are taken on with the original icon of the item they came from.
 - `keeper.py`: the sign-in copy's loop: a pass, then one after each burst of shortcut
-  changes, until sign-out or a stop. It never prompts; Qt isn't loaded for it.
+  changes, until sign-out or a stop. It never prompts; Qt isn't loaded for it. Reset
+  shortcuts every user shares start `--offer-shared`, a corner notice
+  (`ui/shared_notice.py`) whose Put back brings up the permission prompt.
 - `taskbar.py`: `TaskbarService`, the taskbar's apply and revert, in the same order as
   icons (save the originals, write, note what was applied). Revert puts back only settings
   still as Iconbloom left them, so ones the user changed in Settings since stay theirs.

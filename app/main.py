@@ -13,23 +13,29 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.changes import SKIPPED_EXIT, ChangeReport
+from app.changes import SHARED_REASON, SKIPPED_EXIT, ChangeReport
 from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
 from app.keeper import keep_icons
 from app.logs import log_uncaught, setup_logging
 from app.service import IconService, windows_service
+from app.settings import Settings
 from platform_win import watch
 from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_redirected
-from platform_win.startup import FIX_ICONS_FLAG
+from platform_win.startup import FIX_ICONS_FLAG, start_detached
 
 # Qt is loaded only for the window (see pyproject's ruff ignores).
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
+    from app.ui.shared_notice import SharedResetNotice
+
 log = logging.getLogger("iconbloom")
+
+# The corner notice for reset shortcuts every user shares, started by the sign-in copy.
+OFFER_SHARED_FLAG = "--offer-shared"
 
 
 def load_style(app: "QApplication") -> None:
@@ -103,7 +109,7 @@ def fix_reset_icons(paths: AppPaths) -> int:
     """At sign-in: put back the user's own icons an app update reset. With the option
     on, keep doing it whenever a shortcut folder changes, until sign-out or a stop.
     Never a window, a dialog or a permission prompt, and never a new shortcut."""
-    keeper = watch.first_keeper()  # held until this returns
+    keeper = watch.first_copy()  # held until this returns
     if keeper is None:
         log.info("fix-icons: another copy is already keeping icons")
         return 0
@@ -113,25 +119,80 @@ def fix_reset_icons(paths: AppPaths) -> int:
         log.error("fix-icons refused: %s", exc)
         return 2
 
-    def fix() -> None:
+    offered: set[Path] = set()
+
+    def fix(offer: bool) -> None:
         report = service.reapply(service.scan(store_apps=False), recreate_deleted=False)
         for path, reason in report.skipped:
             log.warning("fix-icons skipped %s: %s", path, reason)
         if report.changed:
             log.info("fix-icons put back %d icons", len(report.changed))
+        # Shared ones need a permission prompt, so they're only offered: once each per
+        # sign-in, and never if the user said to skip shared shortcuts.
+        shared = {p for p, why in report.skipped if why == SHARED_REASON}
+        if offer and shared - offered and Settings.load(paths.settings).shared_shortcuts != "skip":
+            offered.update(shared)
+            start_offer()
 
     sign_in = service.sign_in
     try:
         if sign_in is None or not sign_in.is_on():
-            fix()  # asked for once, from the command line
+            fix(offer=False)  # asked for once, from the command line
         else:
             folders = service.own_folders()
             log.info("fix-icons: keeping icons, watching %d folders", len(folders))
-            keep_icons(fix, watch.windows_folder_watch(folders), sign_in.is_on)
+            keep_icons(lambda: fix(offer=True), watch.windows_folder_watch(folders), sign_in.is_on)
     except BackupCorruptError as exc:
         log.error("fix-icons stopped: %s", exc)
         return 2
     return 0
+
+
+def start_offer() -> None:
+    start_detached(OFFER_SHARED_FLAG)
+
+
+def offer_shared(paths: AppPaths) -> int:
+    """The corner notice: which shared shortcuts updates reset, and Put back, which
+    brings up the permission prompt. Nothing changes unless the person clicks it."""
+    from PySide6.QtWidgets import QApplication
+
+    from app.ui import palette
+
+    offering = watch.first_copy(watch.ONE_OFFER)  # held until this returns
+    if offering is None:
+        return 0  # that notice is still open
+    try:
+        service = windows_service(paths)
+    except BackupCorruptError as exc:
+        log.error("offer-shared refused: %s", exc)
+        return 2
+    existing = QApplication.instance()
+    app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
+    load_style(app)
+    if palette.wants_dark(Settings.load(paths.settings).dark_mode):
+        palette.apply(app, palette.DARK)
+    notice = shared_reset_notice(service)
+    if notice is None:
+        return 0  # put back in the meantime, from the window say
+    notice.show_in_corner()
+    return app.exec()
+
+
+def shared_reset_notice(service: IconService) -> "SharedResetNotice | None":
+    from app.ui.shared_notice import SharedResetNotice
+
+    resets = service.shared_resets(service.scan(store_apps=False))
+    if not resets:
+        return None
+
+    def put_back() -> None:
+        report = service.reapply(resets, include_shared=True, recreate_deleted=False)
+        log.info("offer-shared put back %d icons", len(report.changed))
+        for path, reason in report.skipped:
+            log.warning("offer-shared skipped %s: %s", path, reason)
+
+    return SharedResetNotice([g.name for g in resets], put_back)
 
 
 def run_elevated_request(paths: AppPaths, request: Path) -> int:
@@ -158,6 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         FIX_ICONS_FLAG, action="store_true", help="put back icons app updates reset and exit"
     )
     parser.add_argument(ELEVATED_FLAG, type=Path, metavar="REQUEST", help=argparse.SUPPRESS)
+    parser.add_argument(OFFER_SHARED_FLAG, action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.elevated is not None:
         return run_elevated(args.elevated)
@@ -168,6 +230,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return revert_everything(paths)
     if args.fix_icons:
         return fix_reset_icons(paths)
+    if args.offer_shared:
+        return offer_shared(paths)
     return run_window(paths)
 
 

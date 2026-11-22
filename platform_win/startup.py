@@ -67,22 +67,24 @@ class SignInRun:
         return bool(value[1][0] & 1)
 
 
+def start_detached(*arguments: str) -> None:
+    """Start another copy of the built app that outlives this one."""
+    subprocess.Popen(
+        [sys.executable, *arguments],
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        close_fds=True,
+    )
+
+
 def windows_sign_in_run() -> SignInRun | None:
     """None when running from source: only the built app has an exe to start."""
     if not getattr(sys, "frozen", False):
         return None
     from platform_win.watch import ask_keeper_to_stop
 
-    def start() -> None:
-        subprocess.Popen(
-            [sys.executable, FIX_ICONS_FLAG],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
-
     return SignInRun(
         WindowsUserRegistry(),
         f'"{sys.executable}" {FIX_ICONS_FLAG}',
-        start=start,
+        start=lambda: start_detached(FIX_ICONS_FLAG),
         stop=ask_keeper_to_stop,
     )

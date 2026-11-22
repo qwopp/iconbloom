@@ -1,7 +1,7 @@
 """The Iconbloom window: assembles the panels and turns button presses into changes."""
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import __version__
-from app.changes import REVERTIBLE, SHARED_REASON, ChangeReport
+from app.changes import REVERTIBLE, SHARED_REASON, ChangeReport, shared_reset_message
 from app.service import IconService
 from app.settings import Settings
 from app.ui import UI_DIR, palette
@@ -43,7 +43,7 @@ from app.ui.update_flow import UpdateFlow
 from app.updates import Updater
 from engine.recipes import RENDER_VERSION
 from engine.themes import DEFAULT_THEME, Theme, ThemeError
-from platform_win.shortcuts import Place
+from platform_win.shortcuts import Place, ShortcutGroup
 
 log = logging.getLogger(__name__)
 
@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
         def done(report: ChangeReport) -> None:
             for target in lost:
                 self.shortcuts.refresh_group(target)
-            self._after_start_pass(report)
+            self._after_start_pass(report, lost)
 
         self.changes.run(
             "Putting your icons back…",
@@ -327,7 +327,7 @@ class MainWindow(QMainWindow):
             quiet=True,
         )
 
-    def _after_start_pass(self, report: ChangeReport) -> None:
+    def _after_start_pass(self, report: ChangeReport, lost: Sequence[ShortcutGroup]) -> None:
         shared = {p for p, why in report.skipped if why == SHARED_REASON}
         stuck = [p for p, why in report.skipped if why != SHARED_REASON]
         said: list[str] = []
@@ -340,10 +340,9 @@ class MainWindow(QMainWindow):
         if said:
             self._say(" ".join(said))
         if shared and not self.notice.isVisible():
+            names = [g.name for g in lost if any(s.path in shared for s in g.shortcuts)]
             self.notice.show_message(
-                f"An app update reset {count(shared, 'shortcut')} that every user on this "
-                f"PC shares. Putting {'it' if len(shared) == 1 else 'them'} back needs "
-                "administrator permission.",
+                shared_reset_message(names),
                 [("Put back", self.reapply_all, "Reapply your styles to the reset icons")],
             )
         elif report.changed:
@@ -763,8 +762,7 @@ class MainWindow(QMainWindow):
             self.updates.check()
 
     def _wants_dark_mode(self) -> bool:
-        chosen = self.settings.dark_mode
-        return palette.windows_prefers_dark() if chosen is None else chosen
+        return palette.wants_dark(self.settings.dark_mode)
 
     def set_dark_mode(self, dark: bool, save: bool = True) -> None:
         """Restyle the whole window; ``save`` remembers it as the user's choice."""

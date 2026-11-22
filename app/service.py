@@ -220,6 +220,16 @@ class IconService:
             return Status.NEEDS_REAPPLY
         return Status.ORIGINAL
 
+    def shared_resets(self, groups: Sequence[ShortcutGroup]) -> list[ShortcutGroup]:
+        """Styled apps whose shared shortcut an update reset: only a permission prompt
+        can put those back."""
+        return [
+            g
+            for g in groups
+            if self.status(g) is Status.NEEDS_REAPPLY
+            and any(self._lost_style(s) for s in g.shared_shortcuts)
+        ]
+
     def _lost_style(self, shortcut: Shortcut) -> bool:
         """Styled by us once (it has a backup entry) but no longer showing our icon."""
         return self.manifest.get(shortcut.path) is not None and not self.is_ours(shortcut.info.icon)

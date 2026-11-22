@@ -8,7 +8,7 @@ from platform_win.watch import (
     Wake,
     WindowsFolderWatch,
     ask_keeper_to_stop,
-    first_keeper,
+    first_copy,
 )
 
 
@@ -34,6 +34,6 @@ def test_stopping_with_none_running_is_fine() -> None:
 
 def test_one_keeper_at_a_time() -> None:
     name = _name("keeper")
-    first = first_keeper(name)
+    first = first_copy(name)
     assert first is not None
-    assert first_keeper(name) is None
+    assert first_copy(name) is None

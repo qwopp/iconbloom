@@ -167,9 +167,12 @@ def test_a_reset_shared_shortcut_is_noticed_beside_a_styled_pin(env: FakeDesktop
     assert (shared, SHARED_REASON) in report.skipped
     assert service.is_ours(env.link_io.read(pin).icon)
 
+    assert [g.name for g in service.shared_resets(service.scan())] == ["Chrome"]
+
     service.reapply(service.scan(), include_shared=True)
     assert service.is_ours(env.link_io.read(shared).icon)
     assert service.status(_group(service, "Chrome")) is Status.THEMED
+    assert service.shared_resets(service.scan()) == []
 
 
 def test_a_shared_shortcut_never_styled_doesnt_count_as_reset(env: FakeDesktop) -> None:

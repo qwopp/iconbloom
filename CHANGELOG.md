@@ -13,6 +13,9 @@ All notable changes to Iconbloom are documented here. The format follows
   Iconbloom being open. It also notices when Windows' Startup apps page has switched it
   off, and ticking it turns it back on. After Iconbloom puts reset icons back, it offers to
   do this for you.
+- When an update resets a shortcut every user shares (Chrome or Google Play Games installed
+  for everyone), the sign-in copy shows a small notice naming the app. **Put back** brings up
+  Windows' permission prompt; nothing changes without your click.
 
 ### Fixed
 
