@@ -137,6 +137,11 @@ def windows_prefers_dark() -> bool:
     return QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
 
 
+def wants_dark(chosen: bool | None) -> bool:
+    """The user's More > Dark mode choice, or Windows' mode until they make one."""
+    return windows_prefers_dark() if chosen is None else chosen
+
+
 def stylesheet(palette: UiPalette, template: str | None = None) -> str:
     """style.qss with every ``@name`` replaced by the palette's color."""
     text = _template() if template is None else template

@@ -26,7 +26,7 @@ def desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDes
     env = FakeDesktop(tmp_path)
     monkeypatch.setattr(main, "default_app_paths", lambda: env.paths)
     monkeypatch.setattr(main, "windows_service", lambda paths: env.service())
-    monkeypatch.setattr(watch, "first_keeper", object)  # the only copy running
+    monkeypatch.setattr(watch, "first_copy", object)  # the only copy running
     # setup_logging adds a file handler to the root logger; drop it after the test.
     root = logging.getLogger()
     handlers = list(root.handlers)
@@ -191,6 +191,6 @@ def test_fix_icons_leaves_it_to_a_copy_already_running(
     service = desktop.service()
     service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
     desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))
-    monkeypatch.setattr(watch, "first_keeper", lambda: None)
+    monkeypatch.setattr(watch, "first_copy", lambda: None)
     assert main.main([FIX_ICONS_FLAG]) == 0
     assert not service.is_ours(desktop.link_io.read(lnk).icon)

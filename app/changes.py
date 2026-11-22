@@ -1,6 +1,6 @@
 """What a change did: the report every action returns, and each item's status."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -25,6 +25,20 @@ REVERTIBLE = frozenset({Status.THEMED, Status.NEEDS_REAPPLY})
 
 SHARED_REASON = "shared by every user on this PC; needs administrator permission"
 DECLINED_REASON = "you declined Windows' permission prompt"
+
+
+def shared_reset_message(names: Sequence[str]) -> str:
+    """What to say when updates reset shortcuts only a permission prompt can put back."""
+    if len(names) == 1:
+        return (
+            f"An app update reset {names[0]}'s icon, a shortcut every user on this PC "
+            "shares. Putting it back needs administrator permission."
+        )
+    apps = ", ".join(names[:-1]) + f" and {names[-1]}"
+    return (
+        f"App updates reset the icons of {apps}, shortcuts every user on this PC shares. "
+        "Putting them back needs administrator permission."
+    )
 
 
 class ShortcutStateError(Exception):

@@ -14,6 +14,8 @@ from typing import Protocol
 # "Local\" keeps both to this sign-in session, so other users' copies are left alone.
 STOP_EVENT = "Local\\Iconbloom.StopKeepingIcons"
 ONE_KEEPER = "Local\\Iconbloom.KeepingIcons"
+# The corner notice about reset shared shortcuts, also one at a time.
+ONE_OFFER = "Local\\Iconbloom.OfferingSharedResets"
 
 # What counts as a change: a shortcut created, deleted, renamed or rewritten.
 _FILE_NAME = 0x1
@@ -69,10 +71,10 @@ def windows_folder_watch(folders: Sequence[Path]) -> FolderWatch:
     return WindowsFolderWatch(folders)
 
 
-def first_keeper(name: str = ONE_KEEPER) -> object | None:
-    """This session's one-keeper mutex, or None when another copy already holds it.
-    Keep the returned handle for as long as this copy keeps icons. It's held as owner,
-    so setup can wait on it to learn this copy has really exited."""
+def first_copy(name: str = ONE_KEEPER) -> object | None:
+    """This session's mutex ``name``, or None when another copy already holds it.
+    Keep the returned handle for as long as this copy runs. It's held as owner, so
+    setup can wait on it to learn the keeper has really exited."""
     import pywintypes
     import win32api
     import win32event
