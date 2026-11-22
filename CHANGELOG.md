@@ -6,6 +6,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Fixing reset icons automatically does less work: opening Iconbloom no longer starts a
+  second copy just to have it exit, and putting icons back no longer wakes it for another look.
+
 ## [0.11.0] - 2026-11-22
 
 ### Changed

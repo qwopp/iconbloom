@@ -162,19 +162,15 @@ class IconService:
         self._notify = notify
         self._elevator = elevator
         self._shared_folders = [r.path for r in roots if r.source in SHARED_SOURCES]
+        # The rest, once each: the folders this user can change without a permission prompt.
+        self.own_folders = list(
+            dict.fromkeys(r.path for r in roots if r.source not in SHARED_SOURCES)
+        )
         self.styles = Styles(self.paths, themes_dir)
         self._icons_prefix = normalize_path(str(self.paths.icons)).rstrip("\\") + "\\"
         # Raises BackupCorruptError on a damaged manifest, before anything can change.
         self.manifest = BackupManifest(paths.manifest, paths.originals)
         self.choices = ChoiceStore(paths.choices)
-
-    def own_folders(self) -> list[Path]:
-        """The scanned folders this user can change without a permission prompt."""
-        folders: list[Path] = []
-        for root in self._roots:
-            if root.source not in SHARED_SOURCES and root.path not in folders:
-                folders.append(root.path)
-        return folders
 
     def scan(self, *, store_apps: bool = True) -> list[ShortcutGroup]:
         """Everything Iconbloom can style. ``store_apps=False`` skips listing Store apps
@@ -208,10 +204,10 @@ class IconService:
             # Some of the group lost the style (an update recreated one shortcut, say).
             # A shared one counts once it was styled, or a still-styled taskbar pin
             # would hide that Chrome's update reset its desktop shortcut for all users.
-            own = target.own_shortcuts
-            if chosen and not all(self.is_ours(s.info.icon) for s in own):
-                return Status.NEEDS_REAPPLY
-            if chosen and any(self._lost_style(s) for s in target.shared_shortcuts):
+            if chosen and (
+                not all(self.is_ours(s.info.icon) for s in target.own_shortcuts)
+                or any(self._lost_style(s) for s in target.shared_shortcuts)
+            ):
                 return Status.NEEDS_REAPPLY
             return Status.THEMED
         if self.choices.is_skipped(target.key):
@@ -236,10 +232,11 @@ class IconService:
 
     def own_image(self, target: ShortcutGroup) -> str | None:
         """The user's own image for this app, if they picked one and it's still there."""
-        name = self.choices.image(self._choice_key(target))
+        key = self._choice_key(target)
+        name = self.choices.image(key)
         if name is not None and not (self.paths.custom_images / name).is_file():
             log.warning("own image %s for %s is gone; using the app's icon", name, target.name)
-            self.choices.set_image(self._choice_key(target), None)
+            self.choices.set_image(key, None)
             return None
         return name
 

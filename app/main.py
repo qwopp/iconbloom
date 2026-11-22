@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.changes import SHARED_REASON, SKIPPED_EXIT, ChangeReport
+from app.changes import SKIPPED_EXIT, ChangeReport
 from app.elevation import ELEVATED_FLAG, handle_request, requester_paths
 from app.keeper import keep_icons
 from app.logs import log_uncaught, setup_logging
@@ -24,6 +24,7 @@ from platform_win.backup import BackupCorruptError
 from platform_win.elevate import shared_folders
 from platform_win.item_io import windows_item_io
 from platform_win.paths import AppPaths, default_app_paths, is_redirected
+from platform_win.shortcuts import ShortcutGroup
 from platform_win.startup import FIX_ICONS_FLAG, start_detached
 
 # Qt is loaded only for the window (see pyproject's ruff ignores).
@@ -77,25 +78,23 @@ def run_window(paths: AppPaths) -> int:
     return app.exec()
 
 
-def _run_headless(
-    paths: AppPaths, name: str, change: Callable[[IconService], ChangeReport]
-) -> ChangeReport | None:
-    """A change with no window: what it left alone goes to the log. None means the
-    backup is damaged, so nothing was changed."""
+def _headless(name: str, run: Callable[[], int]) -> int:
+    """A run with no window. A damaged backup refuses it before anything changes."""
     try:
-        report = change(windows_service(paths))
+        return run()
     except BackupCorruptError as exc:
         log.error("%s refused: %s", name, exc)
-        return None
+        return 2
+
+
+def _log_skips(name: str, report: ChangeReport) -> None:
     for path, reason in report.skipped:
         log.warning("%s skipped %s: %s", name, path, reason)
-    return report
 
 
 def revert_everything(paths: AppPaths) -> int:
-    report = _run_headless(paths, "revert-all", lambda service: service.revert_all())
-    if report is None:
-        return 2
+    report = windows_service(paths).revert_all()
+    _log_skips("revert-all", report)
     log.info(
         "revert-all restored %d shortcuts and taskbar settings %s",
         len(report.changed),
@@ -113,43 +112,34 @@ def fix_reset_icons(paths: AppPaths) -> int:
     if keeper is None:
         log.info("fix-icons: another copy is already keeping icons")
         return 0
-    try:
-        service = windows_service(paths)
-    except BackupCorruptError as exc:
-        log.error("fix-icons refused: %s", exc)
-        return 2
+    service = windows_service(paths)
 
-    offered: set[Path] = set()
-
-    def fix(offer: bool) -> None:
-        report = service.reapply(service.scan(store_apps=False), recreate_deleted=False)
-        for path, reason in report.skipped:
-            log.warning("fix-icons skipped %s: %s", path, reason)
+    def fix() -> list[ShortcutGroup]:
+        groups = service.scan(store_apps=False)
+        report = service.reapply(groups, recreate_deleted=False)
+        _log_skips("fix-icons", report)
         if report.changed:
             log.info("fix-icons put back %d icons", len(report.changed))
+        return groups
+
+    offered: set[str] = set()
+
+    def fix_and_offer() -> None:
         # Shared ones need a permission prompt, so they're only offered: once each per
         # sign-in, and never if the user said to skip shared shortcuts.
-        shared = {p for p, why in report.skipped if why == SHARED_REASON}
-        if offer and shared - offered and Settings.load(paths.settings).shared_shortcuts != "skip":
-            offered.update(shared)
-            start_offer()
+        resets = {g.key for g in service.shared_resets(fix())} - offered
+        if resets and Settings.load(paths.settings).shared_shortcuts != "skip":
+            offered.update(resets)
+            start_detached(OFFER_SHARED_FLAG)
 
     sign_in = service.sign_in
-    try:
-        if sign_in is None or not sign_in.is_on():
-            fix(offer=False)  # asked for once, from the command line
-        else:
-            folders = service.own_folders()
-            log.info("fix-icons: keeping icons, watching %d folders", len(folders))
-            keep_icons(lambda: fix(offer=True), watch.windows_folder_watch(folders), sign_in.is_on)
-    except BackupCorruptError as exc:
-        log.error("fix-icons stopped: %s", exc)
-        return 2
+    if sign_in is None or not sign_in.is_on():
+        fix()  # asked for once, from the command line
+        return 0
+    folders = service.own_folders
+    log.info("fix-icons: keeping icons, watching %d folders", len(folders))
+    keep_icons(fix_and_offer, watch.WindowsFolderWatch(folders), sign_in.is_on)
     return 0
-
-
-def start_offer() -> None:
-    start_detached(OFFER_SHARED_FLAG)
 
 
 def offer_shared(paths: AppPaths) -> int:
@@ -162,11 +152,7 @@ def offer_shared(paths: AppPaths) -> int:
     offering = watch.first_copy(watch.ONE_OFFER)  # held until this returns
     if offering is None:
         return 0  # that notice is still open
-    try:
-        service = windows_service(paths)
-    except BackupCorruptError as exc:
-        log.error("offer-shared refused: %s", exc)
-        return 2
+    service = windows_service(paths)
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     load_style(app)
@@ -189,8 +175,7 @@ def shared_reset_notice(service: IconService) -> "SharedResetNotice | None":
     def put_back() -> None:
         report = service.reapply(resets, include_shared=True, recreate_deleted=False)
         log.info("offer-shared put back %d icons", len(report.changed))
-        for path, reason in report.skipped:
-            log.warning("offer-shared skipped %s: %s", path, reason)
+        _log_skips("offer-shared", report)
 
     return SharedResetNotice([g.name for g in resets], put_back)
 
@@ -227,11 +212,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     setup_logging(paths.logs)
     sys.excepthook = log_uncaught
     if args.revert_all:
-        return revert_everything(paths)
+        return _headless("revert-all", lambda: revert_everything(paths))
     if args.fix_icons:
-        return fix_reset_icons(paths)
+        return _headless("fix-icons", lambda: fix_reset_icons(paths))
     if args.offer_shared:
-        return offer_shared(paths)
+        return _headless("offer-shared", lambda: offer_shared(paths))
     return run_window(paths)
 
 

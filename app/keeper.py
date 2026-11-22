@@ -34,15 +34,24 @@ def keep_icons(
     Startup apps page also ends this copy. A failing pass is logged and the next
     change tries again; a damaged backup ends it, as nothing may change until it's fixed.
     """
-    _safely(fix)
-    while still_on():
+    while True:
+        _safely(fix)
+        if not still_on() or _drain(watch) is Wake.STOP:
+            break
         wake = watch.wait(CHECK_EVERY_SECONDS)
         if wake is Wake.CHANGED:
             wake = _settle(watch, clock)
         if wake is Wake.STOP or not still_on():
             break
-        _safely(fix)
     log.info("stopped keeping icons")
+
+
+def _drain(watch: FolderWatch) -> Wake:
+    """Forget the changes a pass just made itself, so they don't bring on another one.
+    (A pass starts once the folders are quiet, so little else can be among them.)"""
+    while (wake := watch.wait(0)) is Wake.CHANGED:
+        pass
+    return wake
 
 
 def _settle(watch: FolderWatch, clock: Callable[[], float]) -> Wake:

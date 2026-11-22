@@ -9,7 +9,7 @@ from typing import override
 
 import pytest
 from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QWidget
 from pytestqt.qtbot import QtBot
 
 from app.main import load_style
@@ -47,6 +47,11 @@ class FakeUpdater(Updater):
     @override
     def launch(self, installer: Path) -> None:
         self.launched.append(installer)
+
+
+def button(widget: QWidget, text: str) -> QPushButton:
+    """The button labelled ``text`` inside ``widget`` (a notice, say)."""
+    return next(b for b in widget.findChildren(QPushButton) if b.text() == text)
 
 
 class Harness:

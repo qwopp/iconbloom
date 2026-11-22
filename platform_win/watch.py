@@ -23,6 +23,7 @@ _DIR_NAME = 0x2
 _LAST_WRITE = 0x10
 _ERROR_ALREADY_EXISTS = 183
 _EVENT_MODIFY_STATE = 0x2
+_SYNCHRONIZE = 0x100000
 
 
 class Wake(StrEnum):
@@ -67,10 +68,6 @@ class WindowsFolderWatch:
         return Wake.CHANGED
 
 
-def windows_folder_watch(folders: Sequence[Path]) -> FolderWatch:
-    return WindowsFolderWatch(folders)
-
-
 def first_copy(name: str = ONE_KEEPER) -> object | None:
     """This session's mutex ``name``, or None when another copy already holds it.
     Keep the returned handle for as long as this copy runs. It's held as owner, so
@@ -86,6 +83,20 @@ def first_copy(name: str = ONE_KEEPER) -> object | None:
         handle.Close()
         return None
     return handle
+
+
+def is_running(name: str = ONE_KEEPER) -> bool:
+    """Whether a copy holds ``name``: cheaper to ask than starting one that would exit."""
+    import pywintypes
+    import win32api
+    import win32event
+
+    try:
+        handle = win32event.OpenMutex(_SYNCHRONIZE, False, name)
+    except pywintypes.error:
+        return False
+    win32api.CloseHandle(handle)
+    return True
 
 
 def ask_keeper_to_stop(stop_event: str = STOP_EVENT) -> None:

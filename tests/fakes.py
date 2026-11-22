@@ -1,12 +1,13 @@
 """Stand-ins for Windows pieces, so every kind of item is testable on any OS."""
 
 import json
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path, PureWindowsPath
 from types import MappingProxyType
 
 from PIL import Image
 
+from app.choices import Choice
 from app.elevation import ELEVATED_FLAG, WindowsElevator, handle_request, requester_paths
 from app.service import IconService
 from app.taskbar import TaskbarService
@@ -27,6 +28,7 @@ from platform_win.shortcuts import (
 )
 from platform_win.startup import FIX_ICONS_FLAG, SignInRun
 from platform_win.store_apps import StoreApp, StoreAppIO
+from platform_win.watch import Wake
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 EXPLORER = r"C:\Windows\explorer.exe"
@@ -288,6 +290,15 @@ class FakeDesktop:
         self.link_io.create(path, rf"C:\Apps\{name}.exe", IconLocation(icon, 1 if icon else 0))
         return path
 
+    def styled_then_reset(self, name: str = "Paint") -> tuple[IconService, Path]:
+        """A shortcut styled with Iconbloom, then reset by its app's update."""
+        lnk = self.make(name)
+        service = self.service()
+        group = next(g for g in service.scan() if g.name == name)
+        service.apply(group, Choice("kawaii_pink", "sticker"))
+        self.link_io.set_icon(lnk, IconLocation(rf"C:\Apps\{name}.exe", 0))
+        return service, lnk
+
     def pin(self, shortcut: Path) -> Path:
         """What Windows does when a shortcut is pinned: copies it into the taskbar folder."""
         pinned = self.pinned / shortcut.name
@@ -363,3 +374,37 @@ class FakeDesktop:
     def _notify(self, paths: Sequence[Path]) -> None:
         self.notified += 1
         self.refreshed.extend(paths)
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class ScriptedWatch:
+    """A FolderWatch that answers each wait with the next scripted wake (STOP once they
+    run out), moving ``clock`` on by the time the wait took: all of it unless something
+    changed. Zero-second waits (the keeper forgetting its own changes) take theirs from
+    ``after_pass``, then find nothing; ``waits`` records only the others."""
+
+    def __init__(
+        self,
+        wakes: Iterable[Wake],
+        clock: FakeClock | None = None,
+        after_pass: Iterable[Wake] = (),
+    ) -> None:
+        self._clock = clock or FakeClock()
+        self._wakes = list(wakes)
+        self._after_pass = list(after_pass)
+        self.waits: list[float] = []
+
+    def wait(self, seconds: float) -> Wake:
+        if seconds == 0:
+            return self._after_pass.pop(0) if self._after_pass else Wake.QUIET
+        self.waits.append(seconds)
+        wake = self._wakes.pop(0) if self._wakes else Wake.STOP
+        self._clock.now += 1.0 if wake is Wake.CHANGED else seconds
+        return wake

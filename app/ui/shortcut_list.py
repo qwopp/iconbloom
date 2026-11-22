@@ -158,10 +158,6 @@ class ShortcutList(QWidget):
         self._generation += 1
         self._dropped_scan = self._dropped_scan or self._scans_running > 0
 
-    def stop(self) -> None:
-        """The window is closing: drop the results of scans still running."""
-        self._generation += 1
-
     def resume(self) -> None:
         """The change finished: rescan if invalidate() threw a scan away."""
         if self._dropped_scan:
