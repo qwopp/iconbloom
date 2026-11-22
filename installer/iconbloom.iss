@@ -59,6 +59,7 @@ Filename: "{app}\Iconbloom.exe"; Parameters: "--fix-icons"; Flags: nowait; Check
 [Code]
 const
   EVENT_MODIFY_STATE = $0002;
+  SYNCHRONIZE = $00100000;
   RUN_KEY = 'Software\Microsoft\Windows\CurrentVersion\Run';
 
 var
@@ -70,19 +71,29 @@ function WinSetEvent(hEvent: THandle): BOOL;
   external 'SetEvent@kernel32.dll stdcall';
 function WinCloseHandle(hObject: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
+function WinOpenMutex(dwDesiredAccess: DWORD; bInheritHandle: BOOL; lpName: String): THandle;
+  external 'OpenMutexW@kernel32.dll stdcall';
+function WinWaitForSingleObject(hHandle: THandle; dwMilliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
 
 // The copy that keeps icons fixed runs from {app}, so ask it to exit before its files
-// are replaced or removed (platform_win/watch.py names the event).
+// are replaced or removed, and wait until it has (platform_win/watch.py names both: it
+// owns the mutex until it exits).
 procedure StopKeepingIcons();
 var
-  Handle: THandle;
+  Event, Keeper: THandle;
 begin
-  Handle := WinOpenEvent(EVENT_MODIFY_STATE, False, 'Local\Iconbloom.StopKeepingIcons');
-  if Handle <> 0 then
+  Keeper := WinOpenMutex(SYNCHRONIZE, False, 'Local\Iconbloom.KeepingIcons');
+  Event := WinOpenEvent(EVENT_MODIFY_STATE, False, 'Local\Iconbloom.StopKeepingIcons');
+  if Event <> 0 then
   begin
-    WinSetEvent(Handle);
-    WinCloseHandle(Handle);
-    Sleep(2000);
+    WinSetEvent(Event);
+    WinCloseHandle(Event);
+  end;
+  if Keeper <> 0 then
+  begin
+    WinWaitForSingleObject(Keeper, 5000);
+    WinCloseHandle(Keeper);
   end;
 end;
 
@@ -121,6 +132,10 @@ var
 begin
   Result := True;
   StopKeepingIcons();
+  // A copy still starting up when asked (or a window left open) would keep its files in
+  // use. Setup has CloseApplications for that; the uninstaller closes them itself.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Iconbloom.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
   DataDir := ExpandConstant('{localappdata}\Iconbloom');
   if not DirExists(DataDir) then
     exit;

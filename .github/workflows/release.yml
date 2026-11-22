@@ -148,15 +148,22 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "updating over a running keeper exited with $($p.ExitCode)" }
           if (-not $keeper.HasExited) { throw "the update left the old keeper running" }
           if ($keeper.ExitCode -ne 0) { throw "the update closed the keeper by force ($($keeper.ExitCode))" }
+          $log = "$env:LOCALAPPDATA\Iconbloom\logs\iconbloom.log"
+          if (-not (Select-String -Path $log -Pattern "stopped keeping icons" -Quiet)) {
+            throw "the keeper didn't log that it was asked to stop"
+          }
           $deadline = (Get-Date).AddSeconds(30)
           while (-not (Get-Keepers)) {
             if ((Get-Date) -gt $deadline) { throw "the update didn't start keeping icons again" }
             Start-Sleep -Seconds 2
           }
-          # Close the window setup reopened; the keeper stays for the uninstall.
+          # Close the window setup reopened; the keeper stays for the uninstall, once it has
+          # started up (one still starting is closed by force; that path is tested too).
           Get-CimInstance Win32_Process -Filter "Name = 'Iconbloom.exe'" |
             Where-Object CommandLine -notlike "*--fix-icons*" |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          Start-Sleep -Seconds 15
+          $stops = (Select-String -Path $log -Pattern "stopped keeping icons").Count
 
           # Uninstall removes the shortcuts it made. The uninstaller hands off to a temp copy
           # and returns at once, so wait for the result.
@@ -173,10 +180,22 @@ jobs:
           }
           # The keeper was asked to stop, so its files could go too.
           while ((Test-Path $exe) -or (Get-Keepers)) {
-            if ((Get-Date) -gt $deadline) { throw "uninstall left Iconbloom.exe or a keeper running" }
+            if ((Get-Date) -gt $deadline) {
+              throw "uninstall left $(if (Test-Path $exe) { 'Iconbloom.exe' } else { 'a keeper running' })"
+            }
             Start-Sleep -Seconds 2
           }
+          if ((Select-String -Path $log -Pattern "stopped keeping icons").Count -le $stops) {
+            throw "uninstall closed the keeper by force instead of asking it to stop"
+          }
           Remove-Item -Recurse -Force $folder
+
+      - name: Show Iconbloom's log
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Content "$env:LOCALAPPDATA\Iconbloom\logs\iconbloom.log" -Tail 60 -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_Process -Filter "Name = 'Iconbloom.exe'" | Select-Object ProcessId, CommandLine
 
       - name: Portable zip and checksums
         shell: pwsh

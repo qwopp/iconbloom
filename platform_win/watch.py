@@ -71,14 +71,15 @@ def windows_folder_watch(folders: Sequence[Path]) -> FolderWatch:
 
 def first_keeper(name: str = ONE_KEEPER) -> object | None:
     """This session's one-keeper mutex, or None when another copy already holds it.
-    Keep the returned handle for as long as this copy keeps icons."""
+    Keep the returned handle for as long as this copy keeps icons. It's held as owner,
+    so setup can wait on it to learn this copy has really exited."""
     import pywintypes
     import win32api
     import win32event
 
     attributes = pywintypes.SECURITY_ATTRIBUTES()
     attributes.bInheritHandle = False  # pywin32's default is True
-    handle = win32event.CreateMutex(attributes, False, name)
+    handle = win32event.CreateMutex(attributes, True, name)
     if win32api.GetLastError() == _ERROR_ALREADY_EXISTS:
         handle.Close()
         return None

@@ -784,6 +784,7 @@ class MainWindow(QMainWindow):
     @override
     def closeEvent(self, event: QCloseEvent) -> None:
         self._select_timer.stop()
+        self.shortcuts.stop()
         self.jobs.shutdown()
         super().closeEvent(event)
 
