@@ -1,10 +1,7 @@
 """Putting back, at start, the styles an app update reset (Chrome does at every update)."""
 
-from PySide6.QtWidgets import QPushButton
-
 from app.service import Status
-from app.ui.main_window import MainWindow
-from tests.ui_harness import Harness
+from tests.ui_harness import Harness, button
 
 
 def test_icons_an_update_reset_are_put_back_at_start(harness: Harness) -> None:
@@ -39,8 +36,7 @@ def test_shared_shortcuts_are_offered_not_changed(harness: Harness) -> None:
     assert harness.status("Admin Tool") is Status.NEEDS_REAPPLY
 
     window.settings.shared_shortcuts = "include"  # answer the prompt the button brings up
-    put_back = next(b for b in window.notice.findChildren(QPushButton) if b.text() == "Put back")
-    put_back.click()
+    button(window.notice, "Put back").click()
     harness.qtbot.waitUntil(lambda: harness.status("Admin Tool") is Status.THEMED, timeout=10_000)
     window.close()
 
@@ -61,10 +57,6 @@ def test_fix_at_sign_in_is_off_until_ticked_and_revert_all_unticks_it(
     assert not action.isChecked()
 
 
-def _button(window: MainWindow, text: str) -> QPushButton:
-    return next(b for b in window.notice.findChildren(QPushButton) if b.text() == text)
-
-
 def test_after_putting_icons_back_it_offers_to_do_that_by_itself(harness: Harness) -> None:
     harness.style("Arcade")
     harness.update_resets(harness.lnk("Arcade"))
@@ -72,7 +64,7 @@ def test_after_putting_icons_back_it_offers_to_do_that_by_itself(harness: Harnes
     window = harness.reopen()
     harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
     assert "by itself from now on" in window.notice.label.text()
-    _button(window, "Fix automatically").click()
+    button(window.notice, "Fix automatically").click()
     assert harness.desktop.sign_in.is_on()
     assert window.sign_in_action.isChecked()
     assert harness.desktop.keeper_starts == 1  # running now, not from the next sign-in
@@ -84,7 +76,7 @@ def test_not_now_means_the_offer_isnt_made_again(harness: Harness) -> None:
     harness.update_resets(harness.lnk("Arcade"))
     window = harness.reopen()
     harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
-    _button(window, "Not now").click()
+    button(window.notice, "Not now").click()
 
     harness.update_resets(harness.lnk("Arcade"))
     window = harness.reopen()

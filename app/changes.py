@@ -27,6 +27,11 @@ SHARED_REASON = "shared by every user on this PC; needs administrator permission
 DECLINED_REASON = "you declined Windows' permission prompt"
 
 
+def join_names(names: Sequence[str]) -> str:
+    """'Chrome', 'Chrome and Roblox', 'Chrome, Discord and Roblox'."""
+    return " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names)
+
+
 def shared_reset_message(names: Sequence[str]) -> str:
     """What to say when updates reset shortcuts only a permission prompt can put back."""
     if len(names) == 1:
@@ -34,10 +39,9 @@ def shared_reset_message(names: Sequence[str]) -> str:
             f"An app update reset {names[0]}'s icon, a shortcut every user on this PC "
             "shares. Putting it back needs administrator permission."
         )
-    apps = ", ".join(names[:-1]) + f" and {names[-1]}"
     return (
-        f"App updates reset the icons of {apps}, shortcuts every user on this PC shares. "
-        "Putting them back needs administrator permission."
+        f"App updates reset the icons of {join_names(names)}, shortcuts every user on this "
+        "PC shares. Putting them back needs administrator permission."
     )
 
 

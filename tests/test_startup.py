@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from app.choices import Choice
-from platform_win import startup
+from platform_win import startup, watch
 from platform_win.startup import (
     FIX_ICONS_FLAG,
     RUN_KEY,
@@ -22,9 +22,15 @@ SWITCHED_OFF = (REG_BINARY, bytes([3, 0, 0, 0]) + bytes(8))
 SWITCHED_ON = (REG_BINARY, bytes([2, 0, 0, 0]) + bytes(8))
 
 
+def _none() -> None:
+    pass
+
+
 def test_switching_on_and_off_writes_one_run_value() -> None:
     registry = FakeUserRegistry()
-    sign_in = SignInRun(registry, rf'"C:\Iconbloom\Iconbloom.exe" {FIX_ICONS_FLAG}')
+    sign_in = SignInRun(
+        registry, rf'"C:\Iconbloom\Iconbloom.exe" {FIX_ICONS_FLAG}', start=_none, stop=_none
+    )
     assert not sign_in.is_on()
     sign_in.set(True)
     assert sign_in.is_on()
@@ -48,6 +54,7 @@ def test_only_the_built_app_offers_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "DETACHED_PROCESS", 8, raising=False)
     monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
     monkeypatch.setattr(startup.subprocess, "Popen", lambda args, **_: started.append(args))
+    monkeypatch.setattr(watch, "is_running", lambda: False)
     sign_in = startup.windows_sign_in_run()
     assert sign_in is not None
     sign_in.set(True)
@@ -71,7 +78,7 @@ def test_revert_all_stops_the_sign_in_run(env: FakeDesktop) -> None:
 def test_switched_off_in_windows_startup_apps_reads_off_until_ticked_again() -> None:
     registry = FakeUserRegistry()
     starts: list[str] = []
-    sign_in = SignInRun(registry, "cmd", start=lambda: starts.append("start"))
+    sign_in = SignInRun(registry, "cmd", start=lambda: starts.append("start"), stop=_none)
     sign_in.set(True)
     registry.write(STARTUP_APPROVED_KEY, VALUE_NAME, SWITCHED_OFF)
     assert not sign_in.is_on()
@@ -90,7 +97,7 @@ def test_switched_off_in_windows_startup_apps_reads_off_until_ticked_again() -> 
 def test_switching_off_stops_the_running_copy() -> None:
     registry = FakeUserRegistry()
     stops: list[str] = []
-    sign_in = SignInRun(registry, "cmd", stop=lambda: stops.append("stop"))
+    sign_in = SignInRun(registry, "cmd", start=_none, stop=lambda: stops.append("stop"))
     sign_in.set(True)
     registry.write(STARTUP_APPROVED_KEY, VALUE_NAME, SWITCHED_OFF)
     sign_in.set(False)

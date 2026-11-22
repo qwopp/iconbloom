@@ -1,11 +1,15 @@
+import logging
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from app import main
 from engine.themes import DEFAULT_THEME, Theme, load_theme
+from platform_win import watch
 from tests.fakes import SAMPLES_DIR, FakeDesktop
 
 # Fixtures for driving the window (``harness``, ``say_yes``).
@@ -39,6 +43,23 @@ def kawaii() -> Theme:
 @pytest.fixture
 def env(tmp_path: Path) -> FakeDesktop:
     return FakeDesktop(tmp_path)
+
+
+@pytest.fixture
+def desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDesktop]:
+    """A fake desktop that app.main's Windows wiring is pointed at."""
+    env = FakeDesktop(tmp_path)
+    monkeypatch.setattr(main, "default_app_paths", lambda: env.paths)
+    monkeypatch.setattr(main, "windows_service", lambda paths: env.service())
+    monkeypatch.setattr(watch, "first_copy", object)  # the only copy running
+    # setup_logging adds a file handler to the root logger; drop it after the test.
+    root = logging.getLogger()
+    handlers = list(root.handlers)
+    yield env
+    for handler in root.handlers[len(handlers) :]:
+        handler.close()
+        root.removeHandler(handler)
+    monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
 
 
 # Golden-tested for every theme besides the default: colorful, a plain glyph,

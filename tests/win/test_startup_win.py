@@ -10,6 +10,10 @@ from platform_win.startup import RUN_KEY, STARTUP_APPROVED_KEY, SignInRun
 from platform_win.taskbar import REG_BINARY, REG_SZ, WindowsUserRegistry
 
 
+def _none() -> None:
+    pass
+
+
 @pytest.fixture
 def name() -> Iterator[str]:
     name = f"Iconbloom-test-{uuid.uuid4()}"
@@ -21,7 +25,7 @@ def name() -> Iterator[str]:
 def test_switching_on_and_off_in_the_real_run_key(name: str) -> None:
     registry = WindowsUserRegistry()
     command = r'"C:\Iconbloom\Iconbloom.exe" --fix-icons'
-    sign_in = SignInRun(registry, command, name)
+    sign_in = SignInRun(registry, command, name, start=_none, stop=_none)
     assert not sign_in.is_on()
     sign_in.set(True)
     assert sign_in.is_on()
@@ -33,7 +37,9 @@ def test_switching_on_and_off_in_the_real_run_key(name: str) -> None:
 
 def test_windows_startup_apps_switch_is_read_and_cleared(name: str) -> None:
     registry = WindowsUserRegistry()
-    sign_in = SignInRun(registry, r'"C:\Iconbloom\Iconbloom.exe" --fix-icons', name)
+    sign_in = SignInRun(
+        registry, r'"C:\Iconbloom\Iconbloom.exe" --fix-icons', name, start=_none, stop=_none
+    )
     sign_in.set(True)
     registry.write(STARTUP_APPROVED_KEY, name, (REG_BINARY, bytes([3]) + bytes(11)))
     assert not sign_in.is_on()

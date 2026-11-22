@@ -1,6 +1,4 @@
 import logging
-import sys
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,31 +8,14 @@ from app import logs, main
 from app.changes import SKIPPED_EXIT
 from app.choices import Choice
 from app.elevation import ELEVATED_FLAG, REQUEST_FILE
+from app.keeper import CHECK_EVERY_SECONDS
 from app.service import IconService
 from app.taskbar import TaskbarChoice
 from platform_win import watch
 from platform_win.backup import BackupCorruptError
 from platform_win.paths import AppPaths
-from platform_win.shortcuts import IconLocation
 from platform_win.startup import FIX_ICONS_FLAG
-from tests.fakes import FakeDesktop
-
-
-@pytest.fixture
-def desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeDesktop]:
-    """A fake desktop that app.main's Windows wiring is pointed at."""
-    env = FakeDesktop(tmp_path)
-    monkeypatch.setattr(main, "default_app_paths", lambda: env.paths)
-    monkeypatch.setattr(main, "windows_service", lambda paths: env.service())
-    monkeypatch.setattr(watch, "first_copy", object)  # the only copy running
-    # setup_logging adds a file handler to the root logger; drop it after the test.
-    root = logging.getLogger()
-    handlers = list(root.handlers)
-    yield env
-    for handler in root.handlers[len(handlers) :]:
-        handler.close()
-        root.removeHandler(handler)
-    monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
+from tests.fakes import FakeDesktop, ScriptedWatch
 
 
 def test_revert_all_flag_restores_everything(desktop: FakeDesktop) -> None:
@@ -134,10 +115,7 @@ def test_elevated_copy_refuses_odd_request_paths(
 
 
 def test_fix_icons_flag_puts_back_reset_icons(desktop: FakeDesktop) -> None:
-    lnk = desktop.make("Paint")
-    service = desktop.service()
-    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
-    desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))  # an app update
+    service, lnk = desktop.styled_then_reset()
     assert main.main([FIX_ICONS_FLAG]) == 0
     assert service.is_ours(desktop.link_io.read(lnk).icon)
 
@@ -152,34 +130,22 @@ def test_fix_icons_refuses_on_corrupt_backup(
     assert main.main([FIX_ICONS_FLAG]) == 2
 
 
-class StopAtOnce:
-    def __init__(self) -> None:
-        self.waits = 0
-
-    def wait(self, seconds: float) -> watch.Wake:
-        self.waits += 1
-        return watch.Wake.STOP
-
-
 def test_with_the_option_on_fix_icons_keeps_watching_own_folders(
     desktop: FakeDesktop, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    lnk = desktop.make("Paint")
-    service = desktop.service()
-    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
-    desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))
+    service, lnk = desktop.styled_then_reset()
     desktop.sign_in.set(True)
-    stop = StopAtOnce()
+    stop = ScriptedWatch([])
     watched: list[Path] = []
 
-    def folder_watch(folders: list[Path]) -> StopAtOnce:
+    def folder_watch(folders: list[Path]) -> ScriptedWatch:
         watched.extend(folders)
         return stop
 
-    monkeypatch.setattr(watch, "windows_folder_watch", folder_watch)
+    monkeypatch.setattr(watch, "WindowsFolderWatch", folder_watch)
     assert main.main([FIX_ICONS_FLAG]) == 0
     assert service.is_ours(desktop.link_io.read(lnk).icon)
-    assert stop.waits == 1
+    assert stop.waits == [CHECK_EVERY_SECONDS]
     assert desktop.desktop in watched
     assert desktop.common not in watched  # shared: nothing to do there without asking
 
@@ -187,10 +153,7 @@ def test_with_the_option_on_fix_icons_keeps_watching_own_folders(
 def test_fix_icons_leaves_it_to_a_copy_already_running(
     desktop: FakeDesktop, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    lnk = desktop.make("Paint")
-    service = desktop.service()
-    service.apply(service.scan()[0], Choice("kawaii_pink", "sticker"))
-    desktop.link_io.set_icon(lnk, IconLocation(r"C:\Apps\Paint.exe", 0))
+    service, lnk = desktop.styled_then_reset()
     monkeypatch.setattr(watch, "first_copy", lambda: None)
     assert main.main([FIX_ICONS_FLAG]) == 0
     assert not service.is_ours(desktop.link_io.read(lnk).icon)

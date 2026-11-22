@@ -8,35 +8,14 @@ from app import keeper
 from app.keeper import keep_icons
 from platform_win.backup import BackupCorruptError
 from platform_win.watch import Wake
+from tests.fakes import FakeClock, ScriptedWatch
 
 
-class FakeClock:
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
-class ScriptedWatch:
-    """Answers each wait with the next scripted wake (STOP once it runs out), moving the
-    clock on by the time each wait took: all of it unless something changed."""
-
-    def __init__(self, clock: FakeClock, wakes: Iterable[Wake]) -> None:
-        self._clock = clock
-        self._wakes = list(wakes)
-        self.waits: list[float] = []
-
-    def wait(self, seconds: float) -> Wake:
-        self.waits.append(seconds)
-        wake = self._wakes.pop(0) if self._wakes else Wake.STOP
-        self._clock.now += 1.0 if wake is Wake.CHANGED else seconds
-        return wake
-
-
-def _run(wakes: Iterable[Wake], still_on: bool = True) -> tuple[int, ScriptedWatch]:
+def _run(
+    wakes: Iterable[Wake], still_on: bool = True, after_pass: Iterable[Wake] = ()
+) -> tuple[int, ScriptedWatch]:
     clock = FakeClock()
-    watch = ScriptedWatch(clock, wakes)
+    watch = ScriptedWatch(wakes, clock, after_pass)
     passes = 0
 
     def fix() -> None:
@@ -89,7 +68,7 @@ def test_a_failing_pass_is_logged_and_the_next_change_tries_again(
             raise OSError("shortcut locked")
 
     clock = FakeClock()
-    keep_icons(fix, ScriptedWatch(clock, [Wake.QUIET]), lambda: True, clock)
+    keep_icons(fix, ScriptedWatch([Wake.QUIET], clock), lambda: True, clock)
     assert calls == 2
     assert "trying again" in caplog.text
 
@@ -100,4 +79,15 @@ def test_a_damaged_backup_ends_it() -> None:
 
     clock = FakeClock()
     with pytest.raises(BackupCorruptError):
-        keep_icons(fix, ScriptedWatch(clock, [Wake.QUIET]), lambda: True, clock)
+        keep_icons(fix, ScriptedWatch([Wake.QUIET], clock), lambda: True, clock)
+
+
+def test_the_changes_a_pass_made_itself_bring_on_no_other() -> None:
+    passes, watch = _run([Wake.QUIET], after_pass=[Wake.CHANGED, Wake.CHANGED])
+    assert passes == 2
+    assert watch.waits == [keeper.CHECK_EVERY_SECONDS, keeper.CHECK_EVERY_SECONDS]
+
+
+def test_a_stop_among_a_pass_own_changes_ends_it() -> None:
+    passes, _ = _run([Wake.QUIET], after_pass=[Wake.CHANGED, Wake.STOP])
+    assert passes == 1

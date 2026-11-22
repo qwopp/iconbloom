@@ -42,6 +42,8 @@ class JobRunner(QObject):
         super().__init__(parent)
         self._pool = QThreadPool(self)
         self._jobs: set[Job] = set()
+        # Set by shutdown: a job still reporting back then would reach a closed window.
+        self._closed = False
 
     @property
     def busy(self) -> bool:
@@ -63,12 +65,13 @@ class JobRunner(QObject):
         job = Job(work)
         job.setAutoDelete(False)
         self._jobs.add(job)
-        if on_progress is not None:
-            job.signals.progress.connect(on_progress)
-        if on_done is not None:
-            job.signals.done.connect(on_done)
-        if on_failed is not None:
-            job.signals.failed.connect(on_failed)
+        for signal, handler in (
+            (job.signals.progress, on_progress),
+            (job.signals.done, on_done),
+            (job.signals.failed, on_failed),
+        ):
+            if handler is not None:
+                signal.connect(self._unless_closed(handler))
         job.signals.done.connect(lambda _result: self._jobs.discard(job))
         job.signals.failed.connect(lambda _message: self._jobs.discard(job))
         self._pool.start(job)
@@ -77,6 +80,15 @@ class JobRunner(QObject):
         return self._pool.waitForDone(msecs)
 
     def shutdown(self) -> None:
-        """Drop queued jobs and give running ones a moment to finish."""
+        """Drop queued jobs, give running ones a moment to finish, and hand nothing
+        more to the handlers."""
+        self._closed = True
         self._pool.clear()
         self._pool.waitForDone(5_000)
+
+    def _unless_closed[T](self, handler: Callable[[T], None]) -> Callable[[T], None]:
+        def run(value: T) -> None:
+            if not self._closed:
+                handler(value)
+
+        return run

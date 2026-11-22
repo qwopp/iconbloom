@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QMessageBox, QProgressDialog, QStatusBar, QWidget
 
-from app.changes import DECLINED_REASON, SHARED_REASON, ChangeReport
+from app.changes import DECLINED_REASON, SHARED_REASON, ChangeReport, join_names
 from app.settings import Settings
 from app.ui.controls import count, guarded
 from app.ui.jobs import JobRunner
@@ -199,7 +199,7 @@ class ChangeRunner:
 
 def pin_guide_text(names: Sequence[str]) -> str:
     """How to swap a Store app's taskbar pin for its new themed shortcut."""
-    listed = escape(" and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names))
+    listed = escape(join_names(names))
     them = "it" if len(names) == 1 else "each one"
     is_are = "is" if len(names) == 1 else "are"
     return (
