@@ -6,6 +6,11 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Apps whose updates move their program, like Roblox (a new folder for every version), keep
+  their style: putting back reset icons now finds them, with your own image too.
+
 ## [0.10.0] - 2026-11-17
 
 ### Added

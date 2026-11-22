@@ -273,6 +273,58 @@ def test_reapply_after_app_update_rewrites_shortcut(
     assert lnk.read_bytes() == updated
 
 
+ROBLOX = r"C:\Users\me\AppData\Local\Roblox\Versions\version-{}\RobloxPlayerBeta.exe"
+
+
+@pytest.mark.parametrize("own_image", [False, True], ids=["theme", "own-image"])
+def test_style_follows_an_app_whose_update_moved_its_program(
+    env: FakeDesktop, tmp_path: Path, own_image: bool
+) -> None:
+    # Roblox installs each version in a new folder and points its shortcut there.
+    lnk = env.desktop / "Roblox Player.lnk"
+    env.link_io.create(lnk, ROBLOX.format("4ea8e854"))
+    service = env.service()
+    choice = _cutout_of_own_image(service, tmp_path) if own_image else CHOICE
+    if choice.custom_image is not None:
+        service.set_own_image(_group(service, "Roblox Player"), choice.custom_image)
+    service.apply(_group(service, "Roblox Player"), choice)
+
+    env.link_io.create(lnk, ROBLOX.format("765338e0"))
+    moved = _group(service, "Roblox Player")
+    assert service.status(moved) is Status.NEEDS_REAPPLY
+    assert service.own_image(moved) == choice.custom_image
+    assert service.reapply(service.scan(), dry_run=True).changed == [lnk]
+
+    restarted = env.service()  # as at sign-in
+    report = restarted.reapply(restarted.scan(), recreate_deleted=False)
+    assert report.changed == [lnk]
+    styled = _group(restarted, "Roblox Player")
+    assert restarted.status(styled) is Status.THEMED
+    assert restarted.choices.items() == [(styled.key, choice)]
+    assert restarted.own_image(styled) == choice.custom_image
+
+
+def test_a_reused_shortcut_file_for_another_program_starts_fresh(env: FakeDesktop) -> None:
+    lnk = env.desktop / "Roblox Player.lnk"
+    env.link_io.create(lnk, ROBLOX.format("4ea8e854"))
+    service = env.service()
+    service.apply(_group(service, "Roblox Player"), CHOICE)
+    env.link_io.create(lnk, r"C:\Windows\notepad.exe")
+    assert service.status(_group(service, "Roblox Player")) is Status.ORIGINAL
+    assert service.needs_reapply(service.scan()) == []
+
+
+def test_reverting_a_moved_app_forgets_its_style(env: FakeDesktop) -> None:
+    lnk = env.desktop / "Roblox Player.lnk"
+    env.link_io.create(lnk, ROBLOX.format("4ea8e854"))
+    service = env.service()
+    service.apply(_group(service, "Roblox Player"), CHOICE)
+    env.link_io.create(lnk, ROBLOX.format("765338e0"))
+    service.revert(_group(service, "Roblox Player"))
+    assert service.choices.items() == []
+    assert service.status(_group(service, "Roblox Player")) is Status.ORIGINAL
+
+
 def test_revert_leaves_shortcut_alone_once_something_else_replaced_our_icon(
     env: FakeDesktop,
 ) -> None:

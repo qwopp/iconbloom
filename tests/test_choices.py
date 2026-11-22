@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.choices import Choice, ChoiceStore
 from engine.recipes import RENDER_VERSION
+from platform_win.shortcuts import slug_of
 
 
 def test_choices_persist(tmp_path: Path) -> None:
@@ -119,3 +120,20 @@ def test_choices_remember_which_version_drew_them(tmp_path: Path) -> None:
     assert store.drawn_with("app") == 1  # from before versions were kept
     store.set("app", Choice("t", "r"))
     assert ChoiceStore(path).drawn_with("app") == RENDER_VERSION
+
+
+def test_rename_moves_everything_kept_for_an_app(tmp_path: Path) -> None:
+    store = ChoiceStore(tmp_path / "choices.json")
+    choice = Choice("kawaii_pink", "cutout", custom_image="kitty.png")
+    store.set("old", choice)
+    store.set_image("old", "kitty.png")
+    assert store.key_for_slug(slug_of("old")) == "old"
+    store.rename("old", "new")
+    store.rename("missing", "other")  # nothing to move
+    reloaded = ChoiceStore(tmp_path / "choices.json")
+    assert reloaded.items() == [("new", choice)]
+    assert reloaded.image("new") == "kitty.png"
+    assert reloaded.image("old") is None
+    assert reloaded.drawn_with("new") == RENDER_VERSION
+    assert reloaded.key_for_slug(slug_of("old")) is None
+    assert reloaded.key_for_slug(slug_of("new")) == "new"

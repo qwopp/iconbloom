@@ -13,6 +13,7 @@ from pathlib import Path
 
 from engine.recipes import RENDER_VERSION
 from platform_win.fileio import write_json
+from platform_win.shortcuts import slug_of
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ class ChoiceStore:
         self._images: dict[str, str] = {}
         # Which RENDER_VERSION drew each app's icon; files from before this was kept say 1.
         self._drawn: dict[str, int] = {}
+        # Chosen keys by slug, the prefix of their icon files; built when first asked for.
+        self._by_slug: dict[str, str] | None = None
         self.reload()
 
     def get(self, key: str) -> Choice | None:
@@ -77,6 +80,26 @@ class ChoiceStore:
         self._choices[key] = choice
         self._drawn[key] = RENDER_VERSION
         self._skipped.discard(key)
+        self._save()
+
+    def key_for_slug(self, slug: str) -> str | None:
+        """The chosen app whose icon files start with ``slug``."""
+        if self._by_slug is None:
+            self._by_slug = {slug_of(key): key for key in self._choices}
+        return self._by_slug.get(slug)
+
+    def rename(self, old: str, new: str) -> None:
+        """Keep ``old``'s choice, own image and drawn version under ``new`` from now on.
+        For an app whose key changed because an update moved its program."""
+        choice = self._choices.pop(old, None)
+        if choice is None:
+            return
+        self._choices[new] = choice
+        if old in self._images:
+            self._images[new] = self._images.pop(old)
+        if old in self._drawn:
+            self._drawn[new] = self._drawn.pop(old)
+        self._skipped.discard(new)
         self._save()
 
     def drawn_with(self, key: str) -> int:
@@ -138,8 +161,10 @@ class ChoiceStore:
             log.warning("could not read %s (%s); moved it to %s", self._path, exc, aside.name)
             choices, skipped, images, drawn = {}, set[str](), {}, {}
         self._choices, self._skipped, self._images, self._drawn = choices, skipped, images, drawn
+        self._by_slug = None
 
     def _save(self) -> None:
+        self._by_slug = None
         payload = {
             "version": CHOICES_VERSION,
             "choices": {k: asdict(v) for k, v in self._choices.items()},
