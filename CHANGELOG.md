@@ -10,6 +10,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 - Apps whose updates move their program, like Roblox (a new folder for every version), keep
   their style: putting back reset icons now finds them, with your own image too.
+- A shortcut every user shares (Chrome installed for everyone) that an update reset is now
+  noticed even while its taskbar pin still looks right, so Iconbloom offers to put it back.
 
 ## [0.10.0] - 2026-11-17
 

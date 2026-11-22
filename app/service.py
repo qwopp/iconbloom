@@ -198,8 +198,12 @@ class IconService:
         chosen = self._chosen(target) is not None
         if any(self.is_ours(s.info.icon) for s in target.shortcuts):
             # Some of the group lost the style (an update recreated one shortcut, say).
+            # A shared one counts once it was styled, or a still-styled taskbar pin
+            # would hide that Chrome's update reset its desktop shortcut for all users.
             own = target.own_shortcuts
             if chosen and not all(self.is_ours(s.info.icon) for s in own):
+                return Status.NEEDS_REAPPLY
+            if chosen and any(self._lost_style(s) for s in target.shared_shortcuts):
                 return Status.NEEDS_REAPPLY
             return Status.THEMED
         if self.choices.is_skipped(target.key):
@@ -207,6 +211,10 @@ class IconService:
         if chosen:
             return Status.NEEDS_REAPPLY
         return Status.ORIGINAL
+
+    def _lost_style(self, shortcut: Shortcut) -> bool:
+        """Styled by us once (it has a backup entry) but no longer showing our icon."""
+        return self.manifest.get(shortcut.path) is not None and not self.is_ours(shortcut.info.icon)
 
     def own_image(self, target: ShortcutGroup) -> str | None:
         """The user's own image for this app, if they picked one and it's still there."""
