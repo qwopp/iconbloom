@@ -6,8 +6,8 @@ from collections.abc import Iterator
 
 import pytest
 
-from platform_win.startup import RUN_KEY, SignInRun
-from platform_win.taskbar import REG_SZ, WindowsUserRegistry
+from platform_win.startup import RUN_KEY, STARTUP_APPROVED_KEY, SignInRun
+from platform_win.taskbar import REG_BINARY, REG_SZ, WindowsUserRegistry
 
 
 @pytest.fixture
@@ -15,6 +15,7 @@ def name() -> Iterator[str]:
     name = f"Iconbloom-test-{uuid.uuid4()}"
     yield name
     WindowsUserRegistry().delete(RUN_KEY, name)
+    WindowsUserRegistry().delete(STARTUP_APPROVED_KEY, name)
 
 
 def test_switching_on_and_off_in_the_real_run_key(name: str) -> None:
@@ -28,3 +29,14 @@ def test_switching_on_and_off_in_the_real_run_key(name: str) -> None:
     sign_in.set(False)
     assert not sign_in.is_on()
     sign_in.set(False)  # already off is fine
+
+
+def test_windows_startup_apps_switch_is_read_and_cleared(name: str) -> None:
+    registry = WindowsUserRegistry()
+    sign_in = SignInRun(registry, r'"C:\Iconbloom\Iconbloom.exe" --fix-icons', name)
+    sign_in.set(True)
+    registry.write(STARTUP_APPROVED_KEY, name, (REG_BINARY, bytes([3]) + bytes(11)))
+    assert not sign_in.is_on()
+    sign_in.set(True)
+    assert sign_in.is_on()
+    assert registry.read(STARTUP_APPROVED_KEY, name) is None

@@ -23,7 +23,7 @@ Restyle your Windows desktop into one cute, matching theme, one icon at a time. 
 
 **An icon still looks old?** Windows caches icons, the taskbar especially. Use **More → Refresh Windows icons**.
 
-**An app update reset an icon?** Iconbloom puts it back when it opens (untick **Reapply reset icons** to stop that), and at sign-in if you tick **More → Fix reset icons at sign-in**.
+**An app update reset an icon?** Iconbloom puts it back when it opens (untick **Reapply reset icons** to stop that). Tick **More → Fix reset icons automatically** and it does so moments after any update, without being open.
 
 **Internet use?** Only an update check when it opens (untick **Check for updates** to stop it). Updates install only when you click **Update now**.
 

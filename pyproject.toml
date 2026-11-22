@@ -49,6 +49,8 @@ ignore = [
 # pywin32 is imported inside functions so these modules still load on Linux.
 "platform_win/*" = ["PLC0415"]
 "tests/win/*" = ["PLC0415"]
+# Qt is loaded only for the window, so the sign-in copy that stays open is small.
+"app/main.py" = ["PLC0415"]
 # Fakes and monkeypatched stand-ins must match real signatures they ignore.
 "tests/*" = ["ARG"]
 # ItemIO implementations keep the protocol's parameters even when one kind ignores them.

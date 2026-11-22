@@ -168,6 +168,14 @@ class IconService:
         self.manifest = BackupManifest(paths.manifest, paths.originals)
         self.choices = ChoiceStore(paths.choices)
 
+    def own_folders(self) -> list[Path]:
+        """The scanned folders this user can change without a permission prompt."""
+        folders: list[Path] = []
+        for root in self._roots:
+            if root.source not in SHARED_SOURCES and root.path not in folders:
+                folders.append(root.path)
+        return folders
+
     def scan(self, *, store_apps: bool = True) -> list[ShortcutGroup]:
         """Everything Iconbloom can style. ``store_apps=False`` skips listing Store apps
         that have no shortcut yet, a slow walk of Windows' app list."""
