@@ -154,6 +154,33 @@ def test_shared_shortcuts_change_with_permission_and_revert(env: FakeDesktop) ->
     assert len(service.manifest) == 0
 
 
+def test_a_reset_shared_shortcut_is_noticed_beside_a_styled_pin(env: FakeDesktop) -> None:
+    # Chrome installed for all users: its desktop shortcut is shared, its pin is the user's.
+    shared = env.make("Chrome", folder=env.common)
+    pin = env.pin(shared)
+    service = env.service()
+    service.apply(_group(service, "Chrome"), CHOICE, include_shared=True)
+
+    env.link_io.create(shared, r"C:\Apps\Chrome.exe")  # Chrome's updater rewrites it
+    assert service.status(_group(service, "Chrome")) is Status.NEEDS_REAPPLY
+    report = service.reapply(service.scan(), recreate_deleted=False)
+    assert (shared, SHARED_REASON) in report.skipped
+    assert service.is_ours(env.link_io.read(pin).icon)
+
+    service.reapply(service.scan(), include_shared=True)
+    assert service.is_ours(env.link_io.read(shared).icon)
+    assert service.status(_group(service, "Chrome")) is Status.THEMED
+
+
+def test_a_shared_shortcut_never_styled_doesnt_count_as_reset(env: FakeDesktop) -> None:
+    shared = env.make("Chrome", folder=env.common)
+    env.pin(shared)
+    service = env.service()
+    service.apply(_group(service, "Chrome"), CHOICE)  # shared ones skipped
+    assert service.status(_group(service, "Chrome")) is Status.THEMED
+    assert service.needs_reapply(service.scan()) == []
+
+
 def test_one_permission_prompt_for_a_whole_batch(env: FakeDesktop) -> None:
     for name in ("Alpha", "Beta", "Gamma"):
         env.make(name, folder=env.common)
