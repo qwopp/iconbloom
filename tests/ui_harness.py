@@ -18,7 +18,7 @@ from app.ui import palette
 from app.ui.main_window import MainWindow
 from app.updates import Progress, Release, Updater
 from platform_win.shortcuts import IconLocation
-from tests.fakes import FakeDesktop
+from tests.fakes import FakeDesktop, group
 
 APPS = {"Arcade": "non_square", "Browser": "multicolor", "Music": "simple_glyph"}
 
@@ -137,7 +137,7 @@ class Harness:
         return window
 
     def status(self, name: str) -> Status:
-        return self.service.status(next(g for g in self.service.scan() if g.name == name))
+        return self.service.status(group(self.service, name))
 
     def lnk(self, name: str) -> Path:
         return self.desktop.desktop / f"{name}.lnk"

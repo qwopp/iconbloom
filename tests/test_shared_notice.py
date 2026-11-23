@@ -14,7 +14,7 @@ from app.settings import Settings
 from platform_win import watch
 from platform_win.startup import FIX_ICONS_FLAG
 from platform_win.watch import Wake
-from tests.fakes import FakeDesktop, ScriptedWatch
+from tests.fakes import FakeDesktop, ScriptedWatch, group
 from tests.ui_harness import button
 
 CHOICE = Choice("kawaii_pink", "sticker")
@@ -34,8 +34,7 @@ def _reset_chrome(env: FakeDesktop) -> tuple[IconService, Path]:
     shared = env.make("Chrome", folder=env.common)
     env.pin(shared)
     service = env.service()
-    group = next(g for g in service.scan() if g.name == "Chrome")
-    service.apply(group, CHOICE, include_shared=True)
+    service.apply(group(service, "Chrome"), CHOICE, include_shared=True)
     env.link_io.create(shared, r"C:\Apps\Chrome.exe")
     return service, shared
 

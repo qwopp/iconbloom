@@ -23,6 +23,7 @@ from platform_win.shortcuts import (
     IconLocation,
     LinkInfo,
     ScanRoot,
+    ShortcutGroup,
     Source,
     desktop_folders_root,
 )
@@ -32,6 +33,11 @@ from platform_win.watch import Wake
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 EXPLORER = r"C:\Windows\explorer.exe"
+
+
+def group(service: IconService, name: str) -> ShortcutGroup:
+    """The group ``name`` as the service scans it now."""
+    return next(g for g in service.scan() if g.name == name)
 
 
 class FakeLinkIO(FileStateIO):
@@ -259,7 +265,6 @@ class FakeDesktop:
         )
         self.windows_icons = WINDOWS_ICONS if windows_icons else ()
         self.notified = 0
-        self.refreshed: list[Path] = []
         self.roots = [
             ScanRoot(self.desktop, Source.DESKTOP, folders=True),
             ScanRoot(self.pinned, Source.TASKBAR),
@@ -294,8 +299,7 @@ class FakeDesktop:
         """A shortcut styled with Iconbloom, then reset by its app's update."""
         lnk = self.make(name)
         service = self.service()
-        group = next(g for g in service.scan() if g.name == name)
-        service.apply(group, Choice("kawaii_pink", "sticker"))
+        service.apply(group(service, name), Choice("kawaii_pink", "sticker"))
         self.link_io.set_icon(lnk, IconLocation(rf"C:\Apps\{name}.exe", 0))
         return service, lnk
 
@@ -373,7 +377,6 @@ class FakeDesktop:
 
     def _notify(self, paths: Sequence[Path]) -> None:
         self.notified += 1
-        self.refreshed.extend(paths)
 
 
 class FakeClock:

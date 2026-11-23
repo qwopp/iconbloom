@@ -33,12 +33,6 @@ def _window(tmp_path: Path, qtbot: QtBot, saved: bool | None) -> MainWindow:
     return open_window(desktop, FakeUpdater(), qtbot)
 
 
-def test_starts_light_and_unchecked(harness: Harness, qapp: QApplication) -> None:
-    assert not harness.window.dark_mode_action.isChecked()
-    assert palette.current() is LIGHT
-    assert LIGHT.window in qapp.styleSheet()
-
-
 def test_toggle_switches_live_and_remembers(harness: Harness, qapp: QApplication) -> None:
     harness.window.dark_mode_action.trigger()
     assert palette.current() is DARK

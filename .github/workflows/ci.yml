@@ -32,8 +32,10 @@ jobs:
       - run: uv run pytest --cov --cov-report=term
       - name: Scan the runner's real shortcuts (read-only smoke test)
         run: uv run python -m app.cli scan --dump-dir scan-dump
-      - name: Coverage gate for the engine and backup manifest
-        run: uv run coverage report --include="engine/*,platform_win/backup.py" --fail-under=90
+      - name: Coverage gates (the engine and backup manifest, then everything)
+        run: |
+          uv run coverage report --include="engine/*,platform_win/backup.py" --fail-under=90
+          uv run coverage report --fail-under=90
 
   engine-linux:
     name: Portable tests (Ubuntu, proves engine/ is OS-free)

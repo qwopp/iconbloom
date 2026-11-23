@@ -24,6 +24,7 @@ dev = [
     "pytest>=9.2.0",
     "pytest-cov>=7.1.0",
     "pytest-qt>=4.5.0",
+    "pytest-xdist>=3.8.0",
     "resvg-py>=0.5.0",
     "ruff>=0.17.4",
     "types-pywin32>=312.0.0.20261104",
@@ -76,7 +77,8 @@ venv = ".venv"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers"]
+# -n auto: tests run in parallel, one worker per CPU (-n0 runs them in one process, for a debugger).
+addopts = ["-ra", "--strict-markers", "-n", "auto"]
 # A new warning (a deprecation, an unclosed file) fails the run instead of scrolling past.
 filterwarnings = ["error"]
 xfail_strict = true
