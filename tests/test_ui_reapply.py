@@ -9,7 +9,7 @@ def test_icons_an_update_reset_are_put_back_at_start(harness: Harness) -> None:
     harness.update_resets(harness.lnk("Arcade"))
 
     window = harness.reopen()
-    harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
+    assert harness.status("Arcade") is Status.THEMED
     assert window.reapply_box.isChecked()  # on unless switched off
     assert "Put back 1 icon an app update had reset." in window.statusBar().currentMessage()
     window.close()
@@ -37,7 +37,8 @@ def test_shared_shortcuts_are_offered_not_changed(harness: Harness) -> None:
 
     window.settings.shared_shortcuts = "include"  # answer the prompt the button brings up
     button(window.notice, "Put back").click()
-    harness.qtbot.waitUntil(lambda: harness.status("Admin Tool") is Status.THEMED, timeout=10_000)
+    harness.settle(window)
+    assert harness.status("Admin Tool") is Status.THEMED
     window.close()
 
 
@@ -62,7 +63,7 @@ def test_after_putting_icons_back_it_offers_to_do_that_by_itself(harness: Harnes
     harness.update_resets(harness.lnk("Arcade"))
 
     window = harness.reopen()
-    harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
+    assert harness.status("Arcade") is Status.THEMED
     assert "by itself from now on" in window.notice.label.text()
     button(window.notice, "Fix automatically").click()
     assert harness.desktop.sign_in.is_on()
@@ -75,12 +76,12 @@ def test_not_now_means_the_offer_isnt_made_again(harness: Harness) -> None:
     harness.style("Arcade")
     harness.update_resets(harness.lnk("Arcade"))
     window = harness.reopen()
-    harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
+    assert harness.status("Arcade") is Status.THEMED
     button(window.notice, "Not now").click()
 
     harness.update_resets(harness.lnk("Arcade"))
     window = harness.reopen()
-    harness.qtbot.waitUntil(lambda: harness.status("Arcade") is Status.THEMED, timeout=10_000)
+    assert harness.status("Arcade") is Status.THEMED
     assert not window.notice.isVisible()
     assert not harness.desktop.sign_in.is_on()
     window.close()

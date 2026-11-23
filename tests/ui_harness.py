@@ -73,9 +73,14 @@ class Harness:
     def service(self) -> IconService:
         return self.window.service
 
-    def settle(self) -> None:
-        """Wait until every background action has finished and reported back."""
-        self.qtbot.waitUntil(lambda: not self.window.jobs.busy, timeout=15_000)
+    def settle(self, window: MainWindow | None = None) -> None:
+        """Wait until every background action has finished and reported back.
+
+        Check results after this, not by polling status() while a change runs: each
+        poll scans, and could read a shortcut the change is halfway through writing.
+        """
+        window = window or self.window
+        self.qtbot.waitUntil(lambda: not window.jobs.busy, timeout=15_000)
         self.qtbot.wait(20)
 
     def select(self, *names: str) -> None:
@@ -123,11 +128,12 @@ class Harness:
         self.desktop.link_io.set_icon(lnk, IconLocation(rf"C:\Apps\{lnk.stem}.exe", 0))
 
     def reopen(self) -> MainWindow:
-        """Start Iconbloom again on the same desktop and wait until it has settled."""
+        """Start Iconbloom again on the same desktop and wait until it has settled,
+        including the start-up pass, which begins as the list fills."""
         window = open_window(self.desktop, self.updater, self.qtbot)
         rows = self.window.shortcuts.model.rowCount()
         self.qtbot.waitUntil(lambda: window.shortcuts.model.rowCount() == rows, timeout=10_000)
-        self.qtbot.waitUntil(lambda: not window.jobs.busy, timeout=15_000)
+        self.settle(window)
         return window
 
     def status(self, name: str) -> Status:

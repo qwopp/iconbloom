@@ -60,8 +60,11 @@ class JobRunner(QObject):
         """Run ``work`` in the background; handlers run on the UI thread.
 
         Handlers are connected before the job starts: a job that finishes
-        straight away would otherwise report to nobody.
+        straight away would otherwise report to nobody. After shutdown nothing
+        starts: a timer firing as the window closes must not set off new work.
         """
+        if self._closed:
+            return
         job = Job(work)
         job.setAutoDelete(False)
         self._jobs.add(job)

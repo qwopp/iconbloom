@@ -77,6 +77,9 @@ venv = ".venv"
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers"]
+# A new warning (a deprecation, an unclosed file) fails the run instead of scrolling past.
+filterwarnings = ["error"]
+xfail_strict = true
 markers = [
     "windows: needs a real Windows shell (IShellLink, known folders)",
 ]

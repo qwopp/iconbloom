@@ -16,6 +16,11 @@ on:
 permissions:
   contents: write
 
+# A new push to a pull request replaces its older build; a tag's build always finishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: windows-latest
