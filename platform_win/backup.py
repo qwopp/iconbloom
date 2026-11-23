@@ -21,11 +21,11 @@ Nothing here calls Windows APIs, so all of it is tested on every OS.
 import hashlib
 import json
 from collections.abc import Callable, Iterator
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from platform_win.fileio import atomic_write, write_json
+from platform_win.fileio import atomic_write, json_list, json_object, write_json
 from platform_win.shortcuts import IconLocation, normalize_path
 
 MANIFEST_VERSION = 1
@@ -272,24 +272,26 @@ def _save_guarded(path: Path, prev: Path, payload: object) -> None:
 
 
 def _parse_taskbar(raw: object) -> dict[str, dict[str, object] | None]:
-    if not isinstance(raw, dict) or raw.get("version") != TASKBAR_VERSION:
+    backup = json_object(raw)
+    if backup is None or backup.get("version") != TASKBAR_VERSION:
         raise ValueError(f"expected a version {TASKBAR_VERSION} taskbar backup")
     parsed: dict[str, dict[str, object] | None] = {}
     for name in ("original", "applied", "choice"):
-        value = raw.get(name)
-        if value is not None and not isinstance(value, dict):
+        value = backup.get(name)
+        if value is not None and json_object(value) is None:
             raise ValueError(f"'{name}' must be an object or null")
-        parsed[name] = value
+        parsed[name] = json_object(value)
     if parsed["original"] is None:
         raise ValueError("'original' is missing")
     return parsed
 
 
 def _parse(raw: object) -> dict[str, BackupEntry]:
-    if not isinstance(raw, dict) or raw.get("version") != MANIFEST_VERSION:
+    manifest = json_object(raw)
+    if manifest is None or manifest.get("version") != MANIFEST_VERSION:
         raise ValueError(f"expected a version {MANIFEST_VERSION} manifest")
-    items = raw.get("entries")
-    if not isinstance(items, list):
+    items = json_list(manifest.get("entries"))
+    if items is None:
         raise ValueError("'entries' must be a list")
     entries: dict[str, BackupEntry] = {}
     for item in items:
@@ -298,26 +300,49 @@ def _parse(raw: object) -> dict[str, BackupEntry]:
     return entries
 
 
-def _parse_entry(item: object) -> BackupEntry:
-    if not isinstance(item, dict):
+def _parse_entry(raw: object) -> BackupEntry:
+    item = json_object(raw)
+    if item is None:
         raise ValueError("each entry must be an object")
-    for name in ("shortcut", "original_icon_path", "original_sha256", "recorded_at"):
-        if not isinstance(item.get(name), str):
-            raise ValueError(f"entry field '{name}' must be a string")
-    index = item.get("original_icon_index")
-    if not isinstance(index, int) or isinstance(index, bool):
-        raise ValueError("entry field 'original_icon_index' must be an integer")
-    for name in ("original_copy", "applied_sha256", "applied_icon"):
-        if item.get(name) is not None and not isinstance(item.get(name), str):
-            raise ValueError(f"entry field '{name}' must be a string or null")
-    copy = item.get("original_copy")
+    unexpected = item.keys() - _ENTRY_FIELDS
+    if unexpected:
+        raise ValueError(f"unexpected entry fields: {', '.join(sorted(unexpected))}")
+    if "original_copy" not in item:
+        raise ValueError("entry field 'original_copy' is missing")
+    copy = _optional_text(item, "original_copy")
     if copy is not None and not _is_copy_name(copy):
         # Copies are deleted by name, so a path here could aim that delete anywhere.
         raise ValueError(f"entry field 'original_copy' is not a backup file name: {copy!r}")
-    try:
-        return BackupEntry(**item)
-    except TypeError as exc:
-        raise ValueError(f"unexpected entry fields: {exc}") from exc
+    index = item.get("original_icon_index")
+    if not isinstance(index, int) or isinstance(index, bool):
+        raise ValueError("entry field 'original_icon_index' must be an integer")
+    return BackupEntry(
+        shortcut=_text(item, "shortcut"),
+        original_icon_path=_text(item, "original_icon_path"),
+        original_icon_index=index,
+        original_sha256=_text(item, "original_sha256"),
+        original_copy=copy,
+        recorded_at=_text(item, "recorded_at"),
+        applied_sha256=_optional_text(item, "applied_sha256"),
+        applied_icon=_optional_text(item, "applied_icon"),
+    )
+
+
+_ENTRY_FIELDS = frozenset(f.name for f in fields(BackupEntry))
+
+
+def _text(item: dict[str, object], name: str) -> str:
+    value = item.get(name)
+    if not isinstance(value, str):
+        raise ValueError(f"entry field '{name}' must be a string")
+    return value
+
+
+def _optional_text(item: dict[str, object], name: str) -> str | None:
+    value = item.get(name)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"entry field '{name}' must be a string or null")
+    return value
 
 
 def _is_copy_name(name: str) -> bool:

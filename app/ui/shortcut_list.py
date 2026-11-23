@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from PySide6.QtCore import QItemSelection, QModelIndex, Qt, Signal
 from PySide6.QtGui import QImage, QStandardItem, QStandardItemModel
@@ -186,7 +187,7 @@ class ShortcutList(QWidget):
     def _on_scanned(self, result: object) -> None:
         if not isinstance(result, list):
             return
-        groups: list[ShortcutGroup] = [g for g in result if isinstance(g, ShortcutGroup)]
+        groups = [g for g in cast("list[object]", result) if isinstance(g, ShortcutGroup)]
         log.info("found %d shortcut groups", len(groups))
         current = self.current_group()
         old_groups = self._groups
@@ -327,7 +328,7 @@ class ShortcutList(QWidget):
         for offset in range(rows):
             row = (begin + offset) % rows
             item = self.model.item(row)
-            if self.grid.isRowHidden(row) or item is None:
+            if self.grid.isRowHidden(row):  # every row holds an item
                 continue
             if self._service.is_untouched(self._groups[item.data(KEY_ROLE)]):
                 self.grid.setCurrentIndex(item.index())

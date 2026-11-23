@@ -6,6 +6,11 @@ no CPU in between. A named event asks it to stop (turning the option off, Revert
 the installer), and a named mutex keeps it to one copy per sign-in session.
 """
 
+# pywin32's stubs leave most parameters and results untyped (some are wrong: they say
+# IShellLink.GetIconLocation returns None), so strict mode's unknown-type checks stay off
+# in the modules that call it. Every other strict check still applies.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path

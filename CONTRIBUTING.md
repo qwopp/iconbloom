@@ -36,7 +36,9 @@ iscc /DAppVersion=0.0.0 installer\iconbloom.iss
 uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest
 ```
 
-- `engine/` is type-checked in strict mode and must stay OS-free (a test enforces it).
+- `engine/`, `platform_win/` and `app/` are type-checked in strict mode. Only the modules
+  that call pywin32 relax its three unknown-type checks, since pywin32's stubs are incomplete.
+- `engine/` must stay OS-free (a test enforces it).
 - `engine/` and `platform_win/backup.py` must keep at least 90% test coverage.
 - Any warning fails the test run. In UI tests, wait for background work with
   `harness.settle()` before checking a result; polling a scan while a change writes is flaky.

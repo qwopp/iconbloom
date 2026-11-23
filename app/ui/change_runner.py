@@ -149,7 +149,7 @@ class ChangeRunner:
         box.setCheckBox(remember)
         box.exec()
         clicked = box.clickedButton()
-        if clicked is None or clicked not in (include, mine):
+        if clicked not in (include, mine):  # also None: the box was closed
             return None
         answer = clicked is include
         if remember.isChecked():

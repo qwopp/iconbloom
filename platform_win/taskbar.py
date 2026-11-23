@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Protocol
 
+from platform_win.fileio import json_list
+
 log = logging.getLogger(__name__)
 
 type RGB = tuple[int, int, int]
@@ -327,9 +329,10 @@ def encode(value: RegValue | None) -> list[object] | None:
 def decode(saved: object) -> RegValue | None:
     if saved is None:
         return None
-    if not isinstance(saved, list) or len(saved) != 2 or not isinstance(saved[0], int):
+    pair = json_list(saved)
+    if pair is None or len(pair) != 2 or not isinstance(pair[0], int):
         raise ValueError(f"not a saved registry value: {saved!r}")
-    kind, data = saved
+    kind, data = pair[0], pair[1]
     if kind == REG_BINARY and isinstance(data, str):
         return kind, bytes.fromhex(data)
     if isinstance(data, int | str) and not isinstance(data, bool):

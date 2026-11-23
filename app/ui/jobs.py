@@ -75,8 +75,12 @@ class JobRunner(QObject):
         ):
             if handler is not None:
                 signal.connect(self._unless_closed(handler))
-        job.signals.done.connect(lambda _result: self._jobs.discard(job))
-        job.signals.failed.connect(lambda _message: self._jobs.discard(job))
+
+        def forget(_outcome: object) -> None:
+            self._jobs.discard(job)
+
+        job.signals.done.connect(forget)
+        job.signals.failed.connect(forget)
         self._pool.start(job)
 
     def wait(self, msecs: int = 30_000) -> bool:
