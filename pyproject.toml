@@ -67,7 +67,7 @@ exclude = [".venv", "build", "dist"]
 pythonVersion = "3.12"
 pythonPlatform = "Windows"
 typeCheckingMode = "basic"
-strict = ["engine"]
+strict = ["engine", "app", "platform_win"]
 # pywin32 only installs on Windows; its stubs are enough to type-check elsewhere.
 reportMissingModuleSource = false
 venvPath = "."

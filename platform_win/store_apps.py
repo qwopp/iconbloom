@@ -11,6 +11,11 @@ Until that shortcut exists, each Store app is listed under a made-up path,
 ``shell:AppsFolder\\<app id>``, the way Windows' own icons use ``::{CLSID}``.
 """
 
+# pywin32's stubs leave most parameters and results untyped (some are wrong: they say
+# IShellLink.GetIconLocation returns None), so strict mode's unknown-type checks stay off
+# in the modules that call it. Every other strict check still applies.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+
 import logging
 import ntpath
 import os

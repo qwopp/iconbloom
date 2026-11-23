@@ -173,6 +173,13 @@ def test_settings_ignore_junk(tmp_path: Path) -> None:
     assert Settings.load(path) == Settings()
     path.write_text("[1, 2]", encoding="utf-8")
     assert Settings.load(path) == Settings()
+    # Values of the wrong type fall back to the default, one setting at a time.
+    path.write_text(
+        '{"dark_mode": "yes", "redraw_declined": true, "shared_shortcuts": 3,'
+        ' "reapply_at_start": false}',
+        encoding="utf-8",
+    )
+    assert Settings.load(path) == Settings(reapply_at_start=False)
 
 
 class DroppingResponse(FakeResponse):

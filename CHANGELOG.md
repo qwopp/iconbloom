@@ -8,6 +8,8 @@ All notable changes to Iconbloom are documented here. The format follows
 
 ### Fixed
 
+- A setting of the wrong type in `settings.json` (after a hand edit, say) now falls back to
+  its default instead of reaching code that expects something else.
 - UI tests that sometimes failed on timing alone now wait for the change they check, so a
   red build means a real problem. Closing the window also stops any work it had queued.
 

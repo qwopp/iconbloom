@@ -12,6 +12,11 @@ restart the taskbar takes that picture instead of reading the shortcut, so
 the hard refresh deletes the cache files while Explorer is closed.
 """
 
+# pywin32's stubs leave most parameters and results untyped (some are wrong: they say
+# IShellLink.GetIconLocation returns None), so strict mode's unknown-type checks stay off
+# in the modules that call it. Every other strict check still applies.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+
 import logging
 import subprocess
 import time

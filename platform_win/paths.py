@@ -1,5 +1,10 @@
 """Where Iconbloom keeps its own files, and where Windows keeps shortcuts."""
 
+# pywin32's stubs leave most parameters and results untyped (some are wrong: they say
+# IShellLink.GetIconLocation returns None), so strict mode's unknown-type checks stay off
+# in the modules that call it. Every other strict check still applies.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+
 import ntpath
 import os
 from dataclasses import dataclass

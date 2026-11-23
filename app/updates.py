@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app import __version__
+from platform_win.fileio import json_list, json_object
 
 RELEASES_API = "https://api.github.com/repos/qwopp/iconbloom/releases/latest"
 CHECKSUMS_ASSET = "SHA256SUMS.txt"
@@ -76,16 +77,17 @@ def parse_version(text: str) -> tuple[int, int, int] | None:
 
 def newer_release(payload: object, current: str = __version__) -> Release | None:
     """The release described by a GitHub API response, if it beats ``current``."""
-    if not isinstance(payload, dict):
+    release = json_object(payload)
+    if release is None:
         return None
-    tag, url = payload.get("tag_name"), payload.get("html_url")
+    tag, url = release.get("tag_name"), release.get("html_url")
     if not isinstance(tag, str) or not isinstance(url, str):
         return None
     latest, mine = parse_version(tag), parse_version(current)
     if latest is None or mine is None or latest <= mine:
         return None
     version = tag.lstrip("v")
-    assets = _asset_links(payload.get("assets"))
+    assets = _asset_links(release.get("assets"))
     return Release(
         version,
         url,
@@ -164,10 +166,9 @@ class Updater:
 
 def _asset_links(assets: object) -> Mapping[str, str]:
     links: dict[str, str] = {}
-    if isinstance(assets, list):
-        for asset in assets:
-            if isinstance(asset, dict):
-                name, link = asset.get("name"), asset.get("browser_download_url")
-                if isinstance(name, str) and isinstance(link, str) and link.startswith("https://"):
-                    links[name] = link
+    for item in json_list(assets) or []:
+        asset = json_object(item) or {}
+        name, link = asset.get("name"), asset.get("browser_download_url")
+        if isinstance(name, str) and isinstance(link, str) and link.startswith("https://"):
+            links[name] = link
     return links

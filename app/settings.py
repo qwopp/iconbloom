@@ -2,10 +2,12 @@
 
 import json
 import logging
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import UnionType
+from typing import Any, cast, get_type_hints
 
-from platform_win.fileio import write_json
+from platform_win.fileio import json_object, write_json
 
 log = logging.getLogger(__name__)
 
@@ -38,16 +40,29 @@ class Settings:
         except (OSError, ValueError) as exc:
             log.warning("ignoring unreadable %s: %s", path, exc)
             return cls()
-        if not isinstance(raw, dict):
+        saved = json_object(raw)
+        if saved is None:
             return cls()
-        known = {f.name for f in fields(cls)}
-        values = {k: v for k, v in raw.items() if k in known}
+        values = {k: v for k, v in saved.items() if _fits(v, _FIELD_TYPES.get(k))}
         # 0.2/0.3 asked first and saved "off" until answered; only an answer counts as a choice.
-        if raw.get("asked_about_updates") is True:
+        if saved.get("asked_about_updates") is True:
             values.setdefault("update_check_chosen", True)
         if not values.get("update_check_chosen"):
             values["check_for_updates"] = True
-        return cls(**values)
+        return cls(**cast("dict[str, Any]", values))  # each value checked by _fits
 
     def save(self, path: Path) -> None:
         write_json(path, asdict(self))
+
+
+# A hand-edited or damaged file can hold anything: a value of the wrong type falls
+# back to the default instead of reaching code that expects, say, a bool.
+_FIELD_TYPES: dict[str, type | UnionType] = get_type_hints(Settings)
+
+
+def _fits(value: object, kind: type | UnionType | None) -> bool:
+    if kind is None:
+        return False  # not a setting (an old or unknown key)
+    if isinstance(value, bool) and kind is int:
+        return False  # JSON true is not a number of anything
+    return isinstance(value, kind)

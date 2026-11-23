@@ -147,6 +147,8 @@ def test_manifests_from_earlier_versions_still_load(tmp_path: Path) -> None:
         '{"version": 1, "entries": [{"shortcut": "a", "original_icon_path": "", '
         '"original_sha256": "", "original_copy": "", "recorded_at": "", '
         '"original_icon_index": 0, "surprise": true}]}',
+        '{"version": 1, "entries": [{"shortcut": "a", "original_icon_path": "", '
+        '"original_sha256": "", "recorded_at": "", "original_icon_index": 0}]}',
     ],
 )
 def test_corrupt_manifest_is_refused_and_left_alone(tmp_path: Path, content: str) -> None:

@@ -132,7 +132,10 @@ def largest_frame(ico_data: bytes) -> Image.Image:
 
 def pe_icon_data(path: Path, index: int) -> bytes:
     """The .ico bytes of one icon resource in a program or library file."""
-    from icoextract import IconExtractor, IconExtractorError
+    from icoextract import (  # pyright: ignore[reportMissingTypeStubs]  # it ships none
+        IconExtractor,
+        IconExtractorError,
+    )
 
     try:
         extractor = IconExtractor(str(path))

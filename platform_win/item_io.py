@@ -12,11 +12,16 @@ Every kind implements ``shortcuts.ItemIO``:
 ``ItemRouter`` picks the right one from the item's path.
 """
 
+# pywin32's stubs leave most parameters and results untyped (some are wrong: they say
+# IShellLink.GetIconLocation returns None), so strict mode's unknown-type checks stay off
+# in the modules that call it. Every other strict check still applies.
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+
 import base64
 import json
 import logging
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -373,7 +378,7 @@ def ensure_com() -> None:
 
 
 @contextmanager
-def shell_errors_as_os_errors(path: Path) -> Iterator[None]:
+def shell_errors_as_os_errors(path: Path) -> Generator[None]:
     """A corrupt, locked or half-synced .lnk makes the shell raise com_error. It means
     the same as any unreadable file, so callers handle it the same way: as OSError."""
     import pythoncom

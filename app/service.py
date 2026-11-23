@@ -19,7 +19,8 @@ revert removes it again.
 import functools
 import logging
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Concatenate, Protocol
 
@@ -90,17 +91,8 @@ def _one_at_a_time[**P, R](
 
     @functools.wraps(method)
     def locked(self: "IconService", *args: P.args, **kwargs: P.kwargs) -> R:
-        with self._lock:
-            if self._depth or not self._process_lock:
-                return method(self, *args, **kwargs)
-            with file_lock(self.paths.lock):
-                self.manifest.reload()
-                self.choices.reload()
-                self._depth += 1
-                try:
-                    return method(self, *args, **kwargs)
-                finally:
-                    self._depth -= 1
+        with self.exclusive():
+            return method(self, *args, **kwargs)
 
     return locked
 
@@ -171,6 +163,23 @@ class IconService:
         # Raises BackupCorruptError on a damaged manifest, before anything can change.
         self.manifest = BackupManifest(paths.manifest, paths.originals)
         self.choices = ChoiceStore(paths.choices)
+
+    @contextmanager
+    def exclusive(self) -> Generator[None]:
+        """Hold the change lock: no other change, in this process or another, runs
+        meanwhile. Re-entrant; the outermost hold re-reads what another process changed."""
+        with self._lock:
+            if self._depth or not self._process_lock:
+                yield
+                return
+            with file_lock(self.paths.lock):
+                self.manifest.reload()
+                self.choices.reload()
+                self._depth += 1
+                try:
+                    yield
+                finally:
+                    self._depth -= 1
 
     def scan(self, *, store_apps: bool = True) -> list[ShortcutGroup]:
         """Everything Iconbloom can style. ``store_apps=False`` skips listing Store apps

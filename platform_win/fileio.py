@@ -6,9 +6,10 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 # About 2 seconds in total before giving up and reporting the error.
 _RETRY_DELAYS = (0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8)
@@ -51,13 +52,27 @@ def _replace(source: Path, target: Path) -> None:
     source.replace(target)
 
 
+def json_object(value: object) -> dict[str, object] | None:
+    """``value`` as a parsed JSON object, or None if it is something else.
+
+    JSON object keys are always strings, so the cast is safe; values stay ``object``
+    so every caller still checks what it reads.
+    """
+    return cast("dict[str, object]", value) if isinstance(value, dict) else None
+
+
+def json_list(value: object) -> list[object] | None:
+    """``value`` as a parsed JSON array, or None if it is something else."""
+    return cast("list[object]", value) if isinstance(value, list) else None
+
+
 def write_json(path: Path, payload: object) -> None:
     text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     atomic_write(path, text.encode("utf-8"))
 
 
 @contextmanager
-def file_lock(path: Path) -> Iterator[None]:
+def file_lock(path: Path) -> Generator[None]:
     """Hold ``path`` exclusively across processes, waiting for whoever has it.
 
     The system releases it when its holder exits or crashes, so it can never get stuck.
