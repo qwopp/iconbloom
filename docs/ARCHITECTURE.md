@@ -91,10 +91,10 @@ load and are tested on any OS.
   revert and reapply. Every change follows the same order: write the `.ico`, save the backup
   entry, point the item at the `.ico`, then note the item's new state. Revert restores the
   saved state if nothing else has touched the item since, and otherwise only its icon.
-  Revert all also reverts the taskbar. Changes take one lock, shared by every Iconbloom process (window, CLI, sign-in run), so two
-  never interleave, and
-  one failing item is skipped, not fatal. Copies of styled items (renamed, moved, pinned)
-  are taken on with the original icon of the item they came from.
+  Revert all also reverts the taskbar. Changes take one lock, shared by every Iconbloom
+  process (window, CLI, keeper), so two never interleave, and one failing item is skipped,
+  not fatal. Copies of styled items (renamed, moved, pinned) are taken on with the original
+  icon of the item they came from.
 - `keeper.py`: the sign-in copy's loop: a pass, then one after each burst of shortcut
   changes, until sign-out or a stop. It never prompts; Qt isn't loaded for it. Reset
   shortcuts every user shares start `--offer-shared`, a corner notice
@@ -134,6 +134,7 @@ slow step runs on `JobRunner`'s thread pool, so the window never freezes.
 - `change_runner.py`: runs a change in the background with a progress dialog, asks about
   shared shortcuts, and reports skipped items.
 - `update_flow.py`, `notice.py`: the update banner and the banner widget itself.
+- `shared_notice.py`: the keeper's corner notice for reset shortcuts every user shares.
 - `jobs.py`, `controls.py`, `widgets.py`: background jobs, shared helpers, and the painted
   tiles, cards and popup.
 - `palette.py`: every UI color by name, light and dark. `style.qss` is a template that
@@ -168,7 +169,9 @@ pins, which outlive an uninstall.
   `IShellLink` (JSON files), so apply/revert, crash and corruption scenarios run on every OS.
 - `tests/win/` repeats the key checks on real `.lnk` files in temp folders, on the Windows CI
   runner only.
-- pytest-qt drives the real window offscreen.
+- pytest-qt drives the real window offscreen. UI tests wait for background work to finish
+  (`Harness.settle`) and then check, never by polling a scan while a change is writing.
+- Any warning fails the run, and CI cancels a pull request's older runs when it is pushed again.
 - Other tests keep the edges honest: every theme loads from exactly the files the installer
   ships, committed PNGs match their SVGs, docs links resolve, the theme guide's example
   works, and the version matches everywhere.

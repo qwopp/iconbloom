@@ -38,6 +38,8 @@ uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run 
 
 - `engine/` is type-checked in strict mode and must stay OS-free (a test enforces it).
 - `engine/` and `platform_win/backup.py` must keep at least 90% test coverage.
+- Any warning fails the test run. In UI tests, wait for background work with
+  `harness.settle()` before checking a result; polling a scan while a change writes is flaky.
 - Tests that need real Windows shortcuts go in `tests/win/`. They only run on Windows and must
   only create shortcuts inside a temp folder, never on a real desktop.
 - The installer build runs only on pull requests that touch packaging. A file the app reads

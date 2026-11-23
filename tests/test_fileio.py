@@ -75,7 +75,8 @@ def test_two_writers_of_one_file_both_succeed(tmp_path: Path) -> None:
 def test_a_second_process_waits_for_the_lock(tmp_path: Path) -> None:
     """The window and the sign-in run are separate processes, not threads."""
     lock = tmp_path / "service.lock"
-    holder = subprocess.Popen(
+    # The with block closes the pipes and reaps the process, however the test ends.
+    with subprocess.Popen(
         [
             sys.executable,
             "-c",
@@ -88,24 +89,23 @@ def test_a_second_process_waits_for_the_lock(tmp_path: Path) -> None:
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
-    )
-    assert holder.stdin is not None
-    assert holder.stdout is not None
-    try:
-        assert holder.stdout.readline().strip() == "locked"
-        got_it = threading.Event()
+    ) as holder:
+        assert holder.stdin is not None
+        assert holder.stdout is not None
+        try:
+            assert holder.stdout.readline().strip() == "locked"
+            got_it = threading.Event()
 
-        def take() -> None:
-            with fileio.file_lock(lock):
-                got_it.set()
+            def take() -> None:
+                with fileio.file_lock(lock):
+                    got_it.set()
 
-        waiter = threading.Thread(target=take)
-        waiter.start()
-        assert not got_it.wait(0.5)  # the other process has it
-        holder.stdin.write("\n")
-        holder.stdin.flush()
-        assert got_it.wait(15)
-        waiter.join(5)
-    finally:
-        holder.kill()
-        holder.wait(5)
+            waiter = threading.Thread(target=take)
+            waiter.start()
+            assert not got_it.wait(0.5)  # the other process has it
+            holder.stdin.write("\n")
+            holder.stdin.flush()
+            assert got_it.wait(15)
+            waiter.join(5)
+        finally:
+            holder.kill()
