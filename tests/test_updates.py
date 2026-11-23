@@ -1,11 +1,10 @@
 import hashlib
 import io
-import tomllib
 from pathlib import Path
 
 import pytest
 
-from app import __version__, updates
+from app import updates
 from app.settings import Settings
 from app.updates import Release, UpdateError, Updater
 
@@ -44,11 +43,6 @@ class FakeGitHub:
         url = getattr(request, "full_url", "")
         self.requested.append(url)
         return FakeResponse(self.files[url])
-
-
-def test_version_matches_pyproject() -> None:
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"] == __version__
 
 
 @pytest.mark.parametrize(

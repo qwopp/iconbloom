@@ -234,18 +234,9 @@ def test_multi_select_previews_and_applies_to_all(harness: Harness) -> None:
     assert harness.status("Browser") is Status.THEMED
 
 
-def test_toolbar_actions(harness: Harness, say_yes: None) -> None:
-    harness.window.apply_chosen()
-    harness.settle()
+def test_reapply_with_nothing_to_do_says_so(harness: Harness) -> None:
     harness.window.reapply_all()
     assert "Nothing needed reapplying" in harness.window.statusBar().currentMessage()
-    harness.window.clean_up()
-    harness.settle()
-    harness.window.refresh_icons()
-    harness.settle()
-    assert harness.refreshes == 1
-    harness.window.theme_box.setCurrentIndex(0)
-    harness.wait_for_previews()
 
 
 def test_errors_become_a_dialog(harness: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,20 +270,6 @@ def test_every_button_works_when_clicked(harness: Harness, say_yes: None) -> Non
         action.trigger()
         harness.settle()
     assert harness.refreshes == 1
-
-
-def test_instant_background_jobs_still_report(harness: Harness) -> None:
-    """A job that finishes before its caller returns must not lose its result."""
-    results: list[int] = []
-
-    def collect(result: object) -> None:
-        assert isinstance(result, int)
-        results.append(result)
-
-    for i in range(50):
-        harness.window.jobs.start(lambda _report, i=i: i, on_done=collect)
-    harness.settle()
-    assert sorted(results) == list(range(50))
 
 
 def test_one_change_at_a_time(

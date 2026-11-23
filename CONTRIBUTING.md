@@ -39,7 +39,9 @@ uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run 
 - `engine/`, `platform_win/` and `app/` are type-checked in strict mode. Only the modules
   that call pywin32 relax its three unknown-type checks, since pywin32's stubs are incomplete.
 - `engine/` must stay OS-free (a test enforces it).
-- `engine/` and `platform_win/backup.py` must keep at least 90% test coverage.
+- Tests run in parallel; `-n0` runs them in one process, for a debugger.
+- Coverage must stay at 90% or more, both overall (measured on Windows CI) and for `engine/`
+  and `platform_win/backup.py`.
 - Any warning fails the test run. In UI tests, wait for background work with
   `harness.settle()` before checking a result; polling a scan while a change writes is flaky.
 - Tests that need real Windows shortcuts go in `tests/win/`. They only run on Windows and must

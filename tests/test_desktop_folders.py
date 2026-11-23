@@ -21,7 +21,7 @@ from platform_win.shortcuts import (
     desktop_folders_root,
     scan,
 )
-from tests.fakes import FakeDesktop, FakeLinkIO
+from tests.fakes import FakeDesktop, FakeLinkIO, group
 
 
 @pytest.fixture
@@ -160,7 +160,7 @@ def test_styling_a_group_changes_and_reverts_the_nested_copy(env: FakeDesktop) -
     nested = env.make("Notes", folder=env.make_folder("Work"))
     before = nested.read_bytes()
     service = env.service()
-    notes = next(g for g in service.scan() if g.name == "Notes")
+    notes = group(service, "Notes")
     assert nested in [s.path for s in notes.shortcuts]
     service.apply(notes, Choice(DEFAULT_THEME, "pastel_recolor"))
     assert nested.read_bytes() != before

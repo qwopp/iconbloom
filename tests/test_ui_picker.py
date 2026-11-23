@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint
-
 from app.service import ChangeReport
 from tests.ui_harness import Harness
 
@@ -22,13 +20,6 @@ def test_hover_shows_real_size_popup(harness: Harness) -> None:
     assert harness.window.picker.popup.isVisible()
     card.hovered.emit(card, False)
     assert not harness.window.picker.popup.isVisible()
-
-
-def test_popup_handles_point(harness: Harness) -> None:
-    harness.window.picker.popup.show_for(
-        harness.window.picker.cards[0].image, harness.window.picker.cards[1].image, QPoint(10, 10)
-    )
-    assert harness.window.picker.popup.isVisible()
 
 
 def test_detail_says_where_a_style_lands(harness: Harness) -> None:

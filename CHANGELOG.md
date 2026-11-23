@@ -13,6 +13,11 @@ All notable changes to Iconbloom are documented here. The format follows
 - UI tests that sometimes failed on timing alone now wait for the change they check, so a
   red build means a real problem. Closing the window also stops any work it had queued.
 
+### Changed
+
+- The test suite runs in parallel (about three times faster), drops tests that repeated
+  others, and CI keeps overall coverage at 90% or more.
+
 ## [0.11.1] - 2026-11-22
 
 ### Changed

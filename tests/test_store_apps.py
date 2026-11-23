@@ -18,12 +18,11 @@ from platform_win.shortcuts import (
     ItemKind,
     LinkInfo,
     Place,
-    ShortcutGroup,
     Source,
     is_store_app_id,
     kind_of,
 )
-from tests.fakes import EXPLORER, FakeDesktop
+from tests.fakes import EXPLORER, FakeDesktop, group
 
 CHOICE = Choice("kawaii_pink", "pastel_recolor")
 OTHER = Choice("mint_matcha", "pastel_recolor")
@@ -35,10 +34,6 @@ APPS = {OUTLOOK: "Outlook", GAME_BAR: "Game Bar", "Microsoft.GetHelp_8wekyb3d8bb
 @pytest.fixture
 def env(tmp_path: Path) -> FakeDesktop:
     return FakeDesktop(tmp_path, icons={OUTLOOK: "plate_glyph"}, store_apps=APPS)
-
-
-def _group(service: IconService, name: str) -> ShortcutGroup:
-    return next(g for g in service.scan() if g.name == name)
 
 
 def _link(path: Path) -> dict[str, object]:
@@ -59,13 +54,13 @@ def test_store_apps_are_listed_with_the_start_menu(env: FakeDesktop) -> None:
 
 def test_the_original_icon_is_the_app_as_explorer_draws_it(env: FakeDesktop) -> None:
     service = env.service()
-    extracted = service.original_icon(_group(service, "Outlook"))
+    extracted = service.original_icon(group(service, "Outlook"))
     assert extracted.source == " (shell allowed)"  # no icon file: straight to the shell
 
 
 def test_styling_one_puts_a_themed_shortcut_on_the_desktop(env: FakeDesktop) -> None:
     service = env.service()
-    report = service.apply(_group(service, "Outlook"), CHOICE)
+    report = service.apply(group(service, "Outlook"), CHOICE)
     link = env.desktop / "Outlook.lnk"
     assert report.created == [link]
     assert report.changed == [link]
@@ -83,14 +78,14 @@ def test_styling_one_puts_a_themed_shortcut_on_the_desktop(env: FakeDesktop) -> 
 
 def test_after_styling_the_app_is_its_desktop_shortcut(env: FakeDesktop) -> None:
     service = env.service()
-    listed = _group(service, "Outlook")
+    listed = group(service, "Outlook")
     service.apply(listed, CHOICE)
     # Right away, without a rescan: the tile follows the new shortcut.
     reloaded = service.reload(listed)
     assert reloaded.primary.path == env.desktop / "Outlook.lnk"
     assert service.status(reloaded) is Status.THEMED
     # And on the next scan the listed app gives way to it, under the same key.
-    fresh = _group(service, "Outlook")
+    fresh = group(service, "Outlook")
     assert [s.path for s in fresh.shortcuts] == [env.desktop / "Outlook.lnk"]
     assert fresh.key == listed.key
     assert service.status(fresh) is Status.THEMED
@@ -98,7 +93,7 @@ def test_after_styling_the_app_is_its_desktop_shortcut(env: FakeDesktop) -> None
 
 def test_dry_run_creates_nothing(env: FakeDesktop) -> None:
     service = env.service()
-    report = service.apply(_group(service, "Outlook"), CHOICE, dry_run=True)
+    report = service.apply(group(service, "Outlook"), CHOICE, dry_run=True)
     assert report.created == [env.desktop / "Outlook.lnk"]
     assert not any(env.desktop.iterdir())
     assert len(service.manifest) == 0
@@ -106,18 +101,18 @@ def test_dry_run_creates_nothing(env: FakeDesktop) -> None:
 
 def test_revert_takes_the_desktop_shortcut_away(env: FakeDesktop) -> None:
     service = env.service()
-    service.apply(_group(service, "Outlook"), CHOICE)
-    report = service.revert(_group(service, "Outlook"))
+    service.apply(group(service, "Outlook"), CHOICE)
+    report = service.revert(group(service, "Outlook"))
     assert report.changed == [env.desktop / "Outlook.lnk"]
     assert not (env.desktop / "Outlook.lnk").exists()
     assert len(service.manifest) == 0
-    assert _group(service, "Outlook").primary.kind is ItemKind.STORE_APP
+    assert group(service, "Outlook").primary.kind is ItemKind.STORE_APP
 
 
 def test_a_name_already_on_the_desktop_is_left_alone(env: FakeDesktop) -> None:
     (env.desktop / "Outlook.lnk").write_text("someone else's", encoding="utf-8")
     service = env.service()
-    report = service.apply(_group(service, "Outlook"), CHOICE)
+    report = service.apply(group(service, "Outlook"), CHOICE)
     assert report.created == [env.desktop / "Outlook (Iconbloom).lnk"]
     assert (env.desktop / "Outlook.lnk").read_text(encoding="utf-8") == "someone else's"
 
@@ -125,29 +120,29 @@ def test_a_name_already_on_the_desktop_is_left_alone(env: FakeDesktop) -> None:
 def test_names_windows_cant_use_in_files_are_dropped(tmp_path: Path) -> None:
     env = FakeDesktop(tmp_path, store_apps={"Acme.Notes_abcdefghjkmnp!App": 'Notes: "Q4"?'})
     service = env.service()
-    report = service.apply(_group(service, 'Notes: "Q4"?'), CHOICE)
+    report = service.apply(group(service, 'Notes: "Q4"?'), CHOICE)
     assert report.created == [env.desktop / "Notes Q4.lnk"]
 
 
 def _pinned(env: FakeDesktop, service: IconService) -> Path:
     """Style Outlook, then pin its shortcut the way the person would."""
-    service.apply(_group(service, "Outlook"), CHOICE)
+    service.apply(group(service, "Outlook"), CHOICE)
     return env.pin(env.desktop / "Outlook.lnk")
 
 
 def test_the_pin_joins_the_app(env: FakeDesktop) -> None:
     service = env.service()
     pin = _pinned(env, service)
-    group = _group(service, "Outlook")
-    assert {s.path for s in group.shortcuts} == {env.desktop / "Outlook.lnk", pin}
-    assert group.places == {Place.DESKTOP, Place.TASKBAR}
-    assert service.status(group) is Status.THEMED
+    outlook = group(service, "Outlook")
+    assert {s.path for s in outlook.shortcuts} == {env.desktop / "Outlook.lnk", pin}
+    assert outlook.places == {Place.DESKTOP, Place.TASKBAR}
+    assert service.status(outlook) is Status.THEMED
 
 
 def test_restyling_takes_on_windows_copy_of_the_pin(env: FakeDesktop) -> None:
     service = env.service()
     pin = _pinned(env, service)
-    report = service.apply(_group(service, "Outlook"), OTHER)
+    report = service.apply(group(service, "Outlook"), OTHER)
     assert pin in report.changed
     assert report.created == []
     assert "mint_matcha" in str(_link(pin)["icon"])
@@ -160,7 +155,7 @@ def test_restyling_takes_on_windows_copy_of_the_pin(env: FakeDesktop) -> None:
 def test_reverting_keeps_the_pin_and_gives_it_the_apps_own_icon(env: FakeDesktop) -> None:
     service = env.service()
     pin = _pinned(env, service)
-    report = service.revert(_group(service, "Outlook"))
+    report = service.revert(group(service, "Outlook"))
     assert set(report.changed) == {env.desktop / "Outlook.lnk", pin}
     assert not (env.desktop / "Outlook.lnk").exists()
     data = _link(pin)
@@ -168,9 +163,9 @@ def test_reverting_keeps_the_pin_and_gives_it_the_apps_own_icon(env: FakeDesktop
     icon = Path(str(data["icon"]))
     assert icon.parent == env.paths.pin_icons
     assert icon.is_file()
-    group = _group(service, "Outlook")
-    assert [s.path for s in group.shortcuts] == [pin]
-    assert service.status(group) is Status.ORIGINAL
+    outlook = group(service, "Outlook")
+    assert [s.path for s in outlook.shortcuts] == [pin]
+    assert service.status(outlook) is Status.ORIGINAL
     assert len(service.manifest) == 0
 
 
@@ -196,11 +191,11 @@ def test_revert_all_finds_pins_it_never_recorded(env: FakeDesktop) -> None:
 def test_a_reverted_pin_can_be_styled_again(env: FakeDesktop) -> None:
     service = env.service()
     pin = _pinned(env, service)
-    service.revert(_group(service, "Outlook"))
-    report = service.apply(_group(service, "Outlook"), OTHER)
+    service.revert(group(service, "Outlook"))
+    report = service.apply(group(service, "Outlook"), OTHER)
     assert report.changed == [pin]
     assert report.created == []
-    service.revert(_group(service, "Outlook"))
+    service.revert(group(service, "Outlook"))
     assert Path(str(_link(pin)["icon"])).parent == env.paths.pin_icons
 
 
@@ -208,14 +203,14 @@ def test_the_desktop_copy_can_go_once_pinned(env: FakeDesktop) -> None:
     service = env.service()
     pin = _pinned(env, service)
     (env.desktop / "Outlook.lnk").unlink()  # tidied away after pinning
-    group = _group(service, "Outlook")
-    assert [s.path for s in group.shortcuts] == [pin]
-    assert service.status(group) is Status.THEMED  # nothing to reapply
+    outlook = group(service, "Outlook")
+    assert [s.path for s in outlook.shortcuts] == [pin]
+    assert service.status(outlook) is Status.THEMED  # nothing to reapply
     assert service.reapply(service.scan()).changed == []
-    report = service.apply(group, OTHER)
+    report = service.apply(outlook, OTHER)
     assert report.changed == [pin]
     assert report.created == []  # restyling never puts it back on the desktop
-    service.revert(_group(service, "Outlook"))
+    service.revert(group(service, "Outlook"))
     assert pin.exists()
     assert Path(str(_link(pin)["icon"])).parent == env.paths.pin_icons
     assert not (env.desktop / "Outlook.lnk").exists()
@@ -224,10 +219,10 @@ def test_the_desktop_copy_can_go_once_pinned(env: FakeDesktop) -> None:
 
 def test_reapply_brings_back_a_deleted_desktop_shortcut(env: FakeDesktop) -> None:
     service = env.service()
-    service.apply(_group(service, "Outlook"), CHOICE)
+    service.apply(group(service, "Outlook"), CHOICE)
     (env.desktop / "Outlook.lnk").unlink()  # the person tidied the desktop
     groups = service.scan()
-    assert service.status(_group(service, "Outlook")) is Status.NEEDS_REAPPLY
+    assert service.status(group(service, "Outlook")) is Status.NEEDS_REAPPLY
     report = service.reapply(groups)
     assert report.created == [env.desktop / "Outlook.lnk"]
     (env.desktop / "Outlook.lnk").unlink()

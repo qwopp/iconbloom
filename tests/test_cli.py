@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from app import cli
-from app.service import IconService
 from tests.fakes import FakeDesktop
 
 
@@ -79,10 +78,6 @@ def test_reported_skips(env: FakeDesktop, capsys: pytest.CaptureFixture[str]) ->
     assert _run(env, "apply", "Admin", "--recipe", "sticker", "--dry-run") == 0
     assert _run(env, "apply", "Admin", "--recipe", "sticker") == 3
     assert "needs administrator permission" in capsys.readouterr().out
-
-
-def test_service_type_is_used(env: FakeDesktop) -> None:
-    assert isinstance(env.service(), IconService)
 
 
 def test_taskbar_show_apply_and_revert(

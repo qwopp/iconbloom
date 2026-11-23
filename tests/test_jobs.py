@@ -15,6 +15,17 @@ def test_a_job_reports_its_result(qtbot: QtBot) -> None:
     assert results == [42]
 
 
+def test_jobs_that_finish_at_once_still_report(qtbot: QtBot) -> None:
+    """A job that finishes before start() returns must not lose its result."""
+    jobs = JobRunner()
+    results: list[object] = []
+    for i in range(50):
+        jobs.start(lambda _report, i=i: i, on_done=results.append)
+    qtbot.waitUntil(lambda: not jobs.busy)
+    assert len(results) == 50
+    assert set(results) == set(range(50))
+
+
 def test_a_failing_job_reports_its_message(qtbot: QtBot) -> None:
     jobs = JobRunner()
     messages: list[str] = []

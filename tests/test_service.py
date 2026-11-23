@@ -15,13 +15,9 @@ from engine.themes import DEFAULT_THEME
 from platform_win.backup import BackupCorruptError
 from platform_win.shortcuts import IconLocation, ShortcutGroup
 from tests.conftest import load_sample
-from tests.fakes import FakeDesktop
+from tests.fakes import FakeDesktop, group
 
 CHOICE = Choice("kawaii_pink", "sticker")
-
-
-def _group(service: IconService, name: str) -> ShortcutGroup:
-    return next(g for g in service.scan() if g.name == name)
 
 
 def test_apply_then_revert_is_byte_identical_for_five_shortcuts(env: FakeDesktop) -> None:
@@ -45,12 +41,12 @@ def test_apply_then_revert_is_byte_identical_for_five_shortcuts(env: FakeDesktop
 def test_apply_points_shortcut_at_generated_ico(env: FakeDesktop) -> None:
     lnk = env.make("Paint")
     service = env.service()
-    report = service.apply(_group(service, "Paint"), CHOICE)
+    report = service.apply(group(service, "Paint"), CHOICE)
     (ico,) = report.written
     assert ico.exists()
     assert ico.parent == env.paths.icons
     assert env.link_io.read(lnk).icon == IconLocation(str(ico), 0)
-    assert service.choices.get(_group(service, "Paint").key) == CHOICE
+    assert service.choices.get(group(service, "Paint").key) == CHOICE
     assert env.notified == 1
 
 
@@ -58,16 +54,16 @@ def test_dry_run_changes_nothing(env: FakeDesktop) -> None:
     lnk = env.make("Paint")
     before = lnk.read_bytes()
     service = env.service()
-    report = service.apply(_group(service, "Paint"), CHOICE, dry_run=True)
+    report = service.apply(group(service, "Paint"), CHOICE, dry_run=True)
     assert report.dry_run
     assert report.changed == [lnk]
     assert lnk.read_bytes() == before
     assert not any(env.paths.icons.iterdir())
     assert len(service.manifest) == 0
 
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     themed = lnk.read_bytes()
-    assert service.revert(_group(service, "Paint"), dry_run=True).changed == [lnk]
+    assert service.revert(group(service, "Paint"), dry_run=True).changed == [lnk]
     assert service.revert_all(dry_run=True).changed == [lnk]
     assert lnk.read_bytes() == themed
 
@@ -85,7 +81,7 @@ def test_backup_is_on_disk_before_the_shortcut_changes(
 
     monkeypatch.setattr(env.link_io, "set_icon", crash)
     with pytest.raises(RuntimeError, match="simulated crash"):
-        service.apply(_group(service, "Paint"), CHOICE)
+        service.apply(group(service, "Paint"), CHOICE)
 
     # A fresh process sees the recorded original and the untouched shortcut.
     monkeypatch.undo()
@@ -94,7 +90,7 @@ def test_backup_is_on_disk_before_the_shortcut_changes(
     assert entry is not None
     assert entry.original_icon == IconLocation(r"C:\Apps\paint.ico", 1)
     assert lnk.read_bytes() == original
-    restarted.revert(_group(restarted, "Paint"))
+    restarted.revert(group(restarted, "Paint"))
     assert lnk.read_bytes() == original
     assert len(restarted.manifest) == 0
 
@@ -110,11 +106,11 @@ def test_crash_after_shortcut_saved_still_reverts(
 
     monkeypatch.setattr(service.manifest, "mark_applied", crash)
     with pytest.raises(RuntimeError, match="simulated crash"):
-        service.apply(_group(service, "Paint"), CHOICE)
+        service.apply(group(service, "Paint"), CHOICE)
     monkeypatch.undo()
 
     restarted = env.service()
-    restarted.revert(_group(restarted, "Paint"))
+    restarted.revert(group(restarted, "Paint"))
     assert env.link_io.read(lnk).icon == IconLocation(r"C:\Apps\paint.ico", 1)
 
 
@@ -130,7 +126,7 @@ def test_shared_shortcuts_are_left_alone_unless_asked(env: FakeDesktop) -> None:
     lnk = env.make("Admin Tool", folder=env.common)
     before = lnk.read_bytes()
     service = env.service()
-    report = service.apply(_group(service, "Admin Tool"), CHOICE)
+    report = service.apply(group(service, "Admin Tool"), CHOICE)
     assert report.changed == []
     assert report.written == []  # nothing to theme, so no icon file either
     assert report.skipped == [(lnk, SHARED_REASON)]
@@ -142,13 +138,13 @@ def test_shared_shortcuts_change_with_permission_and_revert(env: FakeDesktop) ->
     mine = env.make("Paint")
     shared = env.make("Paint", folder=env.common, icon=r"C:\Apps\paint.ico")
     service = env.service()
-    report = service.apply(_group(service, "Paint"), CHOICE, include_shared=True)
+    report = service.apply(group(service, "Paint"), CHOICE, include_shared=True)
     assert sorted(report.changed) == sorted([mine, shared])
     assert len(env.elevations) == 1
     assert service.is_ours(env.link_io.read(shared).icon)
     assert service.manifest.get(shared) is not None  # the elevated copy's backup is picked up
 
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert env.link_io.read(shared).icon == IconLocation(r"C:\Apps\paint.ico", 1)
     assert len(env.elevations) == 2
     assert len(service.manifest) == 0
@@ -159,10 +155,10 @@ def test_a_reset_shared_shortcut_is_noticed_beside_a_styled_pin(env: FakeDesktop
     shared = env.make("Chrome", folder=env.common)
     pin = env.pin(shared)
     service = env.service()
-    service.apply(_group(service, "Chrome"), CHOICE, include_shared=True)
+    service.apply(group(service, "Chrome"), CHOICE, include_shared=True)
 
     env.link_io.create(shared, r"C:\Apps\Chrome.exe")  # Chrome's updater rewrites it
-    assert service.status(_group(service, "Chrome")) is Status.NEEDS_REAPPLY
+    assert service.status(group(service, "Chrome")) is Status.NEEDS_REAPPLY
     report = service.reapply(service.scan(), recreate_deleted=False)
     assert (shared, SHARED_REASON) in report.skipped
     assert service.is_ours(env.link_io.read(pin).icon)
@@ -171,7 +167,7 @@ def test_a_reset_shared_shortcut_is_noticed_beside_a_styled_pin(env: FakeDesktop
 
     service.reapply(service.scan(), include_shared=True)
     assert service.is_ours(env.link_io.read(shared).icon)
-    assert service.status(_group(service, "Chrome")) is Status.THEMED
+    assert service.status(group(service, "Chrome")) is Status.THEMED
     assert service.shared_resets(service.scan()) == []
 
 
@@ -179,8 +175,8 @@ def test_a_shared_shortcut_never_styled_doesnt_count_as_reset(env: FakeDesktop) 
     shared = env.make("Chrome", folder=env.common)
     env.pin(shared)
     service = env.service()
-    service.apply(_group(service, "Chrome"), CHOICE)  # shared ones skipped
-    assert service.status(_group(service, "Chrome")) is Status.THEMED
+    service.apply(group(service, "Chrome"), CHOICE)  # shared ones skipped
+    assert service.status(group(service, "Chrome")) is Status.THEMED
     assert service.needs_reapply(service.scan()) == []
 
 
@@ -201,7 +197,7 @@ def test_declined_permission_changes_nothing_shared(env: FakeDesktop) -> None:
     before = shared.read_bytes()
     env.decline_permission = True
     service = env.service()
-    report = service.apply(_group(service, "Paint"), CHOICE, include_shared=True)
+    report = service.apply(group(service, "Paint"), CHOICE, include_shared=True)
     assert report.changed == [mine]
     assert report.skipped == [(shared, DECLINED_REASON)]
     assert shared.read_bytes() == before
@@ -224,9 +220,9 @@ def test_our_icon_without_backup_is_taken_on(env: FakeDesktop) -> None:
     env.paths.ensure()
     env.link_io.set_icon(lnk, IconLocation(str(env.paths.icons / "stray.ico"), 0))
     service = env.service()
-    report = service.apply(_group(service, "Paint"), CHOICE)
+    report = service.apply(group(service, "Paint"), CHOICE)
     assert report.changed == [lnk]
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert env.link_io.read(lnk).icon == IconLocation()
     assert len(service.manifest) == 0
 
@@ -234,10 +230,10 @@ def test_our_icon_without_backup_is_taken_on(env: FakeDesktop) -> None:
 def test_renamed_styled_shortcut_reverts(env: FakeDesktop) -> None:
     lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     renamed = lnk.with_name("My Paint.lnk")
     lnk.rename(renamed)
-    report = service.revert(_group(service, "My Paint"))
+    report = service.revert(group(service, "My Paint"))
     assert renamed in report.changed
     assert env.link_io.read(renamed).icon == IconLocation(r"C:\Apps\paint.ico", 1)
     assert len(service.manifest) == 0
@@ -246,10 +242,10 @@ def test_renamed_styled_shortcut_reverts(env: FakeDesktop) -> None:
 def test_renamed_styled_shortcut_can_be_styled_again(env: FakeDesktop) -> None:
     lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     renamed = lnk.with_name("My Paint.lnk")
     lnk.rename(renamed)
-    report = service.apply(_group(service, "My Paint"), Choice("kawaii_pink", "pastel_recolor"))
+    report = service.apply(group(service, "My Paint"), Choice("kawaii_pink", "pastel_recolor"))
     assert report.changed == [renamed]
     service.revert_all()
     assert env.link_io.read(renamed).icon == IconLocation(r"C:\Apps\paint.ico", 1)
@@ -259,7 +255,7 @@ def test_copied_styled_shortcut_reverts_with_revert_all(env: FakeDesktop) -> Non
     """Pinning makes Windows copy the shortcut into the taskbar folder."""
     lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     pinned = env.pinned / "Paint.lnk"
     pinned.write_bytes(lnk.read_bytes())
     report = service.revert_all()
@@ -271,7 +267,7 @@ def test_copied_styled_shortcut_reverts_with_revert_all(env: FakeDesktop) -> Non
 def test_cleanup_keeps_an_icon_only_a_copy_uses(env: FakeDesktop) -> None:
     lnk = env.make("Paint")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     icon = Path(env.link_io.read(lnk).icon.path)
     lnk.rename(lnk.with_name("My Paint.lnk"))
     service.manifest.forget(lnk)
@@ -286,20 +282,20 @@ def test_reapply_after_app_update_rewrites_shortcut(
     lnk = env.make("Paint")
     service = env.service()
     choice = _cutout_of_own_image(service, tmp_path) if own_image else CHOICE
-    service.apply(_group(service, "Paint"), choice)
+    service.apply(group(service, "Paint"), choice)
 
     # The app's updater recreates its shortcut with a new icon.
     env.link_io.create(lnk, r"C:\Apps\Paint.exe", IconLocation(r"C:\Apps\paint-v2.ico", 0))
     updated = lnk.read_bytes()
-    assert service.status(_group(service, "Paint")) is Status.NEEDS_REAPPLY
+    assert service.status(group(service, "Paint")) is Status.NEEDS_REAPPLY
     assert [g.name for g in service.needs_reapply(service.scan())] == ["Paint"]
 
     report = service.reapply(service.scan())
     assert report.changed == [lnk]
-    assert service.status(_group(service, "Paint")) is Status.THEMED
+    assert service.status(group(service, "Paint")) is Status.THEMED
 
     # Reverting now restores the updater's version, not the pre-update one.
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert lnk.read_bytes() == updated
 
 
@@ -316,11 +312,11 @@ def test_style_follows_an_app_whose_update_moved_its_program(
     service = env.service()
     choice = _cutout_of_own_image(service, tmp_path) if own_image else CHOICE
     if choice.custom_image is not None:
-        service.set_own_image(_group(service, "Roblox Player"), choice.custom_image)
-    service.apply(_group(service, "Roblox Player"), choice)
+        service.set_own_image(group(service, "Roblox Player"), choice.custom_image)
+    service.apply(group(service, "Roblox Player"), choice)
 
     env.link_io.create(lnk, ROBLOX.format("765338e0"))
-    moved = _group(service, "Roblox Player")
+    moved = group(service, "Roblox Player")
     assert service.status(moved) is Status.NEEDS_REAPPLY
     assert service.own_image(moved) == choice.custom_image
     assert service.reapply(service.scan(), dry_run=True).changed == [lnk]
@@ -328,7 +324,7 @@ def test_style_follows_an_app_whose_update_moved_its_program(
     restarted = env.service()  # as at sign-in
     report = restarted.reapply(restarted.scan(), recreate_deleted=False)
     assert report.changed == [lnk]
-    styled = _group(restarted, "Roblox Player")
+    styled = group(restarted, "Roblox Player")
     assert restarted.status(styled) is Status.THEMED
     assert restarted.choices.items() == [(styled.key, choice)]
     assert restarted.own_image(styled) == choice.custom_image
@@ -338,9 +334,9 @@ def test_a_reused_shortcut_file_for_another_program_starts_fresh(env: FakeDeskto
     lnk = env.desktop / "Roblox Player.lnk"
     env.link_io.create(lnk, ROBLOX.format("4ea8e854"))
     service = env.service()
-    service.apply(_group(service, "Roblox Player"), CHOICE)
+    service.apply(group(service, "Roblox Player"), CHOICE)
     env.link_io.create(lnk, r"C:\Windows\notepad.exe")
-    assert service.status(_group(service, "Roblox Player")) is Status.ORIGINAL
+    assert service.status(group(service, "Roblox Player")) is Status.ORIGINAL
     assert service.needs_reapply(service.scan()) == []
 
 
@@ -348,11 +344,11 @@ def test_reverting_a_moved_app_forgets_its_style(env: FakeDesktop) -> None:
     lnk = env.desktop / "Roblox Player.lnk"
     env.link_io.create(lnk, ROBLOX.format("4ea8e854"))
     service = env.service()
-    service.apply(_group(service, "Roblox Player"), CHOICE)
+    service.apply(group(service, "Roblox Player"), CHOICE)
     env.link_io.create(lnk, ROBLOX.format("765338e0"))
-    service.revert(_group(service, "Roblox Player"))
+    service.revert(group(service, "Roblox Player"))
     assert service.choices.items() == []
-    assert service.status(_group(service, "Roblox Player")) is Status.ORIGINAL
+    assert service.status(group(service, "Roblox Player")) is Status.ORIGINAL
 
 
 def test_revert_leaves_shortcut_alone_once_something_else_replaced_our_icon(
@@ -360,10 +356,10 @@ def test_revert_leaves_shortcut_alone_once_something_else_replaced_our_icon(
 ) -> None:
     lnk = env.make("Paint")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     env.link_io.set_icon(lnk, IconLocation(r"C:\Elsewhere\custom.ico", 0))
     after_user_change = lnk.read_bytes()
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert lnk.read_bytes() == after_user_change
     assert len(service.manifest) == 0
 
@@ -371,10 +367,10 @@ def test_revert_leaves_shortcut_alone_once_something_else_replaced_our_icon(
 def test_revert_restores_icon_field_when_bytes_changed_but_icon_is_ours(env: FakeDesktop) -> None:
     lnk = env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     # Something rewrites the file without changing the icon (e.g. a target fix-up).
     lnk.write_text(lnk.read_text(encoding="utf-8") + " ", encoding="utf-8")
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert env.link_io.read(lnk).icon == IconLocation(r"C:\Apps\paint.ico", 1)
 
 
@@ -396,8 +392,8 @@ def test_revert_all_handles_deleted_shortcuts(env: FakeDesktop) -> None:
 def test_cleanup_removes_only_unused_icons(env: FakeDesktop) -> None:
     env.make("Paint")
     service = env.service()
-    first = service.apply(_group(service, "Paint"), CHOICE).written[0]
-    second = service.apply(_group(service, "Paint"), Choice("kawaii_pink", "tile_bow")).written[0]
+    first = service.apply(group(service, "Paint"), CHOICE).written[0]
+    second = service.apply(group(service, "Paint"), Choice("kawaii_pink", "tile_bow")).written[0]
     assert service.cleanup(dry_run=True).removed == [first]
     assert first.exists()
     assert service.cleanup().removed == [first]
@@ -408,7 +404,7 @@ def test_cleanup_removes_only_unused_icons(env: FakeDesktop) -> None:
 def test_skip_and_status(env: FakeDesktop) -> None:
     env.make("Paint")
     service = env.service()
-    target = _group(service, "Paint")
+    target = group(service, "Paint")
     assert service.status(target) is Status.ORIGINAL
     service.skip(target)
     assert service.status(target) is Status.SKIPPED
@@ -417,8 +413,8 @@ def test_skip_and_status(env: FakeDesktop) -> None:
 def test_original_icon_of_styled_item_is_the_saved_picture(env: FakeDesktop) -> None:
     env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
-    themed = _group(service, "Paint")
+    service.apply(group(service, "Paint"), CHOICE)
+    themed = group(service, "Paint")
     original = service.original_icon(themed)
     assert original.source == "saved original"
     assert original.image.size == (256, 256)
@@ -428,10 +424,10 @@ def test_original_icon_of_styled_item_is_the_saved_picture(env: FakeDesktop) -> 
 def test_without_a_saved_picture_the_backup_location_is_used(env: FakeDesktop) -> None:
     env.make("Paint", icon=r"C:\Apps\paint.ico")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     for saved in env.paths.original_icons.iterdir():
         saved.unlink()
-    original = service.original_icon(_group(service, "Paint"))
+    original = service.original_icon(group(service, "Paint"))
     assert original.source == r"C:\Apps\paint.ico"  # no "(shell allowed)": Windows would show ours
 
 
@@ -449,7 +445,7 @@ def test_custom_image_round_trip(env: FakeDesktop, tmp_path: Path) -> None:
     assert simple is full
 
     lnk = env.make("Paint")
-    service.apply(_group(service, "Paint"), choice)
+    service.apply(group(service, "Paint"), choice)
     assert service.is_ours(env.link_io.read(lnk).icon)
 
 
@@ -458,12 +454,12 @@ def test_own_image_is_remembered_until_its_file_is_gone(env: FakeDesktop, tmp_pa
     service = env.service()
     image = _cutout_of_own_image(service, tmp_path).custom_image
     assert image is not None
-    service.set_own_image(_group(service, "Paint"), image)
+    service.set_own_image(group(service, "Paint"), image)
     restarted = env.service()
-    assert restarted.own_image(_group(restarted, "Paint")) == image
+    assert restarted.own_image(group(restarted, "Paint")) == image
     (env.paths.custom_images / image).unlink()  # deleted by hand
-    assert restarted.own_image(_group(restarted, "Paint")) is None
-    assert restarted.choices.image(_group(restarted, "Paint").key) is None
+    assert restarted.own_image(group(restarted, "Paint")) is None
+    assert restarted.choices.image(group(restarted, "Paint").key) is None
 
 
 def _cutout_of_own_image(service: IconService, tmp_path: Path) -> Choice:
@@ -482,9 +478,9 @@ def test_styles_draw_from_the_users_image(env: FakeDesktop, tmp_path: Path) -> N
     cut, _ = service.styles.render(choice)  # no app icon needed: the image is the source
     assert cut.tobytes() != as_is.tobytes()
     lnk = env.make("Paint")
-    service.apply(_group(service, "Paint"), choice)
+    service.apply(group(service, "Paint"), choice)
     assert service.is_ours(env.link_io.read(lnk).icon)
-    assert service.choices.get(_group(service, "Paint").key) == choice
+    assert service.choices.get(group(service, "Paint").key) == choice
 
 
 def test_theme_choice_needs_the_original(env: FakeDesktop) -> None:
@@ -531,10 +527,10 @@ def test_revert_forgets_shortcuts_deleted_since_styling(env: FakeDesktop) -> Non
     gone = env.make("Paint", folder=folder)
     env.make("Other")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
-    service.apply(_group(service, "Other"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Other"), CHOICE)
     gone.unlink()
-    service.revert(_group(service, "Paint"))
+    service.revert(group(service, "Paint"))
     assert service.manifest.get(gone) is None
     assert service.manifest.get(kept) is None
     assert len(service.manifest) == 1  # Other's entry stays
@@ -575,8 +571,8 @@ def test_a_locked_shortcut_does_not_stop_the_batch(
     report = service.apply_many(service.scan(), lambda g: CHOICE)
     assert sorted(p.stem for p in report.changed) == ["Alpha", "Gamma"]
     assert [p.stem for p, _ in report.skipped] == ["Locked"]
-    assert service.status(_group(service, "Gamma")) is Status.THEMED
-    assert service.choices.get(_group(service, "Gamma").key) == CHOICE
+    assert service.status(group(service, "Gamma")) is Status.THEMED
+    assert service.choices.get(group(service, "Gamma").key) == CHOICE
 
 
 def test_revert_all_goes_on_past_a_locked_shortcut(
@@ -589,8 +585,8 @@ def test_revert_all_goes_on_past_a_locked_shortcut(
     _lock(env, monkeypatch, "Locked")
     report = service.revert_all()
     assert [p.stem for p, _ in report.skipped] == ["Locked"]
-    assert service.status(_group(service, "Alpha")) is Status.ORIGINAL
-    assert service.status(_group(service, "Gamma")) is Status.ORIGINAL
+    assert service.status(group(service, "Alpha")) is Status.ORIGINAL
+    assert service.status(group(service, "Gamma")) is Status.ORIGINAL
 
 
 def test_a_failing_permission_helper_skips_only_shared_items(
@@ -607,7 +603,7 @@ def test_a_failing_permission_helper_skips_only_shared_items(
     report = service.apply_many(service.scan(), lambda g: CHOICE, include_shared=True)
     assert [p.stem for p in report.changed] == ["Paint"]
     assert "permission helper failed" in report.skipped[0][1]
-    assert service.choices.get(_group(service, "Paint").key) == CHOICE
+    assert service.choices.get(group(service, "Paint").key) == CHOICE
 
 
 def test_changes_from_two_threads_take_turns(env: FakeDesktop) -> None:
@@ -659,17 +655,17 @@ def test_a_sideways_phone_photo_is_used_upright(env: FakeDesktop, tmp_path: Path
 def test_icons_drawn_by_an_older_version_can_be_redrawn(env: FakeDesktop) -> None:
     lnk = env.make("Paint")
     service = env.service()
-    service.apply(_group(service, "Paint"), CHOICE)
+    service.apply(group(service, "Paint"), CHOICE)
     first = env.link_io.read(lnk).icon
     assert service.drawn_before(service.scan()) == []
-    key = _group(service, "Paint").key
+    key = group(service, "Paint").key
     env.drawn_by_old_version(key)
     service.choices.reload()
     assert [g.name for g in service.drawn_before(service.scan())] == ["Paint"]
     report = service.redraw(service.scan())
     assert report.changed == [lnk]
     assert service.drawn_before(service.scan()) == []
-    assert service.status(_group(service, "Paint")) is Status.THEMED
+    assert service.status(group(service, "Paint")) is Status.THEMED
     assert f"-r{RENDER_VERSION}" in env.link_io.read(lnk).icon.path
     assert first.path == env.link_io.read(lnk).icon.path  # same version, same file name
 
@@ -697,5 +693,5 @@ def test_two_processes_take_turns_and_see_each_others_changes(env: FakeDesktop) 
     second.join(5)
     assert finished.is_set()
     # It read the backup again once it got the lock, so the new icon counts as in use.
-    assert sign_in.choices.get(_group(sign_in, "Paint").key) == CHOICE
+    assert sign_in.choices.get(group(sign_in, "Paint").key) == CHOICE
     assert len(sign_in.manifest) == 1
